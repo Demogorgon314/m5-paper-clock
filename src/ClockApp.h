@@ -96,6 +96,7 @@ private:
     void updateTimeCanvas(bool full_refresh);
     void updateInfoCanvas(bool full_refresh);
     void updateDateCanvas(bool full_refresh);
+    void updateBatteryCanvas(bool full_refresh);
     void updatePasswordFieldCanvas(m5epd_update_mode_t mode);
     void updatePasswordStatusCanvas(m5epd_update_mode_t mode);
     void updateSettingsStatusCanvas(m5epd_update_mode_t mode);
@@ -135,6 +136,7 @@ private:
     String wifiStatusLabel() const;
     String syncStatusLabel() const;
     String formatRtcTimestamp() const;
+    uint8_t batteryPercentage() const;
     String maskedPassword() const;
     String keyboardCharacterLabel(size_t index) const;
     std::vector<String> activeKeyboardLayout() const;
@@ -154,6 +156,7 @@ private:
     M5EPD_Canvas time_canvas_ {&M5.EPD};
     M5EPD_Canvas info_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
+    M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};
     M5EPD_Canvas password_status_canvas_ {&M5.EPD};
 

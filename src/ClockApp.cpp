@@ -30,6 +30,10 @@ constexpr int16_t kSettingsStatusX = 24;
 constexpr int16_t kSettingsStatusY = 86;
 constexpr int16_t kSettingsStatusW = 912;
 constexpr int16_t kSettingsStatusH = 132;
+constexpr int16_t kBatteryX = 896;
+constexpr int16_t kBatteryY = 24;
+constexpr int16_t kBatteryW = 48;
+constexpr int16_t kBatteryH = 32;
 constexpr int16_t kDateX = 704;
 constexpr int16_t kDateY = 500;
 constexpr int16_t kDateW = 232;
@@ -133,6 +137,7 @@ void ClockApp::createCanvases() {
     time_canvas_.createCanvas(760, 300);
     info_canvas_.createCanvas(760, 120);
     date_canvas_.createCanvas(kDateW, kDateH);
+    battery_canvas_.createCanvas(kBatteryW, kBatteryH);
     password_field_canvas_.createCanvas(kPasswordFieldW, kPasswordFieldH);
     password_status_canvas_.createCanvas(kPasswordStatusW, kPasswordStatusH);
 }
@@ -265,6 +270,7 @@ void ClockApp::renderClockPage(bool full_refresh) {
     M5.EPD.UpdateFull(UPDATE_MODE_GC16);
 
     updateTimeCanvas(true);
+    updateBatteryCanvas(true);
     updateInfoCanvas(true);
     updateDateCanvas(true);
     enter_clock_at_ms_ = millis();
@@ -290,6 +296,10 @@ void ClockApp::updateClockPage() {
         last_date_ = current_date;
         updateTimeCanvas(time_for_gc16);
         updateDateCanvas(time_for_gc16);
+    }
+
+    if (minute_changed || time_for_sensor || time_for_gc16) {
+        updateBatteryCanvas(time_for_gc16);
     }
 
     if (time_for_sensor) {
@@ -393,6 +403,41 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         partial_refresh_count_ = 0;
     } else {
         M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GL16);
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updateBatteryCanvas(bool full_refresh) {
+    const uint8_t battery = batteryPercentage();
+    const int16_t body_x = 2;
+    const int16_t body_y = 6;
+    const int16_t body_w = 38;
+    const int16_t body_h = 20;
+    const int16_t cap_x = body_x + body_w;
+    const int16_t cap_y = 11;
+    const int16_t cap_w = 4;
+    const int16_t cap_h = 10;
+    const int16_t inner_x = body_x + 3;
+    const int16_t inner_y = body_y + 3;
+    const int16_t inner_w = body_w - 6;
+    const int16_t inner_h = body_h - 6;
+    const int16_t fill_w = (battery * inner_w) / 100;
+
+    battery_canvas_.fillCanvas(kWhite);
+    battery_canvas_.drawRoundRect(body_x, body_y, body_w, body_h, 3, kText);
+    battery_canvas_.fillRect(cap_x, cap_y, cap_w, cap_h, kText);
+    if (fill_w > 0) {
+        battery_canvas_.fillRect(inner_x, inner_y, fill_w, inner_h, kText);
+    }
+    battery_canvas_.pushCanvas(kBatteryX, kBatteryY, UPDATE_MODE_NONE);
+
+    if (full_refresh) {
+        M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
+                          UPDATE_MODE_GC16);
+        partial_refresh_count_ = 0;
+    } else {
+        M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
+                          UPDATE_MODE_GL16);
         ++partial_refresh_count_;
     }
 }
@@ -1001,6 +1046,25 @@ String ClockApp::formatRtcTimestamp() const {
     M5.RTC.getTime(&time);
     M5.RTC.getDate(&date);
     return formatDateTime(date, time);
+}
+
+uint8_t ClockApp::batteryPercentage() const {
+    uint32_t voltage = M5.getBatteryVoltage();
+    if (voltage < 3300) {
+        voltage = 3300;
+    } else if (voltage > 4350) {
+        voltage = 4350;
+    }
+
+    float battery = static_cast<float>(voltage - 3300) /
+                    static_cast<float>(4350 - 3300);
+    if (battery <= 0.01f) {
+        battery = 0.01f;
+    }
+    if (battery > 1.0f) {
+        battery = 1.0f;
+    }
+    return static_cast<uint8_t>(battery * 100.0f);
 }
 
 String ClockApp::maskedPassword() const {
