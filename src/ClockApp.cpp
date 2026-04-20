@@ -1,0 +1,1052 @@
+#include "ClockApp.h"
+
+#include <WiFi.h>
+
+#include "logic/UiLogic.h"
+
+namespace {
+
+constexpr uint8_t kWhite = 0;
+constexpr uint8_t kBorder = 11;
+constexpr uint8_t kText = 15;
+constexpr uint8_t kMutedText = 8;
+constexpr uint8_t kPrimaryFill = 2;
+constexpr uint8_t kPressedFill = 4;
+constexpr uint8_t kErrorText = 12;
+constexpr uint8_t kAccentText = 13;
+constexpr uint32_t kClockSensorIntervalMs = 15000;
+constexpr uint32_t kClockRefreshIntervalMs = 30000;
+constexpr uint32_t kCenterButtonLongPressMs = 1500;
+constexpr uint16_t kHeaderHeight = 60;
+constexpr int16_t kPasswordFieldX = 28;
+constexpr int16_t kPasswordFieldY = 156;
+constexpr int16_t kPasswordFieldW = 904;
+constexpr int16_t kPasswordFieldH = 58;
+constexpr int16_t kPasswordStatusX = 28;
+constexpr int16_t kPasswordStatusY = 500;
+constexpr int16_t kPasswordStatusW = 904;
+constexpr int16_t kPasswordStatusH = 28;
+constexpr int16_t kSettingsStatusX = 24;
+constexpr int16_t kSettingsStatusY = 86;
+constexpr int16_t kSettingsStatusW = 912;
+constexpr int16_t kSettingsStatusH = 132;
+constexpr int16_t kDateX = 704;
+constexpr int16_t kDateY = 500;
+constexpr int16_t kDateW = 232;
+constexpr int16_t kDateH = 28;
+
+String formatTwoDigits(int value) {
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02d", value);
+    return String(buf);
+}
+
+String formatDateTime(const rtc_date_t& date, const rtc_time_t& time) {
+    if (date.year < 2020) {
+        return String("--/--/-- --:--");
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d", date.year, date.mon,
+             date.day, time.hour, time.min);
+    return String(buf);
+}
+
+String formatTemperature(float value) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f", value);
+    return String(buf);
+}
+
+String formatHumidity(float value) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.0f", value);
+    return String(buf);
+}
+
+String formatDateOnly(const rtc_date_t& date) {
+    if (date.year < 2020) {
+        return String("");
+    }
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d", date.year, date.mon, date.day);
+    return String(buf);
+}
+
+}  // namespace
+
+void ClockApp::begin() {
+    initializeHardware();
+    createCanvases();
+    store_.begin();
+    settings_ = store_.load();
+    settings_.timezone = logic::ClampTimeZone(settings_.timezone);
+    M5.RTC.getTime(&last_time_);
+    M5.RTC.getDate(&last_date_);
+    renderPage(UPDATE_MODE_GC16, true);
+}
+
+void ClockApp::loop() {
+    M5.update();
+    handleHardwareButtons();
+    handleTouch();
+
+    if (current_page_ == PageId::Settings) {
+        autoConnectIfNeeded();
+    }
+
+    if (current_page_ == PageId::Clock) {
+        updateClockPage();
+    }
+}
+
+void ClockApp::initializeHardware() {
+    Serial.begin(115200);
+    delay(50);
+
+    pinMode(M5EPD_MAIN_PWR_PIN, OUTPUT);
+    pinMode(M5EPD_EXT_PWR_EN_PIN, OUTPUT);
+    pinMode(M5EPD_EPD_PWR_EN_PIN, OUTPUT);
+    pinMode(M5EPD_KEY_RIGHT_PIN, INPUT);
+    pinMode(M5EPD_KEY_PUSH_PIN, INPUT);
+    pinMode(M5EPD_KEY_LEFT_PIN, INPUT);
+
+    M5.enableMainPower();
+    M5.enableEXTPower();
+    M5.enableEPDPower();
+    delay(1000);
+
+    M5.EPD.begin(M5EPD_SCK_PIN, M5EPD_MOSI_PIN, M5EPD_MISO_PIN, M5EPD_CS_PIN,
+                 M5EPD_BUSY_PIN);
+    M5.EPD.Clear(true);
+    M5.EPD.SetRotation(M5EPD_Driver::ROTATE_0);
+    M5.TP.SetRotation(GT911::ROTATE_0);
+    M5.TP.begin(21, 22, 36);
+    M5.BatteryADCBegin();
+    sensor_.begin();
+    M5.RTC.begin();
+}
+
+void ClockApp::createCanvases() {
+    page_canvas_.createCanvas(kScreenWidth, kScreenHeight);
+    time_canvas_.createCanvas(760, 300);
+    info_canvas_.createCanvas(760, 120);
+    date_canvas_.createCanvas(kDateW, kDateH);
+    password_field_canvas_.createCanvas(kPasswordFieldW, kPasswordFieldH);
+    password_status_canvas_.createCanvas(kPasswordStatusW, kPasswordStatusH);
+}
+
+void ClockApp::renderPage(m5epd_update_mode_t mode, bool force) {
+    rebuildButtons();
+    switch (current_page_) {
+        case PageId::Settings:
+            renderSettingsPage(mode);
+            break;
+        case PageId::WifiScan:
+            renderWifiScanPage(mode);
+            break;
+        case PageId::Password:
+            renderPasswordPage(mode);
+            break;
+        case PageId::Clock:
+            renderClockPage(force || mode == UPDATE_MODE_GC16);
+            break;
+    }
+}
+
+void ClockApp::renderSettingsPage(m5epd_update_mode_t mode) {
+    page_canvas_.fillCanvas(kWhite);
+    page_canvas_.setTextColor(kText);
+    drawHeader("Clock Setup", false);
+
+    drawSettingsStatusCard(page_canvas_, kSettingsStatusX, kSettingsStatusY);
+
+    const Rect wifi_card {24, 238, 430, 122};
+    const Rect tz_card {482, 238, 454, 122};
+    drawCard(wifi_card);
+    drawCard(tz_card);
+
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString("Saved Wi-Fi", wifi_card.x + 18, wifi_card.y + 16);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.drawString(settings_.ssid.isEmpty() ? "Not configured"
+                                                     : settings_.ssid,
+                            wifi_card.x + 18, wifi_card.y + 52);
+
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString("Timezone", tz_card.x + 18, tz_card.y + 16);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.drawString(timezoneLabel(), tz_card.x + 18, tz_card.y + 52);
+
+    for (const Button& button : buttons_) {
+        drawButton(button);
+    }
+
+    page_canvas_.setTextDatum(TR_DATUM);
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.setTextSize(2);
+    page_canvas_.drawString("M5Paper horizontal ink clock", kScreenWidth - 28,
+                            kScreenHeight - 22);
+
+    page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
+    M5.EPD.UpdateFull(mode);
+}
+
+void ClockApp::renderWifiScanPage(m5epd_update_mode_t mode) {
+    page_canvas_.fillCanvas(kWhite);
+    page_canvas_.setTextColor(kText);
+    drawHeader("Choose Wi-Fi", true);
+
+    page_canvas_.setTextDatum(TL_DATUM);
+    page_canvas_.setTextSize(2);
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString("Tap a network and then enter its password.", 28,
+                            82);
+
+    const int visible_count =
+        logic::VisibleItemCount(static_cast<int>(wifi_networks_.size()),
+                                wifi_page_index_, kWifiPageSize);
+    for (int index = 0; index < visible_count; ++index) {
+        const int network_index =
+            logic::PageStart(wifi_page_index_, kWifiPageSize) + index;
+        drawWifiRow(buttons_[index], wifi_networks_[network_index]);
+    }
+
+    for (size_t i = static_cast<size_t>(visible_count); i < buttons_.size();
+         ++i) {
+        drawButton(buttons_[i]);
+    }
+
+    page_canvas_.setTextDatum(TR_DATUM);
+    page_canvas_.setTextColor(kMutedText);
+    const int page_count =
+        logic::PageCount(static_cast<int>(wifi_networks_.size()), kWifiPageSize);
+    page_canvas_.drawString("Page " + String(wifi_page_index_ + 1) + "/" +
+                                String(page_count),
+                            kScreenWidth - 28, 82);
+
+    page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
+    M5.EPD.UpdateFull(mode);
+}
+
+void ClockApp::renderPasswordPage(m5epd_update_mode_t mode) {
+    page_canvas_.fillCanvas(kWhite);
+    page_canvas_.setTextColor(kText);
+    drawHeader("Enter Password", true);
+
+    page_canvas_.setTextDatum(TL_DATUM);
+    page_canvas_.setTextSize(2);
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString("SSID", 28, 82);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.drawString(selected_ssid_, 28, 112);
+
+    drawPasswordField(Rect(kPasswordFieldX, kPasswordFieldY, kPasswordFieldW,
+                           kPasswordFieldH));
+
+    for (const Button& button : buttons_) {
+        drawButton(button);
+    }
+
+    if (!status_message_.isEmpty()) {
+        page_canvas_.setTextColor(status_error_ ? kErrorText : kAccentText);
+        page_canvas_.drawString(status_message_, kPasswordStatusX,
+                                kPasswordStatusY + (kPasswordStatusH / 2));
+    }
+
+    page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
+    M5.EPD.UpdateFull(mode);
+}
+
+void ClockApp::renderClockPage(bool full_refresh) {
+    page_canvas_.fillCanvas(kWhite);
+    page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
+    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+
+    updateTimeCanvas(true);
+    updateInfoCanvas(true);
+    updateDateCanvas(true);
+    enter_clock_at_ms_ = millis();
+    partial_refresh_count_ = 0;
+}
+
+void ClockApp::updateClockPage() {
+    rtc_time_t current_time;
+    rtc_date_t current_date;
+    M5.RTC.getTime(&current_time);
+    M5.RTC.getDate(&current_date);
+
+    const bool minute_changed = current_time.min != last_time_.min ||
+                                current_time.hour != last_time_.hour;
+    const bool time_for_sensor =
+        millis() - last_sensor_read_ms_ > kClockSensorIntervalMs;
+    const bool time_for_gc16 =
+        millis() - enter_clock_at_ms_ > kClockRefreshIntervalMs &&
+        partial_refresh_count_ >= 30;
+
+    if (minute_changed || time_for_gc16) {
+        last_time_ = current_time;
+        last_date_ = current_date;
+        updateTimeCanvas(time_for_gc16);
+        updateDateCanvas(time_for_gc16);
+    }
+
+    if (time_for_sensor) {
+        updateInfoCanvas(time_for_gc16);
+    }
+}
+
+void ClockApp::updateTimeCanvas(bool full_refresh) {
+    rtc_time_t current_time;
+    M5.RTC.getTime(&current_time);
+
+    time_canvas_.fillCanvas(kWhite);
+    const String time_text =
+        formatTwoDigits(current_time.hour) + ":" + formatTwoDigits(current_time.min);
+    const int16_t digit_width = 150;
+    const int16_t digit_height = 280;
+    const int16_t gap = 24;
+    const int16_t total_width =
+        renderer_.measureText(time_text, digit_width, gap);
+    const int16_t start_x = (time_canvas_.width() - total_width) / 2;
+    renderer_.drawText(time_canvas_, start_x, 10, time_text, digit_width,
+                       digit_height, gap, kText, kMutedText);
+
+    time_canvas_.pushCanvas(100, 24, UPDATE_MODE_NONE);
+    if (full_refresh) {
+        M5.EPD.UpdateArea(100, 24, time_canvas_.width(), time_canvas_.height(),
+                          UPDATE_MODE_GC16);
+        partial_refresh_count_ = 0;
+    } else {
+        M5.EPD.UpdateArea(100, 24, time_canvas_.width(), time_canvas_.height(),
+                          UPDATE_MODE_GL16);
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updateInfoCanvas(bool full_refresh) {
+    last_environment_ = sensor_.read();
+    last_sensor_read_ms_ = millis();
+
+    info_canvas_.fillCanvas(kWhite);
+    info_canvas_.setTextDatum(TL_DATUM);
+
+    String humidity_value = "--";
+    String temperature_value = "--.-";
+    if (last_environment_.valid) {
+        humidity_value = formatHumidity(last_environment_.humidity);
+        temperature_value = formatTemperature(last_environment_.temperature);
+    }
+
+    const int16_t small_digit_width = 54;
+    const int16_t small_digit_height = 96;
+    const int16_t small_gap = 8;
+
+    const int16_t humidity_x = 40;
+    renderer_.drawText(info_canvas_, humidity_x, 6, humidity_value,
+                       small_digit_width, small_digit_height, small_gap, kText,
+                       kMutedText);
+    info_canvas_.setTextColor(kText);
+    info_canvas_.setTextSize(3);
+    info_canvas_.drawString("%", humidity_x + 150, 54);
+
+    const int16_t temperature_x = 280;
+    renderer_.drawText(info_canvas_, temperature_x, 6, temperature_value,
+                       small_digit_width, small_digit_height, small_gap, kText,
+                       kMutedText);
+    info_canvas_.setTextColor(kText);
+    info_canvas_.drawString(" C", temperature_x + 215, 54);
+    info_canvas_.setTextSize(2);
+    info_canvas_.drawString("o", temperature_x + 200, 44);
+
+    info_canvas_.setTextDatum(CC_DATUM);
+    info_canvas_.setTextColor(kText);
+    info_canvas_.setTextSize(5);
+    info_canvas_.drawString("(^_^)", 640, 58);
+
+    info_canvas_.pushCanvas(100, 378, UPDATE_MODE_NONE);
+    if (full_refresh) {
+        M5.EPD.UpdateArea(100, 378, info_canvas_.width(), info_canvas_.height(),
+                          UPDATE_MODE_GC16);
+        partial_refresh_count_ = 0;
+    } else {
+        M5.EPD.UpdateArea(100, 378, info_canvas_.width(), info_canvas_.height(),
+                          UPDATE_MODE_GL16);
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updateDateCanvas(bool full_refresh) {
+    rtc_date_t current_date;
+    M5.RTC.getDate(&current_date);
+
+    date_canvas_.fillCanvas(kWhite);
+    date_canvas_.setTextDatum(TR_DATUM);
+    date_canvas_.setTextColor(kMutedText);
+    date_canvas_.setTextSize(2);
+    date_canvas_.drawString(formatDateOnly(current_date), kDateW - 8, kDateH / 2);
+    date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
+
+    if (full_refresh) {
+        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
+        partial_refresh_count_ = 0;
+    } else {
+        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GL16);
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updatePasswordFieldCanvas(m5epd_update_mode_t mode) {
+    password_field_canvas_.fillCanvas(kWhite);
+    password_field_canvas_.drawRoundRect(0, 0, kPasswordFieldW, kPasswordFieldH,
+                                         6, kBorder);
+    password_field_canvas_.setTextDatum(CL_DATUM);
+    password_field_canvas_.setTextColor(kText);
+    password_field_canvas_.setTextSize(2);
+    password_field_canvas_.drawString(maskedPassword(), 16, kPasswordFieldH / 2);
+    password_field_canvas_.pushCanvas(kPasswordFieldX, kPasswordFieldY,
+                                      UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kPasswordFieldX, kPasswordFieldY, kPasswordFieldW,
+                      kPasswordFieldH, mode);
+}
+
+void ClockApp::updatePasswordStatusCanvas(m5epd_update_mode_t mode) {
+    password_status_canvas_.fillCanvas(kWhite);
+    password_status_canvas_.setTextDatum(CL_DATUM);
+    password_status_canvas_.setTextSize(2);
+    password_status_canvas_.setTextColor(status_error_ ? kErrorText : kAccentText);
+    password_status_canvas_.drawString(status_message_, 0, kPasswordStatusH / 2);
+    password_status_canvas_.pushCanvas(kPasswordStatusX, kPasswordStatusY,
+                                       UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kPasswordStatusX, kPasswordStatusY, kPasswordStatusW,
+                      kPasswordStatusH, mode);
+}
+
+void ClockApp::updateSettingsStatusCanvas(m5epd_update_mode_t mode) {
+    M5EPD_Canvas settings_status_canvas(&M5.EPD);
+    settings_status_canvas.createCanvas(kSettingsStatusW, kSettingsStatusH);
+    settings_status_canvas.fillCanvas(kWhite);
+    drawSettingsStatusCard(settings_status_canvas, 0, 0);
+    settings_status_canvas.pushCanvas(kSettingsStatusX, kSettingsStatusY,
+                                      UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kSettingsStatusX, kSettingsStatusY, kSettingsStatusW,
+                      kSettingsStatusH, mode);
+}
+
+void ClockApp::drawHeader(const String& title, bool show_back) {
+    (void)show_back;
+    page_canvas_.drawFastHLine(0, kHeaderHeight - 1, kScreenWidth, kBorder);
+    page_canvas_.setTextDatum(CC_DATUM);
+    page_canvas_.setTextSize(4);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.drawString(title, kScreenWidth / 2, 26);
+}
+
+void ClockApp::drawButton(const Button& button, bool pressed) {
+    drawButton(page_canvas_, button, pressed);
+}
+
+void ClockApp::drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed) {
+    if (!button.visible) {
+        return;
+    }
+
+    const uint8_t fill = pressed ? kPressedFill :
+                         (button.primary ? kPrimaryFill : kWhite);
+    const uint8_t border = button.enabled ? kBorder : 12;
+    canvas.fillRoundRect(button.bounds.x, button.bounds.y, button.bounds.w,
+                         button.bounds.h, 6, fill);
+    canvas.drawRoundRect(button.bounds.x, button.bounds.y, button.bounds.w,
+                         button.bounds.h, 6, border);
+    canvas.setTextDatum(CC_DATUM);
+    canvas.setTextColor(button.enabled ? kText : kMutedText);
+    canvas.setTextSize(2);
+    canvas.drawString(button.label, button.bounds.x + button.bounds.w / 2,
+                      button.bounds.y + button.bounds.h / 2);
+}
+
+void ClockApp::drawCard(const Rect& rect, uint8_t fill, uint8_t border) {
+    page_canvas_.fillRoundRect(rect.x, rect.y, rect.w, rect.h, 6, fill);
+    page_canvas_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6, border);
+}
+
+void ClockApp::drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
+                                      int16_t origin_y) {
+    canvas.fillRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
+                         kWhite);
+    canvas.drawRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
+                         kBorder);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.setTextSize(2);
+    canvas.setTextColor(kText);
+    canvas.drawString("Network", origin_x + 18, origin_y + 18);
+    canvas.drawString("RTC", origin_x + 18, origin_y + 52);
+    canvas.drawString("Sync", origin_x + 18, origin_y + 86);
+    canvas.setTextColor(kAccentText);
+    canvas.drawString(wifiStatusLabel(), origin_x + 160, origin_y + 18);
+    canvas.drawString(formatRtcTimestamp(), origin_x + 160, origin_y + 52);
+    canvas.setTextColor(status_error_ ? kErrorText : kAccentText);
+    canvas.drawString(syncStatusLabel(), origin_x + 160, origin_y + 86);
+}
+
+void ClockApp::drawStatusLine(const String& label, const String& value,
+                              int16_t x, int16_t y) {
+    page_canvas_.setTextDatum(TL_DATUM);
+    page_canvas_.setTextSize(2);
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString(label, x, y);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.drawString(value, x + 140, y);
+}
+
+void ClockApp::drawWifiRow(const Button& button, const WiFiNetwork& network) {
+    drawButton(button);
+
+    String label = network.ssid;
+    if (label.length() > 28) {
+        label = label.substring(0, 28) + "...";
+    }
+
+    page_canvas_.setTextDatum(CL_DATUM);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.setTextSize(2);
+    page_canvas_.drawString(label, button.bounds.x + 18,
+                            button.bounds.y + button.bounds.h / 2);
+
+    page_canvas_.setTextDatum(CR_DATUM);
+    page_canvas_.setTextColor(kMutedText);
+    page_canvas_.drawString(String(network.rssi) + " dBm",
+                            button.bounds.x + button.bounds.w - 18,
+                            button.bounds.y + button.bounds.h / 2);
+}
+
+void ClockApp::drawPasswordField(const Rect& rect) {
+    page_canvas_.fillRoundRect(rect.x, rect.y, rect.w, rect.h, 6, kWhite);
+    page_canvas_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6, kBorder);
+    page_canvas_.setTextDatum(CL_DATUM);
+    page_canvas_.setTextColor(kText);
+    page_canvas_.setTextSize(2);
+    page_canvas_.drawString(maskedPassword(), rect.x + 16, rect.y + rect.h / 2);
+}
+
+void ClockApp::updateButtonCanvas(const Button& button, m5epd_update_mode_t mode,
+                                  bool pressed) {
+    M5EPD_Canvas button_canvas(&M5.EPD);
+    button_canvas.createCanvas(button.bounds.w, button.bounds.h);
+    button_canvas.fillCanvas(kWhite);
+    Button local_button = button;
+    local_button.bounds.x = 0;
+    local_button.bounds.y = 0;
+    drawButton(button_canvas, local_button, pressed);
+    button_canvas.pushCanvas(button.bounds.x, button.bounds.y, UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(button.bounds.x, button.bounds.y, button.bounds.w,
+                      button.bounds.h, mode);
+}
+
+void ClockApp::rebuildButtons() {
+    buttons_.clear();
+    switch (current_page_) {
+        case PageId::Settings:
+            rebuildSettingsButtons();
+            break;
+        case PageId::WifiScan:
+            rebuildWifiButtons();
+            break;
+        case PageId::Password:
+            rebuildPasswordButtons();
+            break;
+        case PageId::Clock:
+            rebuildClockButtons();
+            break;
+    }
+}
+
+void ClockApp::rebuildSettingsButtons() {
+    buttons_.push_back(
+        Button(kButtonWifi, Rect(24, 378, 276, 72), "Choose Wi-Fi", true, true,
+               false));
+    buttons_.push_back(Button(kButtonTimezoneMinus, Rect(482, 378, 72, 72), "-",
+                              true, true, false));
+    buttons_.push_back(Button(kButtonTimezonePlus, Rect(610, 378, 72, 72), "+",
+                              true, true, false));
+    buttons_.push_back(Button(kButtonSyncTime, Rect(706, 378, 230, 72),
+                              "Sync Time", true, true, false));
+    buttons_.push_back(Button(kButtonEnterClock, Rect(24, 460, 912, 56),
+                              "Enter Clock", true, true, true));
+}
+
+void ClockApp::rebuildWifiButtons() {
+    const int visible_count =
+        logic::VisibleItemCount(static_cast<int>(wifi_networks_.size()),
+                                wifi_page_index_, kWifiPageSize);
+    for (int index = 0; index < visible_count; ++index) {
+        buttons_.push_back(Button(
+            kButtonNetworkBase + index,
+            Rect(24, static_cast<int16_t>(118 + index * 56), 912, 48), "", true,
+            true, false));
+    }
+
+    buttons_.push_back(
+        Button(kButtonBack, Rect(24, 470, 140, 44), "Back", true, true, false));
+    buttons_.push_back(Button(kButtonPrevPage, Rect(590, 470, 100, 44), "Prev",
+                              true, wifi_page_index_ > 0, false));
+    buttons_.push_back(Button(kButtonRescan, Rect(704, 470, 110, 44), "Rescan",
+                              true, true, false));
+    buttons_.push_back(Button(
+        kButtonNextPage, Rect(828, 470, 108, 44), "Next", true,
+        wifi_page_index_ + 1 <
+            logic::PageCount(static_cast<int>(wifi_networks_.size()),
+                             kWifiPageSize),
+        false));
+}
+
+void ClockApp::rebuildPasswordButtons() {
+    buttons_.push_back(
+        Button(kButtonBack, Rect(24, 18, 100, 32), "Back", true, true, false));
+
+    const std::vector<String> keys = activeKeyboardLayout();
+    const int16_t key_w = 70;
+    const int16_t key_h = 46;
+    const int16_t gap = 8;
+
+    for (size_t i = 0; i < 10; ++i) {
+        buttons_.push_back(Button(
+            kButtonKeyboardBase + static_cast<int>(i),
+            Rect(94 + static_cast<int16_t>(i) * (key_w + gap), 246, key_w, key_h),
+            keys[i], true, true, false));
+    }
+    for (size_t i = 0; i < 9; ++i) {
+        buttons_.push_back(Button(
+            kButtonKeyboardBase + 10 + static_cast<int>(i),
+            Rect(133 + static_cast<int16_t>(i) * (key_w + gap), 300, key_w, key_h),
+            keys[10 + i], true, true, false));
+    }
+
+    buttons_.push_back(
+        Button(kButtonShift, Rect(108, 354, 96, key_h), "Shift", true, true, false));
+    for (size_t i = 0; i < 7; ++i) {
+        buttons_.push_back(Button(
+            kButtonKeyboardBase + 19 + static_cast<int>(i),
+            Rect(220 + static_cast<int16_t>(i) * (key_w + gap), 354, key_w, key_h),
+            keys[19 + i], true, true, false));
+    }
+    buttons_.push_back(Button(kButtonBackspace, Rect(794, 354, 96, key_h), "Back",
+                              true, true, false));
+
+    buttons_.push_back(Button(kButtonKeyboardMode, Rect(108, 408, 96, key_h),
+                              keyboard_symbols_ ? "Abc" : "123", true, true,
+                              false));
+    buttons_.push_back(
+        Button(kButtonSpace, Rect(220, 408, 252, key_h), "Space", true, true, false));
+    buttons_.push_back(
+        Button(kButtonClear, Rect(488, 408, 112, key_h), "Clear", true, true, false));
+    buttons_.push_back(Button(kButtonPasswordVisibility,
+                              Rect(616, 408, 112, key_h),
+                              password_visible_ ? "Hide" : "Show", true, true,
+                              false));
+    buttons_.push_back(Button(kButtonConnect, Rect(744, 408, 162, key_h),
+                              "Connect", true, true, true));
+}
+
+void ClockApp::rebuildClockButtons() {
+}
+
+void ClockApp::handleTouch() {
+    if (!M5.TP.available()) {
+        return;
+    }
+
+    M5.TP.update();
+    const bool finger_up = M5.TP.isFingerUp();
+    const int16_t x = M5.TP.readFingerX(0);
+    const int16_t y = M5.TP.readFingerY(0);
+
+    if (!finger_up) {
+        touch_down_ = true;
+        pressed_button_id_ = buttonIdAt(x, y);
+    } else if (touch_down_) {
+        const int released_button_id = buttonIdAt(x, y);
+        if (pressed_button_id_ >= 0 && released_button_id == pressed_button_id_) {
+            handleButtonPress(released_button_id);
+        }
+        pressed_button_id_ = -1;
+        touch_down_ = false;
+    }
+
+    M5.TP.flush();
+}
+
+void ClockApp::handleHardwareButtons() {
+    if (M5.BtnP.isPressed() && !center_button_long_press_handled_ &&
+        M5.BtnP.pressedFor(kCenterButtonLongPressMs)) {
+        center_button_long_press_handled_ = true;
+        if (current_page_ != PageId::Settings) {
+            switchPage(PageId::Settings);
+        }
+        return;
+    }
+
+    if (M5.BtnP.wasReleased()) {
+        if (!center_button_long_press_handled_) {
+            refreshCurrentPage();
+        }
+        center_button_long_press_handled_ = false;
+    }
+}
+
+void ClockApp::handleButtonPress(int button_id) {
+    if (current_page_ == PageId::Settings) {
+        switch (button_id) {
+            case kButtonWifi:
+                switchPage(PageId::WifiScan);
+                scanWiFi();
+                break;
+            case kButtonTimezoneMinus:
+                settings_.timezone = logic::ClampTimeZone(settings_.timezone - 1);
+                store_.saveTimezone(settings_.timezone);
+                renderPage(UPDATE_MODE_GL16);
+                break;
+            case kButtonTimezonePlus:
+                settings_.timezone = logic::ClampTimeZone(settings_.timezone + 1);
+                store_.saveTimezone(settings_.timezone);
+                renderPage(UPDATE_MODE_GL16);
+                break;
+            case kButtonSyncTime:
+                trySyncTime(true);
+                break;
+            case kButtonEnterClock:
+                switchPage(PageId::Clock);
+                break;
+        }
+        return;
+    }
+
+    if (current_page_ == PageId::WifiScan) {
+        if (button_id == kButtonBack) {
+            switchPage(PageId::Settings);
+            return;
+        }
+        if (button_id == kButtonRescan) {
+            scanWiFi();
+            return;
+        }
+        if (button_id == kButtonPrevPage && wifi_page_index_ > 0) {
+            --wifi_page_index_;
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        }
+        if (button_id == kButtonNextPage &&
+            wifi_page_index_ + 1 <
+                logic::PageCount(static_cast<int>(wifi_networks_.size()),
+                                 kWifiPageSize)) {
+            ++wifi_page_index_;
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        }
+        if (button_id >= kButtonNetworkBase &&
+            button_id < kButtonNetworkBase + kWifiPageSize) {
+            const int index = logic::PageStart(wifi_page_index_, kWifiPageSize) +
+                              (button_id - kButtonNetworkBase);
+            if (index >= 0 && index < static_cast<int>(wifi_networks_.size())) {
+                selected_ssid_ = wifi_networks_[index].ssid;
+                password_input_.clear();
+                password_visible_ = false;
+                status_message_ = "Ready to connect";
+                status_error_ = false;
+                switchPage(PageId::Password);
+            }
+        }
+        return;
+    }
+
+    if (current_page_ == PageId::Password) {
+        if (button_id == kButtonBack) {
+            switchPage(PageId::WifiScan);
+            return;
+        }
+        if (button_id == kButtonShift) {
+            keyboard_upper_ = !keyboard_upper_;
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        }
+        if (button_id == kButtonKeyboardMode) {
+            keyboard_symbols_ = !keyboard_symbols_;
+            keyboard_upper_ = false;
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        }
+        if (button_id == kButtonBackspace) {
+            if (!password_input_.isEmpty()) {
+                password_input_.remove(password_input_.length() - 1);
+                updatePasswordFieldCanvas(UPDATE_MODE_GL16);
+            }
+            return;
+        }
+        if (button_id == kButtonSpace) {
+            appendPasswordChar(" ");
+            return;
+        }
+        if (button_id == kButtonClear) {
+            password_input_.clear();
+            updatePasswordFieldCanvas(UPDATE_MODE_GL16);
+            return;
+        }
+        if (button_id == kButtonPasswordVisibility) {
+            password_visible_ = !password_visible_;
+            updatePasswordFieldCanvas(UPDATE_MODE_GL16);
+            rebuildPasswordButtons();
+            for (const Button& button : buttons_) {
+                if (button.id == kButtonPasswordVisibility) {
+                    updateButtonCanvas(button, UPDATE_MODE_GL16);
+                    break;
+                }
+            }
+            return;
+        }
+        if (button_id == kButtonConnect) {
+            connectSelectedNetwork();
+            return;
+        }
+        if (button_id >= kButtonKeyboardBase &&
+            button_id < kButtonKeyboardBase + 26) {
+            appendPasswordChar(keyboardCharacterLabel(
+                static_cast<size_t>(button_id - kButtonKeyboardBase)));
+        }
+        return;
+    }
+}
+
+int ClockApp::buttonIdAt(int16_t x, int16_t y) const {
+    for (const Button& button : buttons_) {
+        if (button.visible && button.enabled && button.bounds.contains(x, y)) {
+            return button.id;
+        }
+    }
+    return -1;
+}
+
+void ClockApp::switchPage(PageId page, bool force_full_refresh) {
+    current_page_ = page;
+    buttons_.clear();
+    renderPage(force_full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16, true);
+}
+
+void ClockApp::refreshCurrentPage() {
+    if (current_page_ == PageId::Clock) {
+        renderClockPage(true);
+        return;
+    }
+    renderPage(UPDATE_MODE_GC16, true);
+}
+
+void ClockApp::autoConnectIfNeeded() {
+    if (auto_connect_attempted_ || settings_.ssid.isEmpty()) {
+        return;
+    }
+
+    auto_connect_attempted_ = true;
+    status_message_ = "Connecting to " + settings_.ssid + "...";
+    status_error_ = false;
+    updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+
+    if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
+        status_message_ = "Wi-Fi connect failed";
+        status_error_ = true;
+        updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+        return;
+    }
+
+    status_message_ = "Wi-Fi connected, syncing time...";
+    updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+    if (trySyncTime(false)) {
+        switchPage(PageId::Clock);
+    }
+}
+
+void ClockApp::scanWiFi() {
+    status_message_ = "Scanning Wi-Fi...";
+    status_error_ = false;
+    renderPage(UPDATE_MODE_GL16);
+
+    wifi_networks_.clear();
+    wifi_page_index_ = 0;
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    delay(100);
+    const int count = WiFi.scanNetworks();
+    for (int index = 0; index < count; ++index) {
+        WiFiNetwork network;
+        network.ssid = WiFi.SSID(index);
+        network.rssi = WiFi.RSSI(index);
+        if (!network.ssid.isEmpty()) {
+            wifi_networks_.push_back(network);
+        }
+    }
+    WiFi.scanDelete();
+
+    status_message_ = wifi_networks_.empty() ? "No network found" : "Scan complete";
+    status_error_ = wifi_networks_.empty();
+    renderPage(UPDATE_MODE_GC16);
+}
+
+bool ClockApp::trySyncTime(bool allow_connect) {
+    if (allow_connect && !connectivity_.isConnected()) {
+        if (settings_.ssid.isEmpty()) {
+            status_message_ = "Configure Wi-Fi first";
+            status_error_ = true;
+            if (current_page_ == PageId::Settings) {
+                updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+            }
+            return false;
+        }
+        if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
+            status_message_ = "Wi-Fi connect failed";
+            status_error_ = true;
+            if (current_page_ == PageId::Settings) {
+                updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+            }
+            return false;
+        }
+    }
+
+    if (!connectivity_.isConnected()) {
+        status_message_ = "Wi-Fi is offline";
+        status_error_ = true;
+        if (current_page_ == PageId::Settings) {
+            updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+        }
+        return false;
+    }
+
+    if (connectivity_.syncTimeToRtc(settings_.timezone)) {
+        settings_.time_synced = true;
+        store_.saveTimeSynced(true);
+        status_message_ = "Time sync successful";
+        status_error_ = false;
+        M5.RTC.getTime(&last_time_);
+        M5.RTC.getDate(&last_date_);
+    } else {
+        status_message_ = "Time sync failed";
+        status_error_ = true;
+    }
+
+    if (current_page_ == PageId::Settings) {
+        updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+    }
+    return !status_error_;
+}
+
+void ClockApp::connectSelectedNetwork() {
+    if (selected_ssid_.isEmpty()) {
+        status_message_ = "Choose a Wi-Fi network";
+        status_error_ = true;
+        updatePasswordStatusCanvas(UPDATE_MODE_GL16);
+        return;
+    }
+
+    status_message_ = "Connecting to " + selected_ssid_ + "...";
+    status_error_ = false;
+    updatePasswordStatusCanvas(UPDATE_MODE_GL16);
+
+    if (!connectivity_.connect(selected_ssid_, password_input_)) {
+        status_message_ = "Connection failed";
+        status_error_ = true;
+        updatePasswordStatusCanvas(UPDATE_MODE_GL16);
+        return;
+    }
+
+    settings_.ssid = selected_ssid_;
+    settings_.password = password_input_;
+    store_.saveWifi(settings_.ssid, settings_.password);
+    auto_connect_attempted_ = true;
+    status_message_ = "Connected";
+    status_error_ = false;
+    updatePasswordStatusCanvas(UPDATE_MODE_GL16);
+
+    if (trySyncTime(false)) {
+        switchPage(PageId::Clock);
+        return;
+    }
+    switchPage(PageId::Settings);
+}
+
+String ClockApp::timezoneLabel() const {
+    if (settings_.timezone > 0) {
+        return "UTC+" + String(settings_.timezone);
+    }
+    if (settings_.timezone < 0) {
+        return "UTC" + String(settings_.timezone);
+    }
+    return "UTC";
+}
+
+String ClockApp::wifiStatusLabel() const {
+    if (connectivity_.isConnected()) {
+        return "Connected to " + connectivity_.currentSsid();
+    }
+    if (settings_.ssid.isEmpty()) {
+        return "No Wi-Fi configured";
+    }
+    return "Saved: " + settings_.ssid;
+}
+
+String ClockApp::syncStatusLabel() const {
+    return status_message_;
+}
+
+String ClockApp::formatRtcTimestamp() const {
+    rtc_time_t time;
+    rtc_date_t date;
+    M5.RTC.getTime(&time);
+    M5.RTC.getDate(&date);
+    return formatDateTime(date, time);
+}
+
+String ClockApp::maskedPassword() const {
+    if (password_input_.isEmpty()) {
+        return "<empty>";
+    }
+
+    if (password_visible_) {
+        return password_input_;
+    }
+
+    String masked;
+    masked.reserve(password_input_.length());
+    for (size_t index = 0; index < password_input_.length(); ++index) {
+        masked += '*';
+    }
+    return masked;
+}
+
+String ClockApp::keyboardCharacterLabel(size_t index) const {
+    const std::vector<String> keys = activeKeyboardLayout();
+    if (index >= keys.size()) {
+        return "";
+    }
+    return keys[index];
+}
+
+std::vector<String> ClockApp::activeKeyboardLayout() const {
+    if (keyboard_symbols_) {
+        return {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+                "-", "/", "@", ".", ":", ";", "(", ")", "!",
+                "_", "\"", ",", "?", "#", "$", "&"};
+    }
+
+    if (keyboard_upper_) {
+        return {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P",
+                "A", "S", "D", "F", "G", "H", "J", "K", "L",
+                "Z", "X", "C", "V", "B", "N", "M"};
+    }
+
+    return {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p",
+            "a", "s", "d", "f", "g", "h", "j", "k", "l",
+            "z", "x", "c", "v", "b", "n", "m"};
+}
+
+void ClockApp::appendPasswordChar(const String& text) {
+    password_input_ += text;
+    updatePasswordFieldCanvas(UPDATE_MODE_GL16);
+}
