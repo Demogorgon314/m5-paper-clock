@@ -26,6 +26,7 @@ constexpr uint8_t kErrorText = 12;
 constexpr uint8_t kAccentText = 13;
 constexpr uint32_t kClockSensorIntervalMs = 15000;
 constexpr uint32_t kClockRefreshIntervalMs = 30000;
+constexpr uint32_t kDashboardMarketIntervalMs = 60000;
 constexpr uint32_t kCenterButtonLongPressMs = 1500;
 constexpr uint16_t kHeaderHeight = 60;
 constexpr int16_t kPasswordFieldX = 28;
@@ -798,6 +799,8 @@ void ClockApp::updateClockPage() {
                               current_date.year != last_date_.year;
     const bool time_for_sensor =
         millis() - last_sensor_read_ms_ > kClockSensorIntervalMs;
+    const bool time_for_market =
+        millis() - last_market_fetch_ms_ > kDashboardMarketIntervalMs;
     const bool time_for_gc16 =
         millis() - enter_clock_at_ms_ > kClockRefreshIntervalMs &&
         partial_refresh_count_ >= 30;
@@ -816,6 +819,9 @@ void ClockApp::updateClockPage() {
         if (date_changed) {
             updateDateCanvas(false);
             updateDashboardCalendarCanvas(false);
+            updateDashboardSummaryCanvas(false);
+        }
+        if (time_for_market) {
             updateDashboardSummaryCanvas(false);
         }
         if (minute_changed || time_for_sensor) {
@@ -1156,28 +1162,78 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
 }
 
 void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
-    rtc_date_t current_date;
-    M5.RTC.getDate(&current_date);
+    refreshMarketQuote(full_refresh);
 
     dashboard_summary_canvas_.fillCanvas(kWhite);
     dashboard_summary_canvas_.drawRoundRect(0, 0, kDashboardSummaryW,
                                             kDashboardSummaryH, 6, kBorder);
+    const int16_t header_y = 10;
+    const int16_t price_y = 32;
+    const int16_t baseline_y = 64;
+
     dashboard_summary_canvas_.setTextDatum(TL_DATUM);
     dashboard_summary_canvas_.setTextColor(kMutedText);
     dashboard_summary_canvas_.setTextSize(2);
-    dashboard_summary_canvas_.drawString("MONTH", 16, 12);
-    dashboard_summary_canvas_.setTextColor(kText);
-    dashboard_summary_canvas_.setTextSize(3);
-    dashboard_summary_canvas_.drawString(formatDashboardSummaryTitle(current_date),
-                                         16, 34);
-    dashboard_summary_canvas_.setTextSize(2);
-    dashboard_summary_canvas_.drawString(
-        formatDashboardSummaryDetail(current_date), 16, 62);
+    dashboard_summary_canvas_.drawString(market_quote_.symbol,
+                                         16, header_y);
 
-    const WeekdayBitmap& weekday = weekdayBitmap(calculateWeekday(current_date));
-    dashboard_summary_canvas_.pushImage(kDashboardSummaryW - weekday.width - 14,
-                                        14, weekday.width, weekday.height,
-                                        weekday.data);
+    if (market_quote_.valid) {
+        dashboard_summary_canvas_.setTextDatum(TR_DATUM);
+        dashboard_summary_canvas_.setTextSize(3);
+        dashboard_summary_canvas_.setTextColor(kText);
+        dashboard_summary_canvas_.drawString(market_quote_.price,
+                                             kDashboardSummaryW - 16, price_y);
+
+        const String change_prefix = market_quote_.positive ? "+" : "";
+        const String change_value = change_prefix + market_quote_.change;
+        const String percent_value =
+            change_prefix + market_quote_.change_percent + "%";
+        dashboard_summary_canvas_.setTextSize(2);
+        dashboard_summary_canvas_.setTextColor(kText);
+        dashboard_summary_canvas_.setTextDatum(TR_DATUM);
+        const int16_t percent_right = kDashboardSummaryW - 16;
+        const int16_t percent_width =
+            dashboard_summary_canvas_.textWidth(percent_value);
+        const int16_t change_right = percent_right - percent_width - 18;
+        const int16_t change_width =
+            dashboard_summary_canvas_.textWidth(change_value);
+        const int16_t change_left = change_right - change_width;
+        const int16_t arrow_center_x = change_left - 14;
+        const int16_t arrow_center_y = baseline_y + 5;
+        if (market_quote_.positive) {
+            dashboard_summary_canvas_.fillTriangle(arrow_center_x - 8,
+                                                   arrow_center_y + 6,
+                                                   arrow_center_x,
+                                                   arrow_center_y - 6,
+                                                   arrow_center_x + 8,
+                                                   arrow_center_y + 6, kText);
+        } else {
+            dashboard_summary_canvas_.fillTriangle(arrow_center_x - 8,
+                                                   arrow_center_y - 6,
+                                                   arrow_center_x,
+                                                   arrow_center_y + 6,
+                                                   arrow_center_x + 8,
+                                                   arrow_center_y - 6, kText);
+        }
+        dashboard_summary_canvas_.drawString(change_value, change_right,
+                                             baseline_y);
+        dashboard_summary_canvas_.drawString(percent_value, percent_right,
+                                             baseline_y);
+    } else {
+        dashboard_summary_canvas_.setTextDatum(TL_DATUM);
+        dashboard_summary_canvas_.setTextSize(3);
+        dashboard_summary_canvas_.setTextColor(kText);
+        dashboard_summary_canvas_.drawString("No quote", 16, 34);
+        dashboard_summary_canvas_.setTextSize(2);
+        dashboard_summary_canvas_.setTextColor(kMutedText);
+        const String status_detail =
+            !market_quote_.error_message.isEmpty()
+                ? market_quote_.error_message
+                : (connectivity_.isConnected() ? "Data unavailable"
+                                               : "Wi-Fi offline");
+        dashboard_summary_canvas_.drawString(status_detail, 16, 62);
+    }
+
     dashboard_summary_canvas_.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
                                          UPDATE_MODE_NONE);
     M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
@@ -1246,6 +1302,28 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
     last_humidity_text_rendered_ = humidity_text;
     last_temperature_text_rendered_ = temperature_text;
     last_comfort_face_rendered_ = comfort_face;
+}
+
+bool ClockApp::refreshMarketQuote(bool force) {
+    if (!force && millis() - last_market_fetch_ms_ < kDashboardMarketIntervalMs) {
+        return market_quote_.valid;
+    }
+
+    last_market_fetch_ms_ = millis();
+    if (!connectivity_.isConnected()) {
+        return market_quote_.valid;
+    }
+
+    const MarketQuote fetched = market_.fetchShanghaiIndex();
+    if (!fetched.valid) {
+        if (!market_quote_.valid) {
+            market_quote_ = fetched;
+        }
+        return market_quote_.valid;
+    }
+
+    market_quote_ = fetched;
+    return true;
 }
 
 void ClockApp::updatePasswordFieldCanvas(m5epd_update_mode_t mode) {

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ConnectivityService.h"
+#include "MarketService.h"
 #include "SegmentRenderer.h"
 #include "SensorService.h"
 #include "SettingsStore.h"
@@ -105,6 +106,7 @@ private:
     void updateDashboardTimeCanvas(bool full_refresh);
     void updateDashboardSummaryCanvas(bool full_refresh);
     void updateDashboardClimateCanvas(bool full_refresh);
+    bool refreshMarketQuote(bool force);
     void updatePasswordFieldCanvas(m5epd_update_mode_t mode);
     void updatePasswordStatusCanvas(m5epd_update_mode_t mode);
     void updateSettingsStatusCanvas(m5epd_update_mode_t mode);
@@ -154,11 +156,13 @@ private:
 
     SettingsStore store_;
     ConnectivityService connectivity_;
+    MarketService market_;
     SensorService sensor_;
     SegmentRenderer renderer_;
 
     AppSettings settings_;
     EnvironmentReading last_environment_;
+    MarketQuote market_quote_;
     rtc_time_t last_time_ {};
     rtc_date_t last_date_ {};
 
@@ -203,6 +207,7 @@ private:
     ClockStyle clock_style_ = ClockStyle::Classic;
 
     uint32_t last_sensor_read_ms_ = 0;
+    uint32_t last_market_fetch_ms_ = 0;
     uint32_t last_clock_tick_ms_ = 0;
     uint32_t partial_refresh_count_ = 0;
     uint32_t enter_clock_at_ms_ = 0;
