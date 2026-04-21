@@ -46,10 +46,10 @@ constexpr int16_t kDateX = 24;
 constexpr int16_t kDateY = 20;
 constexpr int16_t kDateW = 520;
 constexpr int16_t kDateH = 44;
-constexpr int16_t kBatteryX = 896;
-constexpr int16_t kBatteryY = 24;
-constexpr int16_t kBatteryW = 48;
-constexpr int16_t kBatteryH = 32;
+constexpr int16_t kBatteryX = 792;
+constexpr int16_t kBatteryY = 20;
+constexpr int16_t kBatteryW = 152;
+constexpr int16_t kBatteryH = 44;
 constexpr int16_t kTimeCanvasW = 760;
 constexpr int16_t kTimeCanvasH = 300;
 constexpr int16_t kTimeDigitWidth = 150;
@@ -121,6 +121,31 @@ constexpr float kComfortMinTemperature = 19.0f;
 constexpr float kComfortMaxTemperature = 27.0f;
 constexpr float kComfortMinHumidity = 20.0f;
 constexpr float kComfortMaxHumidity = 85.0f;
+constexpr int16_t kDashboardCalendarX = 72;
+constexpr int16_t kDashboardCalendarY = 106;
+constexpr int16_t kDashboardCalendarW = 304;
+constexpr int16_t kDashboardCalendarH = 232;
+constexpr int16_t kDashboardTimeX = 414;
+constexpr int16_t kDashboardTimeY = 104;
+constexpr int16_t kDashboardTimeW = 468;
+constexpr int16_t kDashboardTimeH = 236;
+constexpr int16_t kDashboardTimeDigitW = 92;
+constexpr int16_t kDashboardTimeDigitH = 210;
+constexpr int16_t kDashboardTimeGap = 18;
+constexpr int16_t kDashboardSummaryX = 72;
+constexpr int16_t kDashboardSummaryY = 392;
+constexpr int16_t kDashboardSummaryW = 332;
+constexpr int16_t kDashboardSummaryH = 86;
+constexpr int16_t kDashboardClimateX = 430;
+constexpr int16_t kDashboardClimateY = 392;
+constexpr int16_t kDashboardClimateW = 452;
+constexpr int16_t kDashboardClimateH = 86;
+constexpr int16_t kDashboardClimateHumidityDividerX = 126;
+constexpr int16_t kDashboardClimateTemperatureDividerX = 286;
+constexpr int16_t kDashboardWeekdayCropX = 36;
+constexpr int16_t kDashboardWeekdayCropW = 28;
+constexpr uint8_t kCalendarPastFill = 4;
+constexpr uint8_t kCalendarTodayFill = 15;
 
 struct PartialRegion {
     int16_t update_x = 0;
@@ -225,6 +250,71 @@ uint8_t calculateWeekday(const rtc_date_t& date) {
 
 const WeekdayBitmap& weekdayBitmap(uint8_t week) {
     return kWeekdayBitmaps[week % 7];
+}
+
+bool isLeapYear(int year) {
+    return (year % 400 == 0) || (year % 4 == 0 && year % 100 != 0);
+}
+
+uint8_t daysInMonth(int year, int month) {
+    static constexpr uint8_t kMonthDays[] = {31, 28, 31, 30, 31, 30,
+                                             31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12) {
+        return 30;
+    }
+    if (month == 2 && isLeapYear(year)) {
+        return 29;
+    }
+    return kMonthDays[month - 1];
+}
+
+String formatDashboardMonth(const rtc_date_t& date) {
+    return formatTwoDigits(date.mon);
+}
+
+String formatDashboardSummaryTitle(const rtc_date_t& date) {
+    return String(date.year) + "." + formatTwoDigits(date.mon);
+}
+
+String formatDashboardSummaryDetail(const rtc_date_t& date) {
+    return "Day " + String(date.day) + " / " +
+           String(daysInMonth(date.year, date.mon));
+}
+
+String formatDashboardHumidity(const EnvironmentReading& reading) {
+    if (!reading.valid) {
+        return String("--");
+    }
+    return formatHumidity(reading.humidity);
+}
+
+String formatDashboardTemperature(const EnvironmentReading& reading) {
+    if (!reading.valid) {
+        return String("--.-");
+    }
+    return formatTemperature(reading.temperature);
+}
+
+uint8_t bitmapPixel4(const uint8_t* data, uint16_t width, int16_t x, int16_t y) {
+    const uint16_t row_bytes = (width + 1) / 2;
+    const uint8_t value = data[static_cast<size_t>(y) * row_bytes + (x / 2)];
+    return (x % 2 == 0) ? ((value >> 4) & 0x0F) : (value & 0x0F);
+}
+
+void drawBitmapCrop(M5EPD_Canvas& canvas, const WeekdayBitmap& bitmap,
+                    int16_t src_x, int16_t src_y, int16_t crop_w,
+                    int16_t crop_h, int16_t dst_x, int16_t dst_y) {
+    const int16_t max_w = min<int16_t>(crop_w, bitmap.width - src_x);
+    const int16_t max_h = min<int16_t>(crop_h, bitmap.height - src_y);
+    for (int16_t y = 0; y < max_h; ++y) {
+        for (int16_t x = 0; x < max_w; ++x) {
+            const uint8_t pixel =
+                bitmapPixel4(bitmap.data, bitmap.width, src_x + x, src_y + y);
+            if (pixel > 0) {
+                canvas.drawPixel(dst_x + x, dst_y + y, pixel);
+            }
+        }
+    }
 }
 
 PartialRegion makePartialRegion(int16_t x, int16_t y) {
@@ -362,6 +452,39 @@ void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
     drawComfortInfoAt(canvas, kComfortFaceDrawX, kComfortFaceDrawY, face, color);
 }
 
+void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
+                              int16_t center_y, const String& face,
+                              uint8_t color) {
+    canvas.setTextDatum(CC_DATUM);
+    canvas.setTextColor(color);
+    canvas.setTextSize(4);
+    canvas.drawString("(", center_x - 40, center_y);
+    canvas.drawString(")", center_x + 40, center_y);
+
+    if (face == "(^_^)") {
+        canvas.setTextSize(3);
+        canvas.drawString("^", center_x - 18, center_y - 10);
+        canvas.drawString("^", center_x + 18, center_y - 10);
+        canvas.setTextSize(4);
+        canvas.drawString("_", center_x, center_y + 12);
+        return;
+    }
+
+    if (face == "(-^-)") {
+        canvas.setTextSize(3);
+        canvas.drawString("-", center_x - 20, center_y - 8);
+        canvas.drawString("-", center_x + 20, center_y - 8);
+        canvas.drawString("^", center_x, center_y + 18);
+        return;
+    }
+
+    canvas.setTextSize(3);
+    canvas.drawString("-", center_x - 20, center_y - 8);
+    canvas.drawString("-", center_x + 20, center_y - 8);
+    canvas.setTextSize(4);
+    canvas.drawString("_", center_x, center_y + 12);
+}
+
 m5epd_update_mode_t nextPartialMode(uint8_t& count) {
     if (++count >= kPartialCleanInterval) {
         count = 0;
@@ -378,6 +501,8 @@ void ClockApp::begin() {
     store_.begin();
     settings_ = store_.load();
     settings_.timezone = logic::ClampTimeZone(settings_.timezone);
+    clock_style_ = settings_.clock_style == 1 ? ClockStyle::Dashboard
+                                              : ClockStyle::Classic;
     M5.RTC.getTime(&last_time_);
     M5.RTC.getDate(&last_date_);
     renderPage(UPDATE_MODE_GC16, true);
@@ -443,6 +568,17 @@ void ClockApp::createCanvases() {
     date_canvas_.useFreetypeFont(false);
     battery_canvas_.createCanvas(kBatteryW, kBatteryH);
     battery_canvas_.useFreetypeFont(false);
+    dashboard_calendar_canvas_.createCanvas(kDashboardCalendarW,
+                                            kDashboardCalendarH);
+    dashboard_calendar_canvas_.useFreetypeFont(false);
+    dashboard_time_canvas_.createCanvas(kDashboardTimeW, kDashboardTimeH);
+    dashboard_time_canvas_.useFreetypeFont(false);
+    dashboard_summary_canvas_.createCanvas(kDashboardSummaryW,
+                                           kDashboardSummaryH);
+    dashboard_summary_canvas_.useFreetypeFont(false);
+    dashboard_climate_canvas_.createCanvas(kDashboardClimateW,
+                                           kDashboardClimateH);
+    dashboard_climate_canvas_.useFreetypeFont(false);
     password_field_canvas_.createCanvas(kPasswordFieldW, kPasswordFieldH);
     password_field_canvas_.useFreetypeFont(false);
     password_status_canvas_.createCanvas(kPasswordStatusW, kPasswordStatusH);
@@ -588,6 +724,15 @@ void ClockApp::renderPasswordPage(m5epd_update_mode_t mode) {
 }
 
 void ClockApp::renderClockPage(bool full_refresh) {
+    if (usesDashboardClockStyle()) {
+        renderDashboardClockPage(full_refresh);
+        return;
+    }
+    renderClassicClockPage(full_refresh);
+}
+
+void ClockApp::renderClassicClockPage(bool full_refresh) {
+    (void)full_refresh;
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
     M5.EPD.UpdateFull(UPDATE_MODE_GC16);
@@ -612,6 +757,34 @@ void ClockApp::renderClockPage(bool full_refresh) {
     partial_refresh_count_ = 0;
 }
 
+void ClockApp::renderDashboardClockPage(bool full_refresh) {
+    (void)full_refresh;
+    page_canvas_.fillCanvas(kWhite);
+    page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
+    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+
+    last_time_text_rendered_ = "";
+    last_humidity_text_rendered_ = "";
+    last_temperature_text_rendered_ = "";
+    last_comfort_face_rendered_ = "";
+    last_date_text_rendered_ = "";
+    last_weekday_rendered_ = 255;
+    last_battery_percentage_ = 255;
+    time_digit_partial_counts_.fill(0);
+    humidity_digit_partial_counts_.fill(0);
+    temperature_digit_partial_counts_.fill(0);
+    battery_partial_count_ = 0;
+
+    updateDateCanvas(true);
+    updateBatteryCanvas(true);
+    updateDashboardCalendarCanvas(true);
+    updateDashboardTimeCanvas(true);
+    updateDashboardSummaryCanvas(true);
+    updateDashboardClimateCanvas(true);
+    enter_clock_at_ms_ = millis();
+    partial_refresh_count_ = 0;
+}
+
 void ClockApp::updateClockPage() {
     rtc_time_t current_time;
     rtc_date_t current_date;
@@ -620,6 +793,9 @@ void ClockApp::updateClockPage() {
 
     const bool minute_changed = current_time.min != last_time_.min ||
                                 current_time.hour != last_time_.hour;
+    const bool date_changed = current_date.day != last_date_.day ||
+                              current_date.mon != last_date_.mon ||
+                              current_date.year != last_date_.year;
     const bool time_for_sensor =
         millis() - last_sensor_read_ms_ > kClockSensorIntervalMs;
     const bool time_for_gc16 =
@@ -633,20 +809,35 @@ void ClockApp::updateClockPage() {
         return;
     }
 
-    if (minute_changed) {
-        updateTimeCanvas(false);
-        updateDateCanvas(false);
-        last_time_ = current_time;
-        last_date_ = current_date;
+    if (usesDashboardClockStyle()) {
+        if (minute_changed) {
+            updateDashboardTimeCanvas(false);
+        }
+        if (date_changed) {
+            updateDateCanvas(false);
+            updateDashboardCalendarCanvas(false);
+            updateDashboardSummaryCanvas(false);
+        }
+        if (minute_changed || time_for_sensor) {
+            updateBatteryCanvas(false);
+        }
+        if (time_for_sensor) {
+            updateDashboardClimateCanvas(false);
+        }
+    } else {
+        if (minute_changed) {
+            updateTimeCanvas(false);
+            updateDateCanvas(false);
+        }
+        if (minute_changed || time_for_sensor) {
+            updateBatteryCanvas(false);
+        }
+        if (time_for_sensor) {
+            updateInfoCanvas(false);
+        }
     }
-
-    if (minute_changed || time_for_sensor || time_for_gc16) {
-        updateBatteryCanvas(time_for_gc16);
-    }
-
-    if (time_for_sensor || time_for_gc16) {
-        updateInfoCanvas(time_for_gc16);
-    }
+    last_time_ = current_time;
+    last_date_ = current_date;
 }
 
 void ClockApp::updateTimeCanvas(bool full_refresh) {
@@ -820,14 +1011,18 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     if (!full_refresh && battery == last_battery_percentage_) {
         return;
     }
-    const int16_t body_x = 2;
-    const int16_t body_y = 6;
+    char battery_label[8];
+    snprintf(battery_label, sizeof(battery_label), "%3u%%", battery);
+
     const int16_t body_w = 38;
     const int16_t body_h = 20;
-    const int16_t cap_x = body_x + body_w;
-    const int16_t cap_y = 11;
     const int16_t cap_w = 4;
     const int16_t cap_h = 10;
+    const int16_t icon_right = kBatteryW - 2;
+    const int16_t cap_x = icon_right - cap_w;
+    const int16_t body_x = cap_x - body_w;
+    const int16_t body_y = 12;
+    const int16_t cap_y = body_y + 5;
     const int16_t inner_x = body_x + 3;
     const int16_t inner_y = body_y + 3;
     const int16_t inner_w = body_w - 6;
@@ -835,6 +1030,10 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const int16_t fill_w = (battery * inner_w) / 100;
 
     battery_canvas_.fillCanvas(kWhite);
+    battery_canvas_.setTextColor(kText);
+    battery_canvas_.setTextSize(2);
+    battery_canvas_.setTextDatum(CR_DATUM);
+    battery_canvas_.drawString(String(battery_label), body_x - 10, kBatteryH / 2);
     battery_canvas_.drawRoundRect(body_x, body_y, body_w, body_h, 3, kText);
     battery_canvas_.fillRect(cap_x, cap_y, cap_w, cap_h, kText);
     if (fill_w > 0) {
@@ -850,9 +1049,203 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
         const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
         M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
                           mode);
-        ++partial_refresh_count_;
+        ++battery_partial_count_;
     }
     last_battery_percentage_ = battery;
+}
+
+void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
+    rtc_date_t current_date;
+    M5.RTC.getDate(&current_date);
+
+    dashboard_calendar_canvas_.fillCanvas(kWhite);
+    dashboard_calendar_canvas_.setTextColor(kText);
+    dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
+    dashboard_calendar_canvas_.setTextSize(5);
+    dashboard_calendar_canvas_.drawString(formatDashboardMonth(current_date),
+                                          kDashboardCalendarW / 2, 24);
+
+    const int16_t cell_w = 42;
+    const int16_t cell_h = 24;
+    const int16_t grid_w = cell_w * 7;
+    const int16_t start_x = (kDashboardCalendarW - grid_w) / 2;
+    const int16_t header_y = 54;
+    const int16_t grid_y = 86;
+
+    for (int col = 0; col < 7; ++col) {
+        const WeekdayBitmap& weekday = weekdayBitmap(static_cast<uint8_t>(col));
+        const int16_t dst_x = start_x + col * cell_w +
+                              (cell_w - kDashboardWeekdayCropW) / 2;
+        drawBitmapCrop(dashboard_calendar_canvas_, weekday,
+                       kDashboardWeekdayCropX, 0, kDashboardWeekdayCropW,
+                       weekday.height, dst_x, header_y);
+    }
+
+    rtc_date_t first_day = current_date;
+    first_day.day = 1;
+    const uint8_t first_weekday = calculateWeekday(first_day);
+    const uint8_t month_days = daysInMonth(current_date.year, current_date.mon);
+
+    dashboard_calendar_canvas_.setTextSize(2);
+    dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
+    for (int row = 0; row < 6; ++row) {
+        for (int col = 0; col < 7; ++col) {
+            const int day = row * 7 + col - first_weekday + 1;
+            if (day < 1 || day > month_days) {
+                continue;
+            }
+
+            const int16_t x = start_x + col * cell_w;
+            const int16_t y = grid_y + row * cell_h;
+            const bool is_today = day == current_date.day;
+            const bool is_past = day < current_date.day;
+
+            if (is_today) {
+                dashboard_calendar_canvas_.fillRect(x, y, cell_w - 2, cell_h - 2,
+                                                    kCalendarTodayFill);
+            } else if (is_past) {
+                dashboard_calendar_canvas_.fillRect(x, y, cell_w - 2, cell_h - 2,
+                                                    kCalendarPastFill);
+            }
+            dashboard_calendar_canvas_.drawRect(x, y, cell_w - 2, cell_h - 2,
+                                                kBorder);
+            dashboard_calendar_canvas_.setTextColor(is_today ? kWhite : kText);
+            dashboard_calendar_canvas_.drawString(
+                String(day), x + (cell_w - 2) / 2, y + (cell_h - 2) / 2);
+        }
+    }
+
+    dashboard_calendar_canvas_.pushCanvas(kDashboardCalendarX, kDashboardCalendarY,
+                                          UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kDashboardCalendarX, kDashboardCalendarY,
+                      kDashboardCalendarW, kDashboardCalendarH,
+                      UPDATE_MODE_GC16);
+    if (!full_refresh) {
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
+    rtc_time_t current_time;
+    M5.RTC.getTime(&current_time);
+
+    const String time_digits = formatTimeDigits(current_time);
+    if (!full_refresh && time_digits == last_time_text_rendered_) {
+        return;
+    }
+
+    const String time_text =
+        time_digits.substring(0, 2) + ":" + time_digits.substring(2);
+    const int16_t text_w =
+        renderer_.measureText(time_text, kDashboardTimeDigitW, kDashboardTimeGap);
+    const int16_t draw_x = max<int16_t>(0, (kDashboardTimeW - text_w) / 2);
+    const int16_t draw_y = (kDashboardTimeH - kDashboardTimeDigitH) / 2;
+
+    dashboard_time_canvas_.fillCanvas(kWhite);
+    renderer_.drawText(dashboard_time_canvas_, draw_x, draw_y, time_text,
+                       kDashboardTimeDigitW, kDashboardTimeDigitH,
+                       kDashboardTimeGap, kText, kTimeEdgeText);
+    dashboard_time_canvas_.pushCanvas(kDashboardTimeX, kDashboardTimeY,
+                                      UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
+                      kDashboardTimeH, UPDATE_MODE_GC16);
+    if (!full_refresh) {
+        ++partial_refresh_count_;
+    }
+    last_time_text_rendered_ = time_digits;
+}
+
+void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
+    rtc_date_t current_date;
+    M5.RTC.getDate(&current_date);
+
+    dashboard_summary_canvas_.fillCanvas(kWhite);
+    dashboard_summary_canvas_.drawRoundRect(0, 0, kDashboardSummaryW,
+                                            kDashboardSummaryH, 6, kBorder);
+    dashboard_summary_canvas_.setTextDatum(TL_DATUM);
+    dashboard_summary_canvas_.setTextColor(kMutedText);
+    dashboard_summary_canvas_.setTextSize(2);
+    dashboard_summary_canvas_.drawString("MONTH", 16, 12);
+    dashboard_summary_canvas_.setTextColor(kText);
+    dashboard_summary_canvas_.setTextSize(3);
+    dashboard_summary_canvas_.drawString(formatDashboardSummaryTitle(current_date),
+                                         16, 34);
+    dashboard_summary_canvas_.setTextSize(2);
+    dashboard_summary_canvas_.drawString(
+        formatDashboardSummaryDetail(current_date), 16, 62);
+
+    const WeekdayBitmap& weekday = weekdayBitmap(calculateWeekday(current_date));
+    dashboard_summary_canvas_.pushImage(kDashboardSummaryW - weekday.width - 14,
+                                        14, weekday.width, weekday.height,
+                                        weekday.data);
+    dashboard_summary_canvas_.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
+                                         UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
+                      kDashboardSummaryW, kDashboardSummaryH,
+                      UPDATE_MODE_GC16);
+    if (!full_refresh) {
+        ++partial_refresh_count_;
+    }
+}
+
+void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
+    last_environment_ = sensor_.read();
+    last_sensor_read_ms_ = millis();
+
+    const String humidity_text = formatDashboardHumidity(last_environment_);
+    const String temperature_text = formatDashboardTemperature(last_environment_);
+    const String comfort_face = comfortFace(last_environment_);
+
+    dashboard_climate_canvas_.fillCanvas(kWhite);
+    dashboard_climate_canvas_.drawRoundRect(0, 0, kDashboardClimateW,
+                                            kDashboardClimateH, 6, kBorder);
+    dashboard_climate_canvas_.drawFastVLine(kDashboardClimateHumidityDividerX,
+                                            18, 50, kBorder);
+    dashboard_climate_canvas_.drawFastVLine(kDashboardClimateTemperatureDividerX,
+                                            18, 50, kBorder);
+
+    const int16_t climate_value_y = kDashboardClimateH / 2 + 2;
+    const int16_t humidity_x = 18;
+    const int16_t temperature_x = 134;
+
+    dashboard_climate_canvas_.setTextDatum(CL_DATUM);
+    dashboard_climate_canvas_.setTextColor(kText);
+    dashboard_climate_canvas_.setTextSize(5);
+    dashboard_climate_canvas_.drawString(humidity_text, humidity_x,
+                                         climate_value_y);
+    const int16_t humidity_width = dashboard_climate_canvas_.textWidth(humidity_text);
+    dashboard_climate_canvas_.setTextSize(2);
+    dashboard_climate_canvas_.drawString("%", humidity_x + humidity_width + 6,
+                                         climate_value_y + 14);
+
+    dashboard_climate_canvas_.setTextSize(5);
+    dashboard_climate_canvas_.drawString(temperature_text, temperature_x,
+                                         climate_value_y);
+    const int16_t temperature_width =
+        dashboard_climate_canvas_.textWidth(temperature_text);
+    const int16_t unit_x = temperature_x + temperature_width + 4;
+    dashboard_climate_canvas_.setTextSize(2);
+    dashboard_climate_canvas_.drawString("o", unit_x, climate_value_y - 8);
+    dashboard_climate_canvas_.drawString("C", unit_x + 14,
+                                         climate_value_y + 14);
+
+    const int16_t face_cell_center_x =
+        kDashboardClimateTemperatureDividerX +
+        ((kDashboardClimateW - kDashboardClimateTemperatureDividerX) / 2);
+    drawCompactComfortInfoAt(dashboard_climate_canvas_, face_cell_center_x,
+                             kDashboardClimateH / 2 + 2, comfort_face, kText);
+
+    dashboard_climate_canvas_.pushCanvas(kDashboardClimateX, kDashboardClimateY,
+                                         UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kDashboardClimateX, kDashboardClimateY,
+                      kDashboardClimateW, kDashboardClimateH,
+                      UPDATE_MODE_GC16);
+    if (!full_refresh) {
+        ++partial_refresh_count_;
+    }
+    last_humidity_text_rendered_ = humidity_text;
+    last_temperature_text_rendered_ = temperature_text;
+    last_comfort_face_rendered_ = comfort_face;
 }
 
 void ClockApp::updatePasswordFieldCanvas(m5epd_update_mode_t mode) {
@@ -1140,6 +1533,17 @@ void ClockApp::handleTouch() {
 }
 
 void ClockApp::handleHardwareButtons() {
+    if (current_page_ == PageId::Clock) {
+        if (M5.BtnL.wasReleased()) {
+            cycleClockStyle(-1);
+            return;
+        }
+        if (M5.BtnR.wasReleased()) {
+            cycleClockStyle(1);
+            return;
+        }
+    }
+
     if (M5.BtnP.isPressed() && !center_button_long_press_handled_ &&
         M5.BtnP.pressedFor(kCenterButtonLongPressMs)) {
         center_button_long_press_handled_ = true;
@@ -1300,6 +1704,27 @@ void ClockApp::refreshCurrentPage() {
         return;
     }
     renderPage(UPDATE_MODE_GC16, true);
+}
+
+void ClockApp::cycleClockStyle(int delta) {
+    const int current_style = static_cast<int>(clock_style_);
+    const int next_style = (current_style + delta + 2) % 2;
+    const ClockStyle style = static_cast<ClockStyle>(next_style);
+    if (style == clock_style_) {
+        return;
+    }
+
+    clock_style_ = style;
+    settings_.clock_style = static_cast<uint8_t>(next_style);
+    store_.saveClockStyle(settings_.clock_style);
+
+    if (current_page_ == PageId::Clock) {
+        renderClockPage(true);
+    }
+}
+
+bool ClockApp::usesDashboardClockStyle() const {
+    return clock_style_ == ClockStyle::Dashboard;
 }
 
 void ClockApp::autoConnectIfNeeded() {

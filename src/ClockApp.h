@@ -18,6 +18,7 @@ public:
 
 private:
     enum class PageId { Settings, WifiScan, Password, Clock };
+    enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
 
     enum ButtonId {
         kButtonWifi = 1,
@@ -93,11 +94,17 @@ private:
     void renderWifiScanPage(m5epd_update_mode_t mode);
     void renderPasswordPage(m5epd_update_mode_t mode);
     void renderClockPage(bool full_refresh);
+    void renderClassicClockPage(bool full_refresh);
+    void renderDashboardClockPage(bool full_refresh);
     void updateClockPage();
     void updateTimeCanvas(bool full_refresh);
     void updateInfoCanvas(bool full_refresh);
     void updateDateCanvas(bool full_refresh);
     void updateBatteryCanvas(bool full_refresh);
+    void updateDashboardCalendarCanvas(bool full_refresh);
+    void updateDashboardTimeCanvas(bool full_refresh);
+    void updateDashboardSummaryCanvas(bool full_refresh);
+    void updateDashboardClimateCanvas(bool full_refresh);
     void updatePasswordFieldCanvas(m5epd_update_mode_t mode);
     void updatePasswordStatusCanvas(m5epd_update_mode_t mode);
     void updateSettingsStatusCanvas(m5epd_update_mode_t mode);
@@ -127,6 +134,8 @@ private:
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
     void refreshCurrentPage();
+    void cycleClockStyle(int delta);
+    bool usesDashboardClockStyle() const;
 
     void autoConnectIfNeeded();
     void scanWiFi();
@@ -162,6 +171,10 @@ private:
     M5EPD_Canvas comfort_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_calendar_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_time_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_summary_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_climate_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};
     M5EPD_Canvas password_status_canvas_ {&M5.EPD};
     std::array<M5EPD_Canvas, 4> time_digit_canvases_ {};
@@ -187,6 +200,7 @@ private:
     bool first_settings_render_ = true;
     bool touch_down_ = false;
     bool center_button_long_press_handled_ = false;
+    ClockStyle clock_style_ = ClockStyle::Classic;
 
     uint32_t last_sensor_read_ms_ = 0;
     uint32_t last_clock_tick_ms_ = 0;

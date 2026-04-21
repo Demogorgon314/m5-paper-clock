@@ -17,6 +17,7 @@ AppSettings SettingsStore::load() const {
     settings.password = preferences_.getString("password", "");
     settings.timezone = preferences_.getChar("timezone", settings.timezone);
     settings.time_synced = preferences_.getBool("time_synced", false);
+    settings.clock_style = preferences_.getUChar("clock_style", settings.clock_style);
     return settings;
 }
 
@@ -28,6 +29,7 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("password", settings.password);
     preferences_.putChar("timezone", settings.timezone);
     preferences_.putBool("time_synced", settings.time_synced);
+    preferences_.putUChar("clock_style", settings.clock_style);
 }
 
 void SettingsStore::saveWifi(const String& ssid, const String& password) {
@@ -50,4 +52,11 @@ void SettingsStore::saveTimeSynced(bool time_synced) {
         return;
     }
     preferences_.putBool("time_synced", time_synced);
+}
+
+void SettingsStore::saveClockStyle(uint8_t clock_style) {
+    if (!started_) {
+        return;
+    }
+    preferences_.putUChar("clock_style", clock_style);
 }
