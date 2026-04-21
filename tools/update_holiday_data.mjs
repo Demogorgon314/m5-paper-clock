@@ -32,50 +32,86 @@ async function fetchYear(year) {
   return response.json();
 }
 
-function pickHolidayStarts(dataset) {
-  const starts = new Map();
+function nextIsoDate(isoDate) {
+  const [year, month, day] = isoDate.split("-").map((value) => Number.parseInt(value, 10));
+  const value = new Date(Date.UTC(year, month - 1, day));
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function pickHolidayPeriods(dataset) {
+  const periods = [];
+  let active = null;
+
   for (const day of dataset.days ?? []) {
-    if (!day?.isOffDay) {
+    const id = holidayIdByName.get(day?.name);
+    const isHolidayOffDay = Boolean(id && day?.isOffDay);
+    if (!isHolidayOffDay) {
+      if (active) {
+        periods.push(active);
+        active = null;
+      }
       continue;
     }
-    const id = holidayIdByName.get(day.name);
-    if (!id || starts.has(day.name)) {
+
+    if (active &&
+        active.name === day.name &&
+        nextIsoDate(active.end) === day.date) {
+      active.end = day.date;
+      active.total_days += 1;
       continue;
     }
-    starts.set(day.name, {
+
+    if (active) {
+      periods.push(active);
+    }
+    active = {
       id,
       name: day.name,
-      date: day.date,
-    });
+      start: day.date,
+      end: day.date,
+      total_days: 1,
+    };
   }
-  return [...starts.values()];
+
+  if (active) {
+    periods.push(active);
+  }
+  return periods;
 }
 
 const datasets = await Promise.all(years.map(fetchYear));
 const papers = [];
-const entries = [];
+const periods = [];
 for (const dataset of datasets) {
   for (const paper of dataset.papers ?? []) {
     if (!papers.includes(paper)) {
       papers.push(paper);
     }
   }
-  for (const holiday of pickHolidayStarts(dataset)) {
-    entries.push(holiday);
+  for (const holidayPeriod of pickHolidayPeriods(dataset)) {
+    periods.push(holidayPeriod);
   }
 }
 
-entries.sort((left, right) => left.date.localeCompare(right.date));
+periods.sort((left, right) => left.start.localeCompare(right.start));
 const maxKnownYear = years.reduce((max, value) => Math.max(max, value), 0);
 const nextNewYearDate = `${maxKnownYear + 1}-01-01`;
-if (!entries.some((entry) => entry.date === nextNewYearDate)) {
-  entries.push({
+if (!periods.some((period) => period.start === nextNewYearDate)) {
+  periods.push({
     id: "HolidayId::YuanDan",
     name: "元旦",
-    date: nextNewYearDate,
+    start: nextNewYearDate,
+    end: nextNewYearDate,
+    total_days: 1,
   });
 }
-entries.sort((left, right) => left.date.localeCompare(right.date));
+periods.sort((left, right) => left.start.localeCompare(right.start));
+const entries = periods.map((period) => ({
+  id: period.id,
+  name: period.name,
+  date: period.start,
+}));
 
 const body = `#pragma once
 
@@ -89,7 +125,15 @@ ${entries.map((entry) => {
   return `    HolidayEntry(${entry.id}, ${year}, ${month}, ${day}),  // ${entry.name} ${entry.date}`;
 }).join("\n")}
 };
+
+static const HolidayPeriod kHolidayPeriods[] = {
+${periods.map((period) => {
+  const [startYear, startMonth, startDay] = period.start.split("-").map((value) => Number.parseInt(value, 10));
+  const [endYear, endMonth, endDay] = period.end.split("-").map((value) => Number.parseInt(value, 10));
+  return `    HolidayPeriod(${period.id}, ${startYear}, ${startMonth}, ${startDay}, ${endYear}, ${endMonth}, ${endDay}, ${period.total_days}),  // ${period.name} ${period.start}..${period.end}`;
+}).join("\n")}
+};
 `;
 
 writeFileSync(outPath, body);
-console.log(`Wrote ${entries.length} holiday entries to ${outPath}`);
+console.log(`Wrote ${entries.length} holiday entries and ${periods.length} holiday periods to ${outPath}`);

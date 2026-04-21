@@ -92,6 +92,54 @@ void test_next_holiday_countdown() {
     TEST_ASSERT_EQUAL(10, countdown.days_remaining);
 }
 
+const logic::HolidayPeriod* find_holiday_period(logic::HolidayId id,
+                                                int start_year) {
+    for (const logic::HolidayPeriod& period : logic::kHolidayPeriods) {
+        if (period.id == id && period.start_year == start_year) {
+            return &period;
+        }
+    }
+    return nullptr;
+}
+
+void test_holiday_display_in_holiday() {
+    const logic::HolidayPeriod* period =
+        find_holiday_period(logic::HolidayId::LaoDong, 2026);
+
+    TEST_ASSERT_NOT_NULL(period);
+    const logic::HolidayDisplay display = logic::HolidayDisplayForDate(
+        period->start_year, period->start_month, period->start_day);
+
+    if (period->total_days > 1) {
+        TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayDisplayState::InHoliday),
+                          static_cast<int>(display.state));
+        TEST_ASSERT_EQUAL(1, display.holiday_day_index);
+        TEST_ASSERT_EQUAL(period->total_days, display.holiday_total_days);
+    } else {
+        TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayDisplayState::LastDay),
+                          static_cast<int>(display.state));
+    }
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::LaoDong),
+                      static_cast<int>(display.id));
+}
+
+void test_holiday_display_last_day() {
+    const logic::HolidayPeriod* period =
+        find_holiday_period(logic::HolidayId::LaoDong, 2026);
+
+    TEST_ASSERT_NOT_NULL(period);
+    const logic::HolidayDisplay display =
+        logic::HolidayDisplayForDate(period->end_year, period->end_month,
+                                     period->end_day);
+
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayDisplayState::LastDay),
+                      static_cast<int>(display.state));
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::LaoDong),
+                      static_cast<int>(display.id));
+    TEST_ASSERT_EQUAL(period->total_days, display.holiday_total_days);
+    TEST_ASSERT_EQUAL(period->total_days, display.holiday_day_index);
+}
+
 void test_next_holiday_skips_current_holiday_start() {
     const logic::HolidayCountdown countdown =
         logic::NextHolidayCountdown(2026, 5, 1);
@@ -138,6 +186,8 @@ int main() {
     RUN_TEST(test_parse_tencent_quote);
     RUN_TEST(test_parse_tencent_quote_with_trade_details);
     RUN_TEST(test_next_holiday_countdown);
+    RUN_TEST(test_holiday_display_in_holiday);
+    RUN_TEST(test_holiday_display_last_day);
     RUN_TEST(test_next_holiday_skips_current_holiday_start);
     RUN_TEST(test_next_holiday_falls_back_to_next_new_year);
     return UNITY_END();

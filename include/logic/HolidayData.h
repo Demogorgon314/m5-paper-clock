@@ -14,3 +14,14 @@ static const HolidayEntry kHolidayEntries[] = {
     HolidayEntry(HolidayId::GuoQing, 2026, 10, 1),  // 国庆节 2026-10-01
     HolidayEntry(HolidayId::YuanDan, 2028, 1, 1),  // 元旦 2028-01-01
 };
+
+static const HolidayPeriod kHolidayPeriods[] = {
+    HolidayPeriod(HolidayId::YuanDan, 2026, 1, 1, 2026, 1, 3, 3),  // 元旦 2026-01-01..2026-01-03
+    HolidayPeriod(HolidayId::ChunJie, 2026, 2, 15, 2026, 2, 23, 9),  // 春节 2026-02-15..2026-02-23
+    HolidayPeriod(HolidayId::QingMing, 2026, 4, 4, 2026, 4, 6, 3),  // 清明节 2026-04-04..2026-04-06
+    HolidayPeriod(HolidayId::LaoDong, 2026, 5, 1, 2026, 5, 5, 5),  // 劳动节 2026-05-01..2026-05-05
+    HolidayPeriod(HolidayId::DuanWu, 2026, 6, 19, 2026, 6, 21, 3),  // 端午节 2026-06-19..2026-06-21
+    HolidayPeriod(HolidayId::ZhongQiu, 2026, 9, 25, 2026, 9, 27, 3),  // 中秋节 2026-09-25..2026-09-27
+    HolidayPeriod(HolidayId::GuoQing, 2026, 10, 1, 2026, 10, 7, 7),  // 国庆节 2026-10-01..2026-10-07
+    HolidayPeriod(HolidayId::YuanDan, 2028, 1, 1, 2028, 1, 1, 1),  // 元旦 2028-01-01..2028-01-01
+};

@@ -52,6 +52,7 @@ constexpr int16_t kDateH = 44;
 constexpr int16_t kDateWeekdayGap = 24;
 constexpr int16_t kDateCountdownGap = 18;
 constexpr int16_t kDateCountdownNumberGap = 4;
+constexpr int16_t kDateHolidayProgressGap = 10;
 constexpr int16_t kBatteryX = 792;
 constexpr int16_t kBatteryY = 20;
 constexpr int16_t kBatteryW = 152;
@@ -238,14 +239,17 @@ String formatDateOnly(const rtc_date_t& date) {
     return String(buf);
 }
 
-String formatHolidayCountdownSignature(const logic::HolidayCountdown& countdown) {
-    if (!countdown.valid) {
+String formatHolidayDisplaySignature(const logic::HolidayDisplay& display) {
+    if (!display.valid()) {
         return String("");
     }
 
-    char buf[24];
-    snprintf(buf, sizeof(buf), "%u:%d",
-             static_cast<unsigned>(countdown.id), countdown.days_remaining);
+    char buf[40];
+    snprintf(buf, sizeof(buf), "%u:%u:%d:%u:%u",
+             static_cast<unsigned>(display.state),
+             static_cast<unsigned>(display.id), display.days_remaining,
+             static_cast<unsigned>(display.holiday_day_index),
+             static_cast<unsigned>(display.holiday_total_days));
     return String(buf);
 }
 
@@ -348,31 +352,109 @@ void drawBitmapCrop(M5EPD_Canvas& canvas, const WeekdayBitmap& bitmap,
     }
 }
 
-void drawHolidayCountdown(M5EPD_Canvas& canvas, int16_t start_x,
-                          const logic::HolidayCountdown& countdown) {
-    if (!countdown.valid || countdown.id == logic::HolidayId::None) {
-        return;
+int16_t measureHolidayDisplayWidth(M5EPD_Canvas& canvas,
+                                   const logic::HolidayDisplay& display,
+                                   bool show_progress) {
+    if (!display.valid() || display.id == logic::HolidayId::None) {
+        return 0;
     }
 
-    const HolidayCountdownBitmap& label =
-        holidayCountdownLabelBitmap(countdown.id);
-    const HolidayCountdownBitmap& suffix = holidayCountdownDaySuffixBitmap();
-    const int16_t label_y = (kDateH - label.height) / 2;
-    canvas.pushImage(start_x, label_y, label.width, label.height, label.data);
+    canvas.setTextSize(2);
+    switch (display.state) {
+        case logic::HolidayDisplayState::Countdown: {
+            const HolidayBannerBitmap& label =
+                holidayCountdownLabelBitmap(display.id);
+            const HolidayBannerBitmap& suffix =
+                holidayCountdownDaySuffixBitmap();
+            return label.width + 6 +
+                   canvas.textWidth(String(display.days_remaining)) +
+                   kDateCountdownNumberGap + suffix.width;
+        }
+        case logic::HolidayDisplayState::InHoliday: {
+            const HolidayBannerBitmap& label =
+                holidayActiveLabelBitmap(display.id);
+            if (!show_progress) {
+                return label.width;
+            }
+            const String progress_text = String(display.holiday_day_index) +
+                                         "/" +
+                                         String(display.holiday_total_days);
+            return label.width + kDateHolidayProgressGap +
+                   canvas.textWidth(progress_text);
+        }
+        case logic::HolidayDisplayState::LastDay: {
+            const HolidayBannerBitmap& label =
+                holidayLastDayLabelBitmap(display.id);
+            return label.width;
+        }
+        case logic::HolidayDisplayState::None:
+        default:
+            return 0;
+    }
+}
+
+void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
+                        const logic::HolidayDisplay& display,
+                        bool show_progress) {
+    if (!display.valid() || display.id == logic::HolidayId::None) {
+        return;
+    }
 
     canvas.setTextDatum(CL_DATUM);
     canvas.setTextColor(kText);
     canvas.setTextSize(2);
-    const String days_text = String(countdown.days_remaining);
-    const int16_t number_x = start_x + label.width + 6;
-    const int16_t number_y = kDateH / 2;
-    canvas.drawString(days_text, number_x, number_y);
+    switch (display.state) {
+        case logic::HolidayDisplayState::Countdown: {
+            const HolidayBannerBitmap& label =
+                holidayCountdownLabelBitmap(display.id);
+            const HolidayBannerBitmap& suffix =
+                holidayCountdownDaySuffixBitmap();
+            const int16_t label_y = (kDateH - label.height) / 2;
+            canvas.pushImage(start_x, label_y, label.width, label.height,
+                             label.data);
 
-    const int16_t days_width = canvas.textWidth(days_text);
-    const int16_t suffix_x = number_x + days_width + kDateCountdownNumberGap;
-    const int16_t suffix_y = (kDateH - suffix.height) / 2;
-    canvas.pushImage(suffix_x, suffix_y, suffix.width, suffix.height,
-                     suffix.data);
+            const String days_text = String(display.days_remaining);
+            const int16_t number_x = start_x + label.width + 6;
+            const int16_t number_y = kDateH / 2;
+            canvas.drawString(days_text, number_x, number_y);
+
+            const int16_t days_width = canvas.textWidth(days_text);
+            const int16_t suffix_x =
+                number_x + days_width + kDateCountdownNumberGap;
+            const int16_t suffix_y = (kDateH - suffix.height) / 2;
+            canvas.pushImage(suffix_x, suffix_y, suffix.width, suffix.height,
+                             suffix.data);
+            break;
+        }
+        case logic::HolidayDisplayState::InHoliday: {
+            const HolidayBannerBitmap& label =
+                holidayActiveLabelBitmap(display.id);
+            const int16_t label_y = (kDateH - label.height) / 2;
+            canvas.pushImage(start_x, label_y, label.width, label.height,
+                             label.data);
+            if (show_progress) {
+                const String progress_text = String(display.holiday_day_index) +
+                                             "/" +
+                                             String(display.holiday_total_days);
+                canvas.drawString(progress_text,
+                                  start_x + label.width +
+                                      kDateHolidayProgressGap,
+                                  kDateH / 2);
+            }
+            break;
+        }
+        case logic::HolidayDisplayState::LastDay: {
+            const HolidayBannerBitmap& label =
+                holidayLastDayLabelBitmap(display.id);
+            const int16_t label_y = (kDateH - label.height) / 2;
+            canvas.pushImage(start_x, label_y, label.width, label.height,
+                             label.data);
+            break;
+        }
+        case logic::HolidayDisplayState::None:
+        default:
+            break;
+    }
 }
 
 PartialRegion makePartialRegion(int16_t x, int16_t y) {
@@ -875,7 +957,7 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
-    last_holiday_countdown_rendered_ = "";
+    last_holiday_display_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
     last_wifi_connected_ = false;
@@ -904,7 +986,7 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
-    last_holiday_countdown_rendered_ = "";
+    last_holiday_display_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
     last_wifi_connected_ = false;
@@ -1118,12 +1200,13 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
 
     const String date_text = formatDateOnly(current_date);
     const uint8_t week = calculateWeekday(current_date);
-    const logic::HolidayCountdown countdown = logic::NextHolidayCountdown(
+    const logic::HolidayDisplay holiday_display = logic::HolidayDisplayForDate(
         current_date.year, current_date.mon, current_date.day);
-    const String holiday_signature = formatHolidayCountdownSignature(countdown);
+    const String holiday_signature =
+        formatHolidayDisplaySignature(holiday_display);
     if (date_text == last_date_text_rendered_ &&
         week == last_weekday_rendered_ &&
-        holiday_signature == last_holiday_countdown_rendered_) {
+        holiday_signature == last_holiday_display_rendered_) {
         return;
     }
 
@@ -1143,19 +1226,22 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
                                weekday.height, weekday.data);
     }
 
-    if (countdown.valid) {
-        date_canvas_.setTextSize(2);
-        const HolidayCountdownBitmap& label =
-            holidayCountdownLabelBitmap(countdown.id);
-        const HolidayCountdownBitmap& suffix =
-            holidayCountdownDaySuffixBitmap();
-        const String days_text = String(countdown.days_remaining);
-        const int16_t countdown_width = label.width + 6 +
-                                        date_canvas_.textWidth(days_text) +
-                                        kDateCountdownNumberGap + suffix.width;
-        const int16_t countdown_x = weekday_x + weekday.width + kDateCountdownGap;
-        if (countdown_x + countdown_width <= kDateW) {
-            drawHolidayCountdown(date_canvas_, countdown_x, countdown);
+    if (holiday_display.valid()) {
+        const int16_t countdown_x =
+            weekday_x + weekday.width + kDateCountdownGap;
+        bool show_progress =
+            holiday_display.state == logic::HolidayDisplayState::InHoliday;
+        int16_t holiday_width =
+            measureHolidayDisplayWidth(date_canvas_, holiday_display,
+                                       show_progress);
+        if (show_progress && countdown_x + holiday_width > kDateW) {
+            show_progress = false;
+            holiday_width = measureHolidayDisplayWidth(date_canvas_,
+                                                       holiday_display, false);
+        }
+        if (countdown_x + holiday_width <= kDateW) {
+            drawHolidayDisplay(date_canvas_, countdown_x, holiday_display,
+                               show_progress);
         }
     }
     date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
@@ -1167,7 +1253,7 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         ++partial_refresh_count_;
     }
     last_date_text_rendered_ = date_text;
-    last_holiday_countdown_rendered_ = holiday_signature;
+    last_holiday_display_rendered_ = holiday_signature;
     last_weekday_rendered_ = week;
 }
 

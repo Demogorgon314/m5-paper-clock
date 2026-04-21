@@ -11,7 +11,7 @@ const fontPath = process.env.HOLIDAY_BITMAP_FONT ||
   "/System/Library/Fonts/STHeiti Medium.ttc";
 const pointSize = process.env.HOLIDAY_BITMAP_POINT_SIZE || "30";
 
-const labels = [
+const countdownLabels = [
   { key: "YuanDan", text: "距 元旦 还有" },
   { key: "ChunJie", text: "距 春节 还有" },
   { key: "QingMing", text: "距 清明节 还有" },
@@ -19,6 +19,29 @@ const labels = [
   { key: "DuanWu", text: "距 端午节 还有" },
   { key: "ZhongQiu", text: "距 中秋节 还有" },
   { key: "GuoQing", text: "距 国庆节 还有" },
+];
+
+const activeLabels = [
+  { key: "YuanDan", text: "元旦假期中" },
+  { key: "ChunJie", text: "春节假期中" },
+  { key: "QingMing", text: "清明节假期中" },
+  { key: "LaoDong", text: "劳动节假期中" },
+  { key: "DuanWu", text: "端午节假期中" },
+  { key: "ZhongQiu", text: "中秋节假期中" },
+  { key: "GuoQing", text: "国庆节假期中" },
+];
+
+const lastDayLabels = [
+  { key: "YuanDan", text: "元旦最后一天" },
+  { key: "ChunJie", text: "春节最后一天" },
+  { key: "QingMing", text: "清明节最后一天" },
+  { key: "LaoDong", text: "劳动节最后一天" },
+  { key: "DuanWu", text: "端午节最后一天" },
+  { key: "ZhongQiu", text: "中秋节最后一天" },
+  { key: "GuoQing", text: "国庆节最后一天" },
+];
+
+const singleLabels = [
   { key: "DaySuffix", text: "天" },
 ];
 
@@ -51,6 +74,7 @@ function renderLabel(label) {
     "-depth", "8",
     `gray:${rawPath}`,
   ]);
+
   const raw = readFileSync(rawPath);
   const rowBytes = Math.ceil(width / 2);
   const packed = Buffer.alloc(rowBytes * height);
@@ -66,6 +90,7 @@ function renderLabel(label) {
       }
     }
   }
+
   return { ...label, width, height, packed };
 }
 
@@ -74,6 +99,7 @@ function bytesToLines(buffer) {
   for (const value of buffer.values()) {
     parts.push(`0x${value.toString(16).padStart(2, "0")}`);
   }
+
   const lines = [];
   for (let index = 0; index < parts.length; index += 12) {
     lines.push(`    ${parts.slice(index, index + 12).join(", ")},`);
@@ -81,30 +107,23 @@ function bytesToLines(buffer) {
   return lines.join("\n");
 }
 
-const rendered = labels.map(renderLabel);
+function renderLabelArray(labels) {
+  return labels.map(renderLabel);
+}
 
-const body = `#pragma once
+function buildBitmapArrays(prefix, rendered) {
+  return rendered.map((label) => `static const uint8_t ${prefix}${label.key}[] = {\n${bytesToLines(label.packed)}\n};`).join("\n\n");
+}
 
-#include <stdint.h>
-
-#include "logic/HolidayLogic.h"
-
-struct HolidayCountdownBitmap {
-    uint16_t width;
-    uint16_t height;
-    const uint8_t* data;
-};
-
-${rendered.map((label) => `static const uint8_t kHolidayCountdownBitmap${label.key}[] = {\n${bytesToLines(label.packed)}\n};`).join("\n\n")}
-
-inline const HolidayCountdownBitmap& holidayCountdownLabelBitmap(logic::HolidayId id) {
-    static const HolidayCountdownBitmap kYuanDan = {${rendered[0].width}, ${rendered[0].height}, kHolidayCountdownBitmapYuanDan};
-    static const HolidayCountdownBitmap kChunJie = {${rendered[1].width}, ${rendered[1].height}, kHolidayCountdownBitmapChunJie};
-    static const HolidayCountdownBitmap kQingMing = {${rendered[2].width}, ${rendered[2].height}, kHolidayCountdownBitmapQingMing};
-    static const HolidayCountdownBitmap kLaoDong = {${rendered[3].width}, ${rendered[3].height}, kHolidayCountdownBitmapLaoDong};
-    static const HolidayCountdownBitmap kDuanWu = {${rendered[4].width}, ${rendered[4].height}, kHolidayCountdownBitmapDuanWu};
-    static const HolidayCountdownBitmap kZhongQiu = {${rendered[5].width}, ${rendered[5].height}, kHolidayCountdownBitmapZhongQiu};
-    static const HolidayCountdownBitmap kGuoQing = {${rendered[6].width}, ${rendered[6].height}, kHolidayCountdownBitmapGuoQing};
+function buildHolidayBitmapFunction(functionName, prefix, rendered) {
+  return `inline const HolidayBannerBitmap& ${functionName}(logic::HolidayId id) {
+    static const HolidayBannerBitmap kYuanDan = {${rendered[0].width}, ${rendered[0].height}, ${prefix}YuanDan};
+    static const HolidayBannerBitmap kChunJie = {${rendered[1].width}, ${rendered[1].height}, ${prefix}ChunJie};
+    static const HolidayBannerBitmap kQingMing = {${rendered[2].width}, ${rendered[2].height}, ${prefix}QingMing};
+    static const HolidayBannerBitmap kLaoDong = {${rendered[3].width}, ${rendered[3].height}, ${prefix}LaoDong};
+    static const HolidayBannerBitmap kDuanWu = {${rendered[4].width}, ${rendered[4].height}, ${prefix}DuanWu};
+    static const HolidayBannerBitmap kZhongQiu = {${rendered[5].width}, ${rendered[5].height}, ${prefix}ZhongQiu};
+    static const HolidayBannerBitmap kGuoQing = {${rendered[6].width}, ${rendered[6].height}, ${prefix}GuoQing};
     switch (id) {
         case logic::HolidayId::YuanDan:
             return kYuanDan;
@@ -123,12 +142,48 @@ inline const HolidayCountdownBitmap& holidayCountdownLabelBitmap(logic::HolidayI
         default:
             return kGuoQing;
     }
+}`;
 }
 
-inline const HolidayCountdownBitmap& holidayCountdownDaySuffixBitmap() {
-    static const HolidayCountdownBitmap kDaySuffix = {${rendered[7].width}, ${rendered[7].height}, kHolidayCountdownBitmapDaySuffix};
-    return kDaySuffix;
+function buildSingleBitmapFunction(functionName, prefix, rendered) {
+  return `inline const HolidayBannerBitmap& ${functionName}() {
+    static const HolidayBannerBitmap kBitmap = {${rendered[0].width}, ${rendered[0].height}, ${prefix}${rendered[0].key}};
+    return kBitmap;
+}`;
 }
+
+const renderedCountdown = renderLabelArray(countdownLabels);
+const renderedActive = renderLabelArray(activeLabels);
+const renderedLastDay = renderLabelArray(lastDayLabels);
+const renderedSingle = renderLabelArray(singleLabels);
+
+const body = `#pragma once
+
+#include <stdint.h>
+
+#include "logic/HolidayLogic.h"
+
+struct HolidayBannerBitmap {
+    uint16_t width;
+    uint16_t height;
+    const uint8_t* data;
+};
+
+${buildBitmapArrays("kHolidayBannerBitmapCountdown", renderedCountdown)}
+
+${buildBitmapArrays("kHolidayBannerBitmapActive", renderedActive)}
+
+${buildBitmapArrays("kHolidayBannerBitmapLastDay", renderedLastDay)}
+
+${buildBitmapArrays("kHolidayBannerBitmap", renderedSingle)}
+
+${buildHolidayBitmapFunction("holidayCountdownLabelBitmap", "kHolidayBannerBitmapCountdown", renderedCountdown)}
+
+${buildHolidayBitmapFunction("holidayActiveLabelBitmap", "kHolidayBannerBitmapActive", renderedActive)}
+
+${buildHolidayBitmapFunction("holidayLastDayLabelBitmap", "kHolidayBannerBitmapLastDay", renderedLastDay)}
+
+${buildSingleBitmapFunction("holidayCountdownDaySuffixBitmap", "kHolidayBannerBitmap", renderedSingle)}
 `;
 
 writeFileSync(outPath, body);

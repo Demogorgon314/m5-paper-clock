@@ -27,6 +27,10 @@ the M5EPD Arduino library.
 
 ## Build
 
+Builds automatically refresh holiday data and top-line Chinese bitmap assets for
+the current year and next year before compilation. Set
+`HOLIDAY_ASSET_YEARS="2026 2027"` to override the default year range.
+
 ```bash
 /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire
 ```
