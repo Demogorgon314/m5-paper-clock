@@ -107,6 +107,17 @@ constexpr int16_t kTemperatureDegreeDrawX =
     (kInfoX + kTemperatureDegreeX) - kTemperatureCanvasX;
 constexpr int16_t kTemperatureUnitDrawX =
     (kInfoX + kTemperatureUnitX) - kTemperatureCanvasX;
+constexpr int16_t kComfortCanvasX = alignDownTo4(kInfoX + 520);
+constexpr int16_t kComfortCanvasY = kInfoY;
+constexpr int16_t kComfortCanvasW =
+    alignUpTo4((kInfoX + kInfoCanvasW) - kComfortCanvasX);
+constexpr int16_t kComfortCanvasH = kInfoCanvasH;
+constexpr int16_t kComfortFaceDrawX = (kInfoX + 640) - kComfortCanvasX;
+constexpr int16_t kComfortFaceDrawY = 58;
+constexpr float kComfortMinTemperature = 19.0f;
+constexpr float kComfortMaxTemperature = 27.0f;
+constexpr float kComfortMinHumidity = 20.0f;
+constexpr float kComfortMaxHumidity = 85.0f;
 
 struct PartialRegion {
     int16_t update_x = 0;
@@ -289,6 +300,65 @@ void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
     canvas.drawString("o", kTemperatureDegreeDrawX, 44);
 }
 
+bool isComfortable(const EnvironmentReading& reading) {
+    if (!reading.valid) {
+        return false;
+    }
+
+    return reading.temperature >= kComfortMinTemperature &&
+           reading.temperature <= kComfortMaxTemperature &&
+           reading.humidity >= kComfortMinHumidity &&
+           reading.humidity <= kComfortMaxHumidity;
+}
+
+String comfortFace(const EnvironmentReading& reading) {
+    if (!reading.valid) {
+        return String("(-_-)");
+    }
+
+    if (isComfortable(reading)) {
+        return String("(^_^)");
+    }
+    return String("(-^-)");
+}
+
+void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
+                       const String& face, uint8_t color) {
+    canvas.setTextDatum(CC_DATUM);
+    canvas.setTextColor(color);
+    canvas.setTextSize(6);
+    canvas.drawString("(", center_x - 78, center_y);
+    canvas.drawString(")", center_x + 78, center_y);
+
+    if (face == "(^_^)") {
+        canvas.setTextSize(4);
+        canvas.drawString("^", center_x - 30, center_y - 16);
+        canvas.drawString("^", center_x + 30, center_y - 16);
+        canvas.setTextSize(5);
+        canvas.drawString("_", center_x, center_y + 18);
+        return;
+    }
+
+    if (face == "(-^-)") {
+        canvas.setTextSize(5);
+        canvas.drawString("-", center_x - 34, center_y - 12);
+        canvas.drawString("-", center_x + 34, center_y - 12);
+        canvas.setTextSize(4);
+        canvas.drawString("^", center_x, center_y + 12);
+        return;
+    }
+
+    canvas.setTextSize(5);
+    canvas.drawString("-", center_x - 34, center_y - 12);
+    canvas.drawString("-", center_x + 34, center_y - 12);
+    canvas.drawString("_", center_x, center_y + 18);
+}
+
+void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
+    canvas.fillCanvas(kWhite);
+    drawComfortInfoAt(canvas, kComfortFaceDrawX, kComfortFaceDrawY, face, color);
+}
+
 m5epd_update_mode_t nextPartialMode(uint8_t& count) {
     if (++count >= kPartialCleanInterval) {
         count = 0;
@@ -364,6 +434,8 @@ void ClockApp::createCanvases() {
     humidity_canvas_.useFreetypeFont(false);
     temperature_canvas_.createCanvas(kTemperatureCanvasW, kTemperatureCanvasH);
     temperature_canvas_.useFreetypeFont(false);
+    comfort_canvas_.createCanvas(kComfortCanvasW, kComfortCanvasH);
+    comfort_canvas_.useFreetypeFont(false);
     date_canvas_.createCanvas(kDateW, kDateH);
     date_canvas_.useFreetypeFont(false);
     battery_canvas_.createCanvas(kBatteryW, kBatteryH);
@@ -520,6 +592,7 @@ void ClockApp::renderClockPage(bool full_refresh) {
     last_time_text_rendered_ = "";
     last_humidity_text_rendered_ = "";
     last_temperature_text_rendered_ = "";
+    last_comfort_face_rendered_ = "";
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
@@ -623,6 +696,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
     const String humidity_text = formatHumidityField(last_environment_);
     const String temperature_text = formatTemperatureField(last_environment_);
+    const String comfort_face = comfortFace(last_environment_);
 
     if (full_refresh) {
         info_canvas_.fillCanvas(kWhite);
@@ -646,8 +720,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
         info_canvas_.setTextDatum(CC_DATUM);
         info_canvas_.setTextColor(kText);
-        info_canvas_.setTextSize(5);
-        info_canvas_.drawString("(^_^)", 640, 58);
+        drawComfortInfoAt(info_canvas_, 640, 58, comfort_face, kText);
 
         info_canvas_.pushCanvas(kInfoX, kInfoY, UPDATE_MODE_NONE);
         M5.EPD.UpdateArea(kInfoX, kInfoY, info_canvas_.width(),
@@ -655,6 +728,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         partial_refresh_count_ = 0;
         last_humidity_text_rendered_ = humidity_text;
         last_temperature_text_rendered_ = temperature_text;
+        last_comfort_face_rendered_ = comfort_face;
         humidity_digit_partial_counts_.fill(0);
         temperature_digit_partial_counts_.fill(0);
         return;
@@ -662,6 +736,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
     bool humidity_changed = humidity_text != last_humidity_text_rendered_;
     bool temperature_changed = temperature_text != last_temperature_text_rendered_;
+    bool comfort_changed = comfort_face != last_comfort_face_rendered_;
 
     if (humidity_changed) {
         drawHumidityInfo(renderer_, humidity_canvas_, humidity_text, kText,
@@ -686,8 +761,18 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         ++partial_refresh_count_;
         temperature_digit_partial_counts_.fill(0);
     }
+    if (comfort_changed) {
+        drawComfortInfo(comfort_canvas_, comfort_face, kText);
+        comfort_canvas_.pushCanvas(kComfortCanvasX, kComfortCanvasY,
+                                   UPDATE_MODE_NONE);
+        M5.EPD.UpdateArea(kComfortCanvasX, kComfortCanvasY,
+                          comfort_canvas_.width(), comfort_canvas_.height(),
+                          UPDATE_MODE_GC16);
+        ++partial_refresh_count_;
+    }
     last_humidity_text_rendered_ = humidity_text;
     last_temperature_text_rendered_ = temperature_text;
+    last_comfort_face_rendered_ = comfort_face;
 }
 
 void ClockApp::updateDateCanvas(bool full_refresh) {

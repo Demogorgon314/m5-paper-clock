@@ -159,6 +159,7 @@ private:
     M5EPD_Canvas info_canvas_ {&M5.EPD};
     M5EPD_Canvas humidity_canvas_ {&M5.EPD};
     M5EPD_Canvas temperature_canvas_ {&M5.EPD};
+    M5EPD_Canvas comfort_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};
@@ -195,6 +196,7 @@ private:
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;
     String last_temperature_text_rendered_;
+    String last_comfort_face_rendered_;
     String last_date_text_rendered_;
     uint8_t last_weekday_rendered_ = 255;
     uint8_t last_battery_percentage_ = 255;
