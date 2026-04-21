@@ -549,11 +549,19 @@ uint8_t wifiSignalLevelFromRssi(int32_t rssi) {
     return 1;
 }
 
+uint8_t wifiBitmapLevel(uint8_t signal_level) {
+    if (signal_level >= 3) {
+        return 3;
+    }
+    if (signal_level >= 2) {
+        return 2;
+    }
+    return 1;
+}
+
 void drawWifiStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x, int16_t origin_y,
                         bool connected, uint8_t signal_level) {
-    const uint8_t bitmap_level =
-        signal_level >= 3 ? 3 : (signal_level >= 2 ? 2 : 1);
-    const WifiBitmap& bitmap = wifiBitmapForLevel(bitmap_level);
+    const WifiBitmap& bitmap = wifiBitmapForLevel(wifiBitmapLevel(signal_level));
     canvas.pushImage(origin_x, origin_y, bitmap.width, bitmap.height, bitmap.data);
 
     if (connected) {
@@ -1099,8 +1107,10 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
 void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const uint8_t battery = batteryPercentage();
     const bool wifi_connected = connectivity_.isConnected();
-    const uint8_t wifi_signal_level =
-        wifi_connected ? wifiSignalLevelFromRssi(WiFi.RSSI()) : 0;
+    const uint8_t wifi_signal_level = wifi_connected
+                                          ? wifiBitmapLevel(
+                                                wifiSignalLevelFromRssi(WiFi.RSSI()))
+                                          : 1;
     if (!full_refresh && battery == last_battery_percentage_ &&
         wifi_connected == last_wifi_connected_ &&
         wifi_signal_level == last_wifi_signal_level_) {
