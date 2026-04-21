@@ -30,6 +30,8 @@ constexpr uint8_t kAccentText = 13;
 constexpr uint32_t kClockSensorIntervalMs = 15000;
 constexpr uint32_t kDashboardMarketIntervalMs = 60000;
 constexpr uint32_t kCenterButtonLongPressMs = 1500;
+constexpr uint32_t kBackgroundReconnectTimeoutMs = 4000;
+constexpr uint32_t kBackgroundTimeSyncTimeoutMs = 3000;
 constexpr uint16_t kHeaderHeight = 60;
 constexpr int16_t kPasswordFieldX = 28;
 constexpr int16_t kPasswordFieldY = 156;
@@ -726,6 +728,7 @@ void ClockApp::loop() {
     M5.update();
     handleHardwareButtons();
     handleTouch();
+    handleBackgroundConnectivity();
 
     if (current_page_ == PageId::Settings) {
         autoConnectIfNeeded();
@@ -2051,9 +2054,99 @@ void ClockApp::switchPage(PageId page, bool force_full_refresh) {
 void ClockApp::refreshCurrentPage() {
     if (current_page_ == PageId::Clock) {
         renderClockPage(true);
+        startBackgroundReconnect();
         return;
     }
     renderPage(UPDATE_MODE_GC16, true);
+}
+
+void ClockApp::startBackgroundReconnect() {
+    if (current_page_ != PageId::Clock || settings_.ssid.isEmpty() ||
+        connectivity_.isConnected() ||
+        background_connectivity_task_ != BackgroundConnectivityTask::Idle) {
+        return;
+    }
+
+    const ConnectivityService::AsyncConnectState state =
+        connectivity_.beginConnectAsync(settings_.ssid, settings_.password,
+                                        kBackgroundReconnectTimeoutMs);
+    if (state == ConnectivityService::AsyncConnectState::InProgress) {
+        background_connectivity_task_ = BackgroundConnectivityTask::Reconnecting;
+        return;
+    }
+
+    if (state == ConnectivityService::AsyncConnectState::Succeeded) {
+        background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
+        updateBatteryCanvas(false);
+        if (usesDashboardClockStyle()) {
+            refreshMarketQuote(true);
+            updateDashboardSummaryCanvas(false);
+        }
+        connectivity_.beginTimeSyncAsync(settings_.timezone,
+                                         kBackgroundTimeSyncTimeoutMs);
+    }
+}
+
+void ClockApp::handleBackgroundConnectivity() {
+    if (background_connectivity_task_ == BackgroundConnectivityTask::Idle) {
+        return;
+    }
+
+    if (background_connectivity_task_ == BackgroundConnectivityTask::Reconnecting) {
+        const ConnectivityService::AsyncConnectState state =
+            connectivity_.pollConnectAsync();
+        if (state == ConnectivityService::AsyncConnectState::InProgress ||
+            state == ConnectivityService::AsyncConnectState::Idle) {
+            return;
+        }
+
+        if (state == ConnectivityService::AsyncConnectState::Failed) {
+            background_connectivity_task_ = BackgroundConnectivityTask::Idle;
+            connectivity_.cancelConnectAsync();
+            return;
+        }
+
+        connectivity_.cancelConnectAsync();
+        background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
+        if (current_page_ == PageId::Clock) {
+            updateBatteryCanvas(false);
+            if (usesDashboardClockStyle()) {
+                refreshMarketQuote(true);
+                updateDashboardSummaryCanvas(false);
+            }
+        }
+        connectivity_.beginTimeSyncAsync(settings_.timezone,
+                                         kBackgroundTimeSyncTimeoutMs);
+        return;
+    }
+
+    const ConnectivityService::AsyncTimeSyncState sync_state =
+        connectivity_.pollTimeSyncAsync();
+    if (sync_state == ConnectivityService::AsyncTimeSyncState::InProgress ||
+        sync_state == ConnectivityService::AsyncTimeSyncState::Idle) {
+        return;
+    }
+
+    connectivity_.cancelTimeSyncAsync();
+    background_connectivity_task_ = BackgroundConnectivityTask::Idle;
+
+    if (sync_state != ConnectivityService::AsyncTimeSyncState::Succeeded) {
+        return;
+    }
+
+    settings_.time_synced = true;
+    store_.saveTimeSynced(true);
+    last_time_ = {};
+    last_date_ = {};
+    if (current_page_ == PageId::Clock) {
+        updateClockPage();
+    }
+}
+
+void ClockApp::cancelBackgroundConnectivity() {
+    background_connectivity_task_ = BackgroundConnectivityTask::Idle;
+    connectivity_.cancelConnectAsync();
+    connectivity_.cancelTimeSyncAsync();
 }
 
 void ClockApp::cycleClockStyle(int delta) {
@@ -2102,6 +2195,7 @@ void ClockApp::autoConnectIfNeeded() {
 }
 
 void ClockApp::scanWiFi() {
+    cancelBackgroundConnectivity();
     status_message_ = "Scanning Wi-Fi...";
     status_error_ = false;
     renderPage(UPDATE_MODE_GL16);
@@ -2175,6 +2269,7 @@ bool ClockApp::trySyncTime(bool allow_connect) {
 }
 
 void ClockApp::connectSelectedNetwork() {
+    cancelBackgroundConnectivity();
     if (selected_ssid_.isEmpty()) {
         status_message_ = "Choose a Wi-Fi network";
         status_error_ = true;

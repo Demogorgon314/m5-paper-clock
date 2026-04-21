@@ -20,6 +20,11 @@ public:
 private:
     enum class PageId { Settings, WifiScan, Password, Clock };
     enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
+    enum class BackgroundConnectivityTask : uint8_t {
+        Idle = 0,
+        Reconnecting,
+        SyncingTime,
+    };
 
     enum ButtonId {
         kButtonWifi = 1,
@@ -138,6 +143,9 @@ private:
     void refreshCurrentPage();
     void cycleClockStyle(int delta);
     bool usesDashboardClockStyle() const;
+    void startBackgroundReconnect();
+    void handleBackgroundConnectivity();
+    void cancelBackgroundConnectivity();
 
     void autoConnectIfNeeded();
     void scanWiFi();
@@ -205,6 +213,8 @@ private:
     bool touch_down_ = false;
     bool center_button_long_press_handled_ = false;
     ClockStyle clock_style_ = ClockStyle::Classic;
+    BackgroundConnectivityTask background_connectivity_task_ =
+        BackgroundConnectivityTask::Idle;
 
     uint32_t last_sensor_read_ms_ = 0;
     uint32_t last_market_fetch_ms_ = 0;
