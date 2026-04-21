@@ -69,9 +69,12 @@ constexpr int16_t kSmallDigitHeight = 96;
 constexpr int16_t kSmallGap = 8;
 constexpr int16_t kInfoDigitY = 6;
 constexpr int16_t kHumidityUnitX = 226;
+constexpr int16_t kHumidityUnitY = 72;
 constexpr int16_t kTemperatureDotX = 404;
 constexpr int16_t kTemperatureDegreeX = 480;
+constexpr int16_t kTemperatureDegreeY = 62;
 constexpr int16_t kTemperatureUnitX = 495;
+constexpr int16_t kTemperatureUnitY = 72;
 constexpr int16_t kTimeDigitXs[] = {7, 181, 429, 603};
 constexpr int16_t kHumidityDigitXs[] = {40, 102, 164};
 constexpr int16_t kTemperatureDigitXs[] = {280, 342, 422};
@@ -280,7 +283,7 @@ void drawHumidityInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                       body_color, edge_color);
     canvas.setTextColor(body_color);
     canvas.setTextSize(3);
-    canvas.drawString("%", kHumidityUnitDrawX, 54);
+    canvas.drawString("%", kHumidityUnitDrawX, kHumidityUnitY);
 }
 
 void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
@@ -295,9 +298,9 @@ void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                       body_color, edge_color);
     canvas.setTextColor(body_color);
     canvas.setTextSize(3);
-    canvas.drawString(" C", kTemperatureUnitDrawX, 54);
+    canvas.drawString(" C", kTemperatureUnitDrawX, kTemperatureUnitY);
     canvas.setTextSize(2);
-    canvas.drawString("o", kTemperatureDegreeDrawX, 44);
+    canvas.drawString("o", kTemperatureDegreeDrawX, kTemperatureDegreeY);
 }
 
 bool isComfortable(const EnvironmentReading& reading) {
@@ -706,7 +709,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                            kSmallGap, kText, kMutedText);
         info_canvas_.setTextColor(kText);
         info_canvas_.setTextSize(3);
-        info_canvas_.drawString("%", kHumidityUnitX, 54);
+        info_canvas_.drawString("%", kHumidityUnitX, kHumidityUnitY);
 
         const String temperature_display = temperature_text.substring(0, 2) +
                                            "." + temperature_text.substring(2);
@@ -714,9 +717,9 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                            temperature_display, kSmallDigitWidth,
                            kSmallDigitHeight, kSmallGap, kText, kMutedText);
         info_canvas_.setTextColor(kText);
-        info_canvas_.drawString(" C", kTemperatureUnitX, 54);
+        info_canvas_.drawString(" C", kTemperatureUnitX, kTemperatureUnitY);
         info_canvas_.setTextSize(2);
-        info_canvas_.drawString("o", kTemperatureDegreeX, 44);
+        info_canvas_.drawString("o", kTemperatureDegreeX, kTemperatureDegreeY);
 
         info_canvas_.setTextDatum(CC_DATUM);
         info_canvas_.setTextColor(kText);
