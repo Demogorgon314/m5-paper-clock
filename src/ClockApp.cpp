@@ -3,6 +3,7 @@
 #include <WiFi.h>
 
 #include "logic/UiLogic.h"
+#include "resources/wifi_bitmaps.h"
 #include "resources/weekday_bitmaps.h"
 
 namespace {
@@ -418,6 +419,22 @@ String comfortFace(const EnvironmentReading& reading) {
 
 void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
                        const String& face, uint8_t color) {
+    const auto drawCaret = [&](int16_t x, int16_t bottom_y, int16_t half_w,
+                               int16_t rise, int16_t thickness) {
+        for (int16_t offset = 0; offset < thickness; ++offset) {
+            canvas.drawLine(x - half_w, bottom_y + offset, x,
+                            bottom_y - rise + offset, color);
+            canvas.drawLine(x + half_w, bottom_y + offset, x,
+                            bottom_y - rise + offset, color);
+        }
+    };
+    const auto drawDash = [&](int16_t x, int16_t y, int16_t half_w,
+                              int16_t thickness) {
+        for (int16_t offset = 0; offset < thickness; ++offset) {
+            canvas.drawFastHLine(x - half_w, y + offset, half_w * 2 + 1, color);
+        }
+    };
+
     canvas.setTextDatum(CC_DATUM);
     canvas.setTextColor(color);
     canvas.setTextSize(6);
@@ -425,27 +442,22 @@ void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
     canvas.drawString(")", center_x + 78, center_y);
 
     if (face == "(^_^)") {
-        canvas.setTextSize(4);
-        canvas.drawString("^", center_x - 30, center_y - 16);
-        canvas.drawString("^", center_x + 30, center_y - 16);
-        canvas.setTextSize(5);
-        canvas.drawString("_", center_x, center_y + 18);
+        drawCaret(center_x - 30, center_y - 2, 10, 12, 2);
+        drawCaret(center_x + 30, center_y - 2, 10, 12, 2);
+        drawDash(center_x, center_y + 18, 12, 2);
         return;
     }
 
     if (face == "(-^-)") {
-        canvas.setTextSize(5);
-        canvas.drawString("-", center_x - 34, center_y - 12);
-        canvas.drawString("-", center_x + 34, center_y - 12);
-        canvas.setTextSize(4);
-        canvas.drawString("^", center_x, center_y + 12);
+        drawDash(center_x - 34, center_y - 8, 10, 2);
+        drawDash(center_x + 34, center_y - 8, 10, 2);
+        drawCaret(center_x, center_y + 14, 9, 10, 2);
         return;
     }
 
-    canvas.setTextSize(5);
-    canvas.drawString("-", center_x - 34, center_y - 12);
-    canvas.drawString("-", center_x + 34, center_y - 12);
-    canvas.drawString("_", center_x, center_y + 18);
+    drawDash(center_x - 34, center_y - 8, 10, 2);
+    drawDash(center_x + 34, center_y - 8, 10, 2);
+    drawDash(center_x, center_y + 18, 12, 2);
 }
 
 void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
@@ -456,6 +468,22 @@ void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
 void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
                               int16_t center_y, const String& face,
                               uint8_t color) {
+    const auto drawCaret = [&](int16_t x, int16_t bottom_y, int16_t half_w,
+                               int16_t rise, int16_t thickness) {
+        for (int16_t offset = 0; offset < thickness; ++offset) {
+            canvas.drawLine(x - half_w, bottom_y + offset, x,
+                            bottom_y - rise + offset, color);
+            canvas.drawLine(x + half_w, bottom_y + offset, x,
+                            bottom_y - rise + offset, color);
+        }
+    };
+    const auto drawDash = [&](int16_t x, int16_t y, int16_t half_w,
+                              int16_t thickness) {
+        for (int16_t offset = 0; offset < thickness; ++offset) {
+            canvas.drawFastHLine(x - half_w, y + offset, half_w * 2 + 1, color);
+        }
+    };
+
     canvas.setTextDatum(CC_DATUM);
     canvas.setTextColor(color);
     canvas.setTextSize(4);
@@ -463,27 +491,52 @@ void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
     canvas.drawString(")", center_x + 40, center_y);
 
     if (face == "(^_^)") {
-        canvas.setTextSize(3);
-        canvas.drawString("^", center_x - 18, center_y - 10);
-        canvas.drawString("^", center_x + 18, center_y - 10);
-        canvas.setTextSize(4);
-        canvas.drawString("_", center_x, center_y + 12);
+        drawCaret(center_x - 18, center_y - 2, 6, 7, 2);
+        drawCaret(center_x + 18, center_y - 2, 6, 7, 2);
+        drawDash(center_x, center_y + 10, 7, 2);
         return;
     }
 
     if (face == "(-^-)") {
-        canvas.setTextSize(3);
-        canvas.drawString("-", center_x - 20, center_y - 8);
-        canvas.drawString("-", center_x + 20, center_y - 8);
-        canvas.drawString("^", center_x, center_y + 18);
+        drawDash(center_x - 20, center_y - 5, 6, 2);
+        drawDash(center_x + 20, center_y - 5, 6, 2);
+        drawCaret(center_x, center_y + 9, 6, 7, 2);
         return;
     }
 
-    canvas.setTextSize(3);
-    canvas.drawString("-", center_x - 20, center_y - 8);
-    canvas.drawString("-", center_x + 20, center_y - 8);
-    canvas.setTextSize(4);
-    canvas.drawString("_", center_x, center_y + 12);
+    drawDash(center_x - 20, center_y - 5, 6, 2);
+    drawDash(center_x + 20, center_y - 5, 6, 2);
+    drawDash(center_x, center_y + 10, 7, 2);
+}
+
+uint8_t wifiSignalLevelFromRssi(int32_t rssi) {
+    if (rssi >= -55) {
+        return 4;
+    }
+    if (rssi >= -67) {
+        return 3;
+    }
+    if (rssi >= -75) {
+        return 2;
+    }
+    return 1;
+}
+
+void drawWifiStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x, int16_t origin_y,
+                        bool connected, uint8_t signal_level) {
+    const uint8_t bitmap_level =
+        signal_level >= 3 ? 3 : (signal_level >= 2 ? 2 : 1);
+    const WifiBitmap& bitmap = wifiBitmapForLevel(bitmap_level);
+    canvas.pushImage(origin_x, origin_y, bitmap.width, bitmap.height, bitmap.data);
+
+    if (connected) {
+        return;
+    }
+
+    canvas.drawLine(origin_x + 5, origin_y + 26, origin_x + 26, origin_y + 5,
+                    kText);
+    canvas.drawLine(origin_x + 6, origin_y + 26, origin_x + 27, origin_y + 5,
+                    kText);
 }
 
 m5epd_update_mode_t nextPartialMode(uint8_t& count) {
@@ -745,6 +798,8 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
+    last_wifi_connected_ = false;
+    last_wifi_signal_level_ = 255;
     time_digit_partial_counts_.fill(0);
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
@@ -771,6 +826,8 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
+    last_wifi_connected_ = false;
+    last_wifi_signal_level_ = 255;
     time_digit_partial_counts_.fill(0);
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
@@ -1014,7 +1071,12 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
 
 void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const uint8_t battery = batteryPercentage();
-    if (!full_refresh && battery == last_battery_percentage_) {
+    const bool wifi_connected = connectivity_.isConnected();
+    const uint8_t wifi_signal_level =
+        wifi_connected ? wifiSignalLevelFromRssi(WiFi.RSSI()) : 0;
+    if (!full_refresh && battery == last_battery_percentage_ &&
+        wifi_connected == last_wifi_connected_ &&
+        wifi_signal_level == last_wifi_signal_level_) {
         return;
     }
     char battery_label[8];
@@ -1034,12 +1096,21 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const int16_t inner_w = body_w - 6;
     const int16_t inner_h = body_h - 6;
     const int16_t fill_w = (battery * inner_w) / 100;
+    const int16_t label_right = body_x - 10;
 
     battery_canvas_.fillCanvas(kWhite);
     battery_canvas_.setTextColor(kText);
     battery_canvas_.setTextSize(2);
     battery_canvas_.setTextDatum(CR_DATUM);
-    battery_canvas_.drawString(String(battery_label), body_x - 10, kBatteryH / 2);
+    const int16_t label_width = battery_canvas_.textWidth(String(battery_label));
+    const int16_t wifi_gap = 8;
+    const int16_t wifi_size = 32;
+    const int16_t wifi_x = label_right - label_width - wifi_gap - wifi_size;
+    const int16_t wifi_y = 6;
+    battery_canvas_.drawString(String(battery_label), label_right,
+                               kBatteryH / 2);
+    drawWifiStatusIcon(battery_canvas_, wifi_x, wifi_y, wifi_connected,
+                       wifi_signal_level);
     battery_canvas_.drawRoundRect(body_x, body_y, body_w, body_h, 3, kText);
     battery_canvas_.fillRect(cap_x, cap_y, cap_w, cap_h, kText);
     if (fill_w > 0) {
@@ -1058,6 +1129,8 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
         ++battery_partial_count_;
     }
     last_battery_percentage_ = battery;
+    last_wifi_connected_ = wifi_connected;
+    last_wifi_signal_level_ = wifi_signal_level;
 }
 
 void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
