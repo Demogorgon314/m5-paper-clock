@@ -31,6 +31,23 @@ the M5EPD Arduino library.
 /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire
 ```
 
+## Update Holiday Assets
+
+Refresh the embedded holiday table and the Chinese bitmap labels used by the
+top countdown line:
+
+```bash
+node tools/update_holiday_assets.mjs 2026 2027
+```
+
+Optional environment variables:
+
+```bash
+HOLIDAY_BITMAP_FONT="/System/Library/Fonts/STHeiti Medium.ttc" \
+HOLIDAY_BITMAP_POINT_SIZE=30 \
+node tools/update_holiday_assets.mjs 2026 2027
+```
+
 ## Test
 
 ```bash

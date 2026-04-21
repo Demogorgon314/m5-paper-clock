@@ -217,6 +217,7 @@ private:
     String last_comfort_face_rendered_;
     String last_market_summary_rendered_;
     String last_date_text_rendered_;
+    String last_holiday_countdown_rendered_;
     uint8_t last_weekday_rendered_ = 255;
     uint8_t last_battery_percentage_ = 255;
     bool last_wifi_connected_ = false;

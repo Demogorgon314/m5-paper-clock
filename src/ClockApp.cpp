@@ -2,7 +2,9 @@
 
 #include <WiFi.h>
 
+#include "logic/HolidayLogic.h"
 #include "logic/UiLogic.h"
+#include "resources/holiday_countdown_bitmaps.h"
 #include "resources/wifi_bitmaps.h"
 #include "resources/weekday_bitmaps.h"
 
@@ -45,8 +47,11 @@ constexpr int16_t kTimeX = 100;
 constexpr int16_t kTimeY = 72;
 constexpr int16_t kDateX = 24;
 constexpr int16_t kDateY = 20;
-constexpr int16_t kDateW = 520;
+constexpr int16_t kDateW = 640;
 constexpr int16_t kDateH = 44;
+constexpr int16_t kDateWeekdayGap = 24;
+constexpr int16_t kDateCountdownGap = 18;
+constexpr int16_t kDateCountdownNumberGap = 4;
 constexpr int16_t kBatteryX = 792;
 constexpr int16_t kBatteryY = 20;
 constexpr int16_t kBatteryW = 152;
@@ -233,6 +238,17 @@ String formatDateOnly(const rtc_date_t& date) {
     return String(buf);
 }
 
+String formatHolidayCountdownSignature(const logic::HolidayCountdown& countdown) {
+    if (!countdown.valid) {
+        return String("");
+    }
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%u:%d",
+             static_cast<unsigned>(countdown.id), countdown.days_remaining);
+    return String(buf);
+}
+
 uint8_t calculateWeekday(const rtc_date_t& date) {
     if (date.mon < 1 || date.mon > 12 || date.day < 1 || date.day > 31) {
         return 0;
@@ -330,6 +346,33 @@ void drawBitmapCrop(M5EPD_Canvas& canvas, const WeekdayBitmap& bitmap,
             }
         }
     }
+}
+
+void drawHolidayCountdown(M5EPD_Canvas& canvas, int16_t start_x,
+                          const logic::HolidayCountdown& countdown) {
+    if (!countdown.valid || countdown.id == logic::HolidayId::None) {
+        return;
+    }
+
+    const HolidayCountdownBitmap& label =
+        holidayCountdownLabelBitmap(countdown.id);
+    const HolidayCountdownBitmap& suffix = holidayCountdownDaySuffixBitmap();
+    const int16_t label_y = (kDateH - label.height) / 2;
+    canvas.pushImage(start_x, label_y, label.width, label.height, label.data);
+
+    canvas.setTextDatum(CL_DATUM);
+    canvas.setTextColor(kText);
+    canvas.setTextSize(2);
+    const String days_text = String(countdown.days_remaining);
+    const int16_t number_x = start_x + label.width + 6;
+    const int16_t number_y = kDateH / 2;
+    canvas.drawString(days_text, number_x, number_y);
+
+    const int16_t days_width = canvas.textWidth(days_text);
+    const int16_t suffix_x = number_x + days_width + kDateCountdownNumberGap;
+    const int16_t suffix_y = (kDateH - suffix.height) / 2;
+    canvas.pushImage(suffix_x, suffix_y, suffix.width, suffix.height,
+                     suffix.data);
 }
 
 PartialRegion makePartialRegion(int16_t x, int16_t y) {
@@ -832,6 +875,7 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
+    last_holiday_countdown_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
     last_wifi_connected_ = false;
@@ -860,6 +904,7 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
+    last_holiday_countdown_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
     last_wifi_connected_ = false;
@@ -1073,7 +1118,12 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
 
     const String date_text = formatDateOnly(current_date);
     const uint8_t week = calculateWeekday(current_date);
-    if (date_text == last_date_text_rendered_ && week == last_weekday_rendered_) {
+    const logic::HolidayCountdown countdown = logic::NextHolidayCountdown(
+        current_date.year, current_date.mon, current_date.day);
+    const String holiday_signature = formatHolidayCountdownSignature(countdown);
+    if (date_text == last_date_text_rendered_ &&
+        week == last_weekday_rendered_ &&
+        holiday_signature == last_holiday_countdown_rendered_) {
         return;
     }
 
@@ -1086,11 +1136,27 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     date_canvas_.drawString(date_text, 0, kDateH / 2);
 
     const int16_t date_width = date_canvas_.textWidth(date_text);
-    const int16_t weekday_x = date_width + 24;
+    const int16_t weekday_x = date_width + kDateWeekdayGap;
     const int16_t weekday_y = (kDateH - weekday.height) / 2;
     if (!date_text.isEmpty() && weekday_x + weekday.width <= kDateW) {
         date_canvas_.pushImage(weekday_x, weekday_y, weekday.width,
                                weekday.height, weekday.data);
+    }
+
+    if (countdown.valid) {
+        date_canvas_.setTextSize(2);
+        const HolidayCountdownBitmap& label =
+            holidayCountdownLabelBitmap(countdown.id);
+        const HolidayCountdownBitmap& suffix =
+            holidayCountdownDaySuffixBitmap();
+        const String days_text = String(countdown.days_remaining);
+        const int16_t countdown_width = label.width + 6 +
+                                        date_canvas_.textWidth(days_text) +
+                                        kDateCountdownNumberGap + suffix.width;
+        const int16_t countdown_x = weekday_x + weekday.width + kDateCountdownGap;
+        if (countdown_x + countdown_width <= kDateW) {
+            drawHolidayCountdown(date_canvas_, countdown_x, countdown);
+        }
     }
     date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
@@ -1101,6 +1167,7 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         ++partial_refresh_count_;
     }
     last_date_text_rendered_ = date_text;
+    last_holiday_countdown_rendered_ = holiday_signature;
     last_weekday_rendered_ = week;
 }
 
