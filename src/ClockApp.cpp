@@ -3,6 +3,7 @@
 #include <WiFi.h>
 
 #include "logic/UiLogic.h"
+#include "resources/weekday_bitmaps.h"
 
 namespace {
 
@@ -30,14 +31,16 @@ constexpr int16_t kSettingsStatusX = 24;
 constexpr int16_t kSettingsStatusY = 86;
 constexpr int16_t kSettingsStatusW = 912;
 constexpr int16_t kSettingsStatusH = 132;
+constexpr int16_t kTimeX = 100;
+constexpr int16_t kTimeY = 72;
+constexpr int16_t kDateX = 24;
+constexpr int16_t kDateY = 20;
+constexpr int16_t kDateW = 520;
+constexpr int16_t kDateH = 44;
 constexpr int16_t kBatteryX = 896;
 constexpr int16_t kBatteryY = 24;
 constexpr int16_t kBatteryW = 48;
 constexpr int16_t kBatteryH = 32;
-constexpr int16_t kDateX = 704;
-constexpr int16_t kDateY = 500;
-constexpr int16_t kDateW = 232;
-constexpr int16_t kDateH = 28;
 
 String formatTwoDigits(int value) {
     char buf[8];
@@ -76,6 +79,26 @@ String formatDateOnly(const rtc_date_t& date) {
     char buf[24];
     snprintf(buf, sizeof(buf), "%04d-%02d-%02d", date.year, date.mon, date.day);
     return String(buf);
+}
+
+uint8_t calculateWeekday(const rtc_date_t& date) {
+    if (date.mon < 1 || date.mon > 12 || date.day < 1 || date.day > 31) {
+        return 0;
+    }
+
+    static constexpr int kMonthOffsets[] = {0, 3, 2, 5, 0, 3,
+                                             5, 1, 4, 6, 2, 4};
+    int year = date.year;
+    if (date.mon < 3) {
+        --year;
+    }
+    return static_cast<uint8_t>((year + year / 4 - year / 100 + year / 400 +
+                                 kMonthOffsets[date.mon - 1] + date.day) %
+                                7);
+}
+
+const WeekdayBitmap& weekdayBitmap(uint8_t week) {
+    return kWeekdayBitmaps[week % 7];
 }
 
 }  // namespace
@@ -134,12 +157,19 @@ void ClockApp::initializeHardware() {
 
 void ClockApp::createCanvases() {
     page_canvas_.createCanvas(kScreenWidth, kScreenHeight);
+    page_canvas_.useFreetypeFont(false);
     time_canvas_.createCanvas(760, 300);
+    time_canvas_.useFreetypeFont(false);
     info_canvas_.createCanvas(760, 120);
+    info_canvas_.useFreetypeFont(false);
     date_canvas_.createCanvas(kDateW, kDateH);
+    date_canvas_.useFreetypeFont(false);
     battery_canvas_.createCanvas(kBatteryW, kBatteryH);
+    battery_canvas_.useFreetypeFont(false);
     password_field_canvas_.createCanvas(kPasswordFieldW, kPasswordFieldH);
+    password_field_canvas_.useFreetypeFont(false);
     password_status_canvas_.createCanvas(kPasswordStatusW, kPasswordStatusH);
+    password_status_canvas_.useFreetypeFont(false);
 }
 
 void ClockApp::renderPage(m5epd_update_mode_t mode, bool force) {
@@ -323,13 +353,13 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
     renderer_.drawText(time_canvas_, start_x, 10, time_text, digit_width,
                        digit_height, gap, kText, kMutedText);
 
-    time_canvas_.pushCanvas(100, 24, UPDATE_MODE_NONE);
+    time_canvas_.pushCanvas(kTimeX, kTimeY, UPDATE_MODE_NONE);
     if (full_refresh) {
-        M5.EPD.UpdateArea(100, 24, time_canvas_.width(), time_canvas_.height(),
+        M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(), time_canvas_.height(),
                           UPDATE_MODE_GC16);
         partial_refresh_count_ = 0;
     } else {
-        M5.EPD.UpdateArea(100, 24, time_canvas_.width(), time_canvas_.height(),
+        M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(), time_canvas_.height(),
                           UPDATE_MODE_GL16);
         ++partial_refresh_count_;
     }
@@ -392,10 +422,22 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     M5.RTC.getDate(&current_date);
 
     date_canvas_.fillCanvas(kWhite);
-    date_canvas_.setTextDatum(TR_DATUM);
-    date_canvas_.setTextColor(kMutedText);
-    date_canvas_.setTextSize(2);
-    date_canvas_.drawString(formatDateOnly(current_date), kDateW - 8, kDateH / 2);
+    const String date_text = formatDateOnly(current_date);
+    const uint8_t week = calculateWeekday(current_date);
+    const WeekdayBitmap& weekday = weekdayBitmap(week);
+
+    date_canvas_.setTextDatum(CL_DATUM);
+    date_canvas_.setTextColor(kText);
+    date_canvas_.setTextSize(3);
+    date_canvas_.drawString(date_text, 0, kDateH / 2);
+
+    const int16_t date_width = date_canvas_.textWidth(date_text);
+    const int16_t weekday_x = date_width + 24;
+    const int16_t weekday_y = (kDateH - weekday.height) / 2;
+    if (!date_text.isEmpty() && weekday_x + weekday.width <= kDateW) {
+        date_canvas_.pushImage(weekday_x, weekday_y, weekday.width,
+                               weekday.height, weekday.data);
+    }
     date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
     if (full_refresh) {
@@ -471,6 +513,7 @@ void ClockApp::updatePasswordStatusCanvas(m5epd_update_mode_t mode) {
 void ClockApp::updateSettingsStatusCanvas(m5epd_update_mode_t mode) {
     M5EPD_Canvas settings_status_canvas(&M5.EPD);
     settings_status_canvas.createCanvas(kSettingsStatusW, kSettingsStatusH);
+    settings_status_canvas.useFreetypeFont(false);
     settings_status_canvas.fillCanvas(kWhite);
     drawSettingsStatusCard(settings_status_canvas, 0, 0);
     settings_status_canvas.pushCanvas(kSettingsStatusX, kSettingsStatusY,
@@ -497,6 +540,7 @@ void ClockApp::drawButton(M5EPD_Canvas& canvas, const Button& button, bool press
         return;
     }
 
+    canvas.useFreetypeFont(false);
     const uint8_t fill = pressed ? kPressedFill :
                          (button.primary ? kPrimaryFill : kWhite);
     const uint8_t border = button.enabled ? kBorder : 12;
@@ -518,6 +562,7 @@ void ClockApp::drawCard(const Rect& rect, uint8_t fill, uint8_t border) {
 
 void ClockApp::drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
                                       int16_t origin_y) {
+    canvas.useFreetypeFont(false);
     canvas.fillRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
                          kWhite);
     canvas.drawRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
@@ -579,6 +624,7 @@ void ClockApp::updateButtonCanvas(const Button& button, m5epd_update_mode_t mode
                                   bool pressed) {
     M5EPD_Canvas button_canvas(&M5.EPD);
     button_canvas.createCanvas(button.bounds.w, button.bounds.h);
+    button_canvas.useFreetypeFont(false);
     button_canvas.fillCanvas(kWhite);
     Button local_button = button;
     local_button.bounds.x = 0;
