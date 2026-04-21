@@ -26,7 +26,6 @@ constexpr uint8_t kPressedFill = 4;
 constexpr uint8_t kErrorText = 12;
 constexpr uint8_t kAccentText = 13;
 constexpr uint32_t kClockSensorIntervalMs = 15000;
-constexpr uint32_t kClockRefreshIntervalMs = 30000;
 constexpr uint32_t kDashboardMarketIntervalMs = 60000;
 constexpr uint32_t kCenterButtonLongPressMs = 1500;
 constexpr uint16_t kHeaderHeight = 60;
@@ -283,6 +282,20 @@ String formatDashboardSummaryDetail(const rtc_date_t& date) {
            String(daysInMonth(date.year, date.mon));
 }
 
+String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
+    if (quote.valid) {
+        return String("valid|") + quote.symbol + "|" + quote.price + "|" +
+               quote.change + "|" + quote.change_percent + "|" +
+               (quote.positive ? "1" : "0");
+    }
+
+    const String status_detail =
+        !quote.error_message.isEmpty()
+            ? quote.error_message
+            : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
+    return String("invalid|") + quote.symbol + "|" + status_detail;
+}
+
 String formatDashboardHumidity(const EnvironmentReading& reading) {
     if (!reading.valid) {
         return String("--");
@@ -419,18 +432,25 @@ String comfortFace(const EnvironmentReading& reading) {
 
 void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
                        const String& face, uint8_t color) {
+    const auto drawWideLine = [&](int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                                  int16_t thickness) {
+        const int16_t radius = thickness / 2;
+        for (int16_t offset = -radius; offset <= radius; ++offset) {
+            canvas.drawLine(x0, y0 + offset, x1, y1 + offset, color);
+            if (offset != 0) {
+                canvas.drawLine(x0 + offset, y0, x1 + offset, y1, color);
+            }
+        }
+    };
     const auto drawCaret = [&](int16_t x, int16_t bottom_y, int16_t half_w,
                                int16_t rise, int16_t thickness) {
-        for (int16_t offset = 0; offset < thickness; ++offset) {
-            canvas.drawLine(x - half_w, bottom_y + offset, x,
-                            bottom_y - rise + offset, color);
-            canvas.drawLine(x + half_w, bottom_y + offset, x,
-                            bottom_y - rise + offset, color);
-        }
+        drawWideLine(x - half_w, bottom_y, x, bottom_y - rise, thickness);
+        drawWideLine(x + half_w, bottom_y, x, bottom_y - rise, thickness);
     };
     const auto drawDash = [&](int16_t x, int16_t y, int16_t half_w,
                               int16_t thickness) {
-        for (int16_t offset = 0; offset < thickness; ++offset) {
+        const int16_t radius = thickness / 2;
+        for (int16_t offset = -radius; offset <= radius; ++offset) {
             canvas.drawFastHLine(x - half_w, y + offset, half_w * 2 + 1, color);
         }
     };
@@ -442,9 +462,9 @@ void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
     canvas.drawString(")", center_x + 78, center_y);
 
     if (face == "(^_^)") {
-        drawCaret(center_x - 30, center_y - 2, 10, 12, 2);
-        drawCaret(center_x + 30, center_y - 2, 10, 12, 2);
-        drawDash(center_x, center_y + 18, 12, 2);
+        drawCaret(center_x - 30, center_y - 2, 10, 12, 4);
+        drawCaret(center_x + 30, center_y - 2, 10, 12, 4);
+        drawDash(center_x, center_y + 18, 12, 4);
         return;
     }
 
@@ -468,18 +488,25 @@ void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
 void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
                               int16_t center_y, const String& face,
                               uint8_t color) {
+    const auto drawWideLine = [&](int16_t x0, int16_t y0, int16_t x1, int16_t y1,
+                                  int16_t thickness) {
+        const int16_t radius = thickness / 2;
+        for (int16_t offset = -radius; offset <= radius; ++offset) {
+            canvas.drawLine(x0, y0 + offset, x1, y1 + offset, color);
+            if (offset != 0) {
+                canvas.drawLine(x0 + offset, y0, x1 + offset, y1, color);
+            }
+        }
+    };
     const auto drawCaret = [&](int16_t x, int16_t bottom_y, int16_t half_w,
                                int16_t rise, int16_t thickness) {
-        for (int16_t offset = 0; offset < thickness; ++offset) {
-            canvas.drawLine(x - half_w, bottom_y + offset, x,
-                            bottom_y - rise + offset, color);
-            canvas.drawLine(x + half_w, bottom_y + offset, x,
-                            bottom_y - rise + offset, color);
-        }
+        drawWideLine(x - half_w, bottom_y, x, bottom_y - rise, thickness);
+        drawWideLine(x + half_w, bottom_y, x, bottom_y - rise, thickness);
     };
     const auto drawDash = [&](int16_t x, int16_t y, int16_t half_w,
                               int16_t thickness) {
-        for (int16_t offset = 0; offset < thickness; ++offset) {
+        const int16_t radius = thickness / 2;
+        for (int16_t offset = -radius; offset <= radius; ++offset) {
             canvas.drawFastHLine(x - half_w, y + offset, half_w * 2 + 1, color);
         }
     };
@@ -491,9 +518,9 @@ void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
     canvas.drawString(")", center_x + 40, center_y);
 
     if (face == "(^_^)") {
-        drawCaret(center_x - 18, center_y - 2, 6, 7, 2);
-        drawCaret(center_x + 18, center_y - 2, 6, 7, 2);
-        drawDash(center_x, center_y + 10, 7, 2);
+        drawCaret(center_x - 18, center_y - 2, 6, 7, 4);
+        drawCaret(center_x + 18, center_y - 2, 6, 7, 4);
+        drawDash(center_x, center_y + 10, 7, 4);
         return;
     }
 
@@ -795,6 +822,7 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     last_humidity_text_rendered_ = "";
     last_temperature_text_rendered_ = "";
     last_comfort_face_rendered_ = "";
+    last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
@@ -809,7 +837,6 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     updateBatteryCanvas(true);
     updateInfoCanvas(true);
     updateDateCanvas(true);
-    enter_clock_at_ms_ = millis();
     partial_refresh_count_ = 0;
 }
 
@@ -823,6 +850,7 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     last_humidity_text_rendered_ = "";
     last_temperature_text_rendered_ = "";
     last_comfort_face_rendered_ = "";
+    last_market_summary_rendered_ = "";
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
@@ -839,7 +867,6 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     updateDashboardTimeCanvas(true);
     updateDashboardSummaryCanvas(true);
     updateDashboardClimateCanvas(true);
-    enter_clock_at_ms_ = millis();
     partial_refresh_count_ = 0;
 }
 
@@ -859,8 +886,8 @@ void ClockApp::updateClockPage() {
     const bool time_for_market =
         millis() - last_market_fetch_ms_ > kDashboardMarketIntervalMs;
     const bool time_for_gc16 =
-        millis() - enter_clock_at_ms_ > kClockRefreshIntervalMs &&
-        partial_refresh_count_ >= 30;
+        minute_changed && current_time.min == 0 &&
+        (current_time.hour != last_time_.hour || date_changed);
 
     if (time_for_gc16) {
         renderClockPage(true);
@@ -1236,6 +1263,12 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
 
 void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
     refreshMarketQuote(full_refresh);
+    const bool wifi_connected = connectivity_.isConnected();
+    const String summary_signature =
+        marketSummarySignature(market_quote_, wifi_connected);
+    if (!full_refresh && summary_signature == last_market_summary_rendered_) {
+        return;
+    }
 
     dashboard_summary_canvas_.fillCanvas(kWhite);
     dashboard_summary_canvas_.drawRoundRect(0, 0, kDashboardSummaryW,
@@ -1302,8 +1335,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
         const String status_detail =
             !market_quote_.error_message.isEmpty()
                 ? market_quote_.error_message
-                : (connectivity_.isConnected() ? "Data unavailable"
-                                               : "Wi-Fi offline");
+                : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
         dashboard_summary_canvas_.drawString(status_detail, 16, 62);
     }
 
@@ -1315,6 +1347,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
     if (!full_refresh) {
         ++partial_refresh_count_;
     }
+    last_market_summary_rendered_ = summary_signature;
 }
 
 void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
@@ -1324,6 +1357,15 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
     const String humidity_text = formatDashboardHumidity(last_environment_);
     const String temperature_text = formatDashboardTemperature(last_environment_);
     const String comfort_face = comfortFace(last_environment_);
+    const bool humidity_changed = humidity_text != last_humidity_text_rendered_;
+    const bool temperature_changed =
+        temperature_text != last_temperature_text_rendered_;
+    const bool comfort_changed = comfort_face != last_comfort_face_rendered_;
+
+    if (!full_refresh && !humidity_changed && !temperature_changed &&
+        !comfort_changed) {
+        return;
+    }
 
     dashboard_climate_canvas_.fillCanvas(kWhite);
     dashboard_climate_canvas_.drawRoundRect(0, 0, kDashboardClimateW,

@@ -210,12 +210,12 @@ private:
     uint32_t last_market_fetch_ms_ = 0;
     uint32_t last_clock_tick_ms_ = 0;
     uint32_t partial_refresh_count_ = 0;
-    uint32_t enter_clock_at_ms_ = 0;
 
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;
     String last_temperature_text_rendered_;
     String last_comfort_face_rendered_;
+    String last_market_summary_rendered_;
     String last_date_text_rendered_;
     uint8_t last_weekday_rendered_ = 255;
     uint8_t last_battery_percentage_ = 255;
