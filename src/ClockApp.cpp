@@ -949,7 +949,6 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     (void)full_refresh;
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
-    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
 
     last_time_text_rendered_ = "";
     last_humidity_text_rendered_ = "";
@@ -971,6 +970,7 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     updateBatteryCanvas(true);
     updateInfoCanvas(true);
     updateDateCanvas(true);
+    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
     partial_refresh_count_ = 0;
 }
 
@@ -978,7 +978,6 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     (void)full_refresh;
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
-    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
 
     last_time_text_rendered_ = "";
     last_humidity_text_rendered_ = "";
@@ -1002,6 +1001,7 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     updateDashboardTimeCanvas(true);
     updateDashboardSummaryCanvas(true);
     updateDashboardClimateCanvas(true);
+    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
     partial_refresh_count_ = 0;
 }
 
@@ -1097,13 +1097,13 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
                        kTimeDigitWidth, kTimeDigitHeight, kTimeGap, kText,
                        kTimeEdgeText);
     time_canvas_.pushCanvas(kTimeX, kTimeY, UPDATE_MODE_NONE);
-    M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(),
-                      time_canvas_.height(), UPDATE_MODE_GC16);
 
     if (full_refresh) {
         partial_refresh_count_ = 0;
         time_digit_partial_counts_.fill(0);
     } else {
+        M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(),
+                          time_canvas_.height(), UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
@@ -1142,8 +1142,6 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         drawComfortInfoAt(info_canvas_, 640, 58, comfort_face, kText);
 
         info_canvas_.pushCanvas(kInfoX, kInfoY, UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kInfoX, kInfoY, info_canvas_.width(),
-                          info_canvas_.height(), UPDATE_MODE_GC16);
         partial_refresh_count_ = 0;
         last_humidity_text_rendered_ = humidity_text;
         last_temperature_text_rendered_ = temperature_text;
@@ -1246,9 +1244,7 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     }
     date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
-    if (full_refresh) {
-        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
-    } else {
+    if (!full_refresh) {
         M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
@@ -1309,8 +1305,6 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     battery_canvas_.pushCanvas(kBatteryX, kBatteryY, UPDATE_MODE_NONE);
 
     if (full_refresh) {
-        M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
-                          UPDATE_MODE_GC16);
         battery_partial_count_ = 0;
     } else {
         const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
@@ -1386,10 +1380,10 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
 
     dashboard_calendar_canvas_.pushCanvas(kDashboardCalendarX, kDashboardCalendarY,
                                           UPDATE_MODE_NONE);
-    M5.EPD.UpdateArea(kDashboardCalendarX, kDashboardCalendarY,
-                      kDashboardCalendarW, kDashboardCalendarH,
-                      UPDATE_MODE_GC16);
     if (!full_refresh) {
+        M5.EPD.UpdateArea(kDashboardCalendarX, kDashboardCalendarY,
+                          kDashboardCalendarW, kDashboardCalendarH,
+                          UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
 }
@@ -1416,9 +1410,9 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
                        kDashboardTimeGap, kText, kTimeEdgeText);
     dashboard_time_canvas_.pushCanvas(kDashboardTimeX, kDashboardTimeY,
                                       UPDATE_MODE_NONE);
-    M5.EPD.UpdateArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
-                      kDashboardTimeH, UPDATE_MODE_GC16);
     if (!full_refresh) {
+        M5.EPD.UpdateArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
+                          kDashboardTimeH, UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
@@ -1504,10 +1498,10 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
 
     dashboard_summary_canvas_.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
                                          UPDATE_MODE_NONE);
-    M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
-                      kDashboardSummaryW, kDashboardSummaryH,
-                      UPDATE_MODE_GC16);
     if (!full_refresh) {
+        M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
+                          kDashboardSummaryW, kDashboardSummaryH,
+                          UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
     last_market_summary_rendered_ = summary_signature;
@@ -1571,10 +1565,10 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
 
     dashboard_climate_canvas_.pushCanvas(kDashboardClimateX, kDashboardClimateY,
                                          UPDATE_MODE_NONE);
-    M5.EPD.UpdateArea(kDashboardClimateX, kDashboardClimateY,
-                      kDashboardClimateW, kDashboardClimateH,
-                      UPDATE_MODE_GC16);
     if (!full_refresh) {
+        M5.EPD.UpdateArea(kDashboardClimateX, kDashboardClimateY,
+                          kDashboardClimateW, kDashboardClimateH,
+                          UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
     last_humidity_text_rendered_ = humidity_text;
