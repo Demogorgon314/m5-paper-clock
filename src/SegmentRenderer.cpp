@@ -26,6 +26,9 @@ void SegmentRenderer::drawText(M5EPD_Canvas& canvas, int16_t x, int16_t y,
         if (ch >= '0' && ch <= '9') {
             drawDigit(canvas, cursor_x, y, ch, digit_width, digit_height,
                       body_color, edge_color);
+        } else if (ch == '-') {
+            drawMinus(canvas, cursor_x, y, digit_width, digit_height,
+                      body_color, edge_color);
         } else if (ch == ':') {
             drawColon(canvas, cursor_x, y, digit_width, digit_height,
                       body_color);
@@ -127,6 +130,25 @@ void SegmentRenderer::drawDot(M5EPD_Canvas& canvas, int16_t x, int16_t y,
     const int16_t radius = max<int16_t>(3, digit_width / 12);
     canvas.fillCircle(x + radius, y + digit_height - radius * 2, radius,
                       color);
+}
+
+void SegmentRenderer::drawMinus(M5EPD_Canvas& canvas, int16_t x, int16_t y,
+                                int16_t digit_width, int16_t digit_height,
+                                uint8_t body_color,
+                                uint8_t edge_color) const {
+    const int16_t thickness = max<int16_t>(6, digit_width / 7);
+    const int16_t slant = max<int16_t>(2, thickness / 2);
+    const int16_t inner_inset = max<int16_t>(2, thickness / 5);
+    const int16_t horizontal_length = digit_width - thickness;
+    const int16_t middle_y = y + (digit_height - thickness) / 2;
+    const int16_t top_x = x + thickness / 2;
+
+    drawHorizontalSegment(canvas, top_x, middle_y, horizontal_length, thickness,
+                          slant, edge_color);
+    drawHorizontalSegment(canvas, top_x + inner_inset, middle_y + inner_inset,
+                          horizontal_length - inner_inset * 2,
+                          thickness - inner_inset * 2,
+                          max<int16_t>(1, slant - inner_inset), body_color);
 }
 
 void SegmentRenderer::drawHorizontalSegment(M5EPD_Canvas& canvas, int16_t x,

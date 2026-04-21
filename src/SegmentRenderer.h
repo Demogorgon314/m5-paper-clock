@@ -21,6 +21,9 @@ private:
     void drawDot(M5EPD_Canvas& canvas, int16_t x, int16_t y,
                  int16_t digit_width, int16_t digit_height,
                  uint8_t color) const;
+    void drawMinus(M5EPD_Canvas& canvas, int16_t x, int16_t y,
+                   int16_t digit_width, int16_t digit_height,
+                   uint8_t body_color, uint8_t edge_color) const;
     void drawHorizontalSegment(M5EPD_Canvas& canvas, int16_t x, int16_t y,
                                int16_t length, int16_t thickness,
                                int16_t slant, uint8_t color) const;

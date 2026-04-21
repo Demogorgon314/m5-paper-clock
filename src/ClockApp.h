@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <M5EPD.h>
 
+#include <array>
 #include <vector>
 
 #include "ConnectivityService.h"
@@ -159,6 +160,9 @@ private:
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};
     M5EPD_Canvas password_status_canvas_ {&M5.EPD};
+    std::array<M5EPD_Canvas, 4> time_digit_canvases_ {};
+    std::array<M5EPD_Canvas, 3> humidity_digit_canvases_ {};
+    std::array<M5EPD_Canvas, 3> temperature_digit_canvases_ {};
 
     std::vector<Button> buttons_;
     std::vector<WiFiNetwork> wifi_networks_;
@@ -184,4 +188,11 @@ private:
     uint32_t last_clock_tick_ms_ = 0;
     uint32_t partial_refresh_count_ = 0;
     uint32_t enter_clock_at_ms_ = 0;
+
+    String last_time_text_rendered_;
+    String last_humidity_text_rendered_;
+    String last_temperature_text_rendered_;
+    String last_date_text_rendered_;
+    uint8_t last_weekday_rendered_ = 255;
+    uint8_t last_battery_percentage_ = 255;
 };
