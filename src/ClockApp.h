@@ -155,6 +155,7 @@ private:
 
     M5EPD_Canvas page_canvas_ {&M5.EPD};
     M5EPD_Canvas time_canvas_ {&M5.EPD};
+    M5EPD_Canvas minute_canvas_ {&M5.EPD};
     M5EPD_Canvas info_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
@@ -195,4 +196,8 @@ private:
     String last_date_text_rendered_;
     uint8_t last_weekday_rendered_ = 255;
     uint8_t last_battery_percentage_ = 255;
+    std::array<uint8_t, 4> time_digit_partial_counts_ {};
+    std::array<uint8_t, 3> humidity_digit_partial_counts_ {};
+    std::array<uint8_t, 3> temperature_digit_partial_counts_ {};
+    uint8_t battery_partial_count_ = 0;
 };

@@ -7,10 +7,19 @@
 
 namespace {
 
+constexpr int16_t alignDownTo4(int16_t value) {
+    return value & ~0x03;
+}
+
+constexpr int16_t alignUpTo4(int16_t value) {
+    return (value + 3) & ~0x03;
+}
+
 constexpr uint8_t kWhite = 0;
 constexpr uint8_t kBorder = 11;
 constexpr uint8_t kText = 15;
 constexpr uint8_t kMutedText = 8;
+constexpr uint8_t kTimeEdgeText = 8;
 constexpr uint8_t kPrimaryFill = 2;
 constexpr uint8_t kPressedFill = 4;
 constexpr uint8_t kErrorText = 12;
@@ -63,10 +72,27 @@ constexpr int16_t kHumidityUnitX = 226;
 constexpr int16_t kTemperatureDotX = 404;
 constexpr int16_t kTemperatureDegreeX = 480;
 constexpr int16_t kTemperatureUnitX = 495;
-
 constexpr int16_t kTimeDigitXs[] = {7, 181, 429, 603};
 constexpr int16_t kHumidityDigitXs[] = {40, 102, 164};
 constexpr int16_t kTemperatureDigitXs[] = {280, 342, 422};
+constexpr uint8_t kPartialCleanInterval = 4;
+constexpr int16_t kTimePartialCanvasW = alignUpTo4(kTimeDigitWidth + 3);
+constexpr int16_t kTimePartialCanvasH = alignUpTo4(kTimeDigitHeight + 3);
+constexpr int16_t kTimeMinuteCanvasX = alignDownTo4(kTimeX + kTimeColonX);
+constexpr int16_t kTimeMinuteCanvasY = kTimeY;
+constexpr int16_t kTimeMinuteCanvasW =
+    alignUpTo4((kTimeDigitXs[3] + kTimeDigitWidth) - kTimeColonX);
+constexpr int16_t kTimeMinuteCanvasH = 292;
+constexpr int16_t kTimeMinuteDrawX = (kTimeX + kTimeColonX) - kTimeMinuteCanvasX;
+constexpr int16_t kSmallPartialCanvasW = alignUpTo4(kSmallDigitWidth + 3);
+constexpr int16_t kSmallPartialCanvasH = alignUpTo4(kSmallDigitHeight + 3);
+
+struct PartialRegion {
+    int16_t update_x = 0;
+    int16_t update_y = 0;
+    int16_t draw_x = 0;
+    int16_t draw_y = 0;
+};
 
 String formatTwoDigits(int value) {
     char buf[8];
@@ -166,15 +192,58 @@ const WeekdayBitmap& weekdayBitmap(uint8_t week) {
     return kWeekdayBitmaps[week % 7];
 }
 
+PartialRegion makePartialRegion(int16_t x, int16_t y) {
+    const int16_t update_x = alignDownTo4(x);
+    const int16_t update_y = alignDownTo4(y);
+    PartialRegion region;
+    region.update_x = update_x;
+    region.update_y = update_y;
+    region.draw_x = x - update_x;
+    region.draw_y = y - update_y;
+    return region;
+}
+
+void drawSegmentCharAt(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
+                       int16_t x, int16_t y, char ch, int16_t width,
+                       int16_t height, uint8_t body_color,
+                       uint8_t edge_color) {
+    if (ch == ' ') {
+        return;
+    }
+    renderer.drawText(canvas, x, y, String(ch), width, height, 0, body_color,
+                      edge_color);
+}
+
 void drawSegmentChar(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                      char ch, int16_t width, int16_t height, uint8_t body_color,
                      uint8_t edge_color) {
     canvas.fillCanvas(kWhite);
-    if (ch == ' ') {
+    drawSegmentCharAt(renderer, canvas, 0, 0, ch, width, height, body_color,
+                      edge_color);
+}
+
+void drawMinuteTime(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
+                    const String& time_digits, uint8_t body_color,
+                    uint8_t edge_color) {
+    if (time_digits.length() != 4) {
         return;
     }
-    renderer.drawText(canvas, 0, 0, String(ch), width, height, 0, body_color,
+
+    const String minute_text = ":" + time_digits.substring(2);
+    canvas.fillCanvas(kWhite);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.setTextColor(body_color);
+    renderer.drawText(canvas, kTimeMinuteDrawX, kTimeDigitY, minute_text,
+                      kTimeDigitWidth, kTimeDigitHeight, kTimeGap, body_color,
                       edge_color);
+}
+
+m5epd_update_mode_t nextPartialMode(uint8_t& count) {
+    if (++count >= kPartialCleanInterval) {
+        count = 0;
+        return UPDATE_MODE_GC16;
+    }
+    return UPDATE_MODE_GL16;
 }
 
 }  // namespace
@@ -236,6 +305,8 @@ void ClockApp::createCanvases() {
     page_canvas_.useFreetypeFont(false);
     time_canvas_.createCanvas(kTimeCanvasW, kTimeCanvasH);
     time_canvas_.useFreetypeFont(false);
+    minute_canvas_.createCanvas(kTimeMinuteCanvasW, kTimeMinuteCanvasH);
+    minute_canvas_.useFreetypeFont(false);
     info_canvas_.createCanvas(kInfoCanvasW, kInfoCanvasH);
     info_canvas_.useFreetypeFont(false);
     date_canvas_.createCanvas(kDateW, kDateH);
@@ -249,17 +320,17 @@ void ClockApp::createCanvases() {
 
     for (M5EPD_Canvas& canvas : time_digit_canvases_) {
         canvas.setDriver(&M5.EPD);
-        canvas.createCanvas(kTimeDigitWidth, kTimeDigitHeight);
+        canvas.createCanvas(kTimePartialCanvasW, kTimePartialCanvasH);
         canvas.useFreetypeFont(false);
     }
     for (M5EPD_Canvas& canvas : humidity_digit_canvases_) {
         canvas.setDriver(&M5.EPD);
-        canvas.createCanvas(kSmallDigitWidth, kSmallDigitHeight);
+        canvas.createCanvas(kSmallPartialCanvasW, kSmallPartialCanvasH);
         canvas.useFreetypeFont(false);
     }
     for (M5EPD_Canvas& canvas : temperature_digit_canvases_) {
         canvas.setDriver(&M5.EPD);
-        canvas.createCanvas(kSmallDigitWidth, kSmallDigitHeight);
+        canvas.createCanvas(kSmallPartialCanvasW, kSmallPartialCanvasH);
         canvas.useFreetypeFont(false);
     }
 }
@@ -397,6 +468,10 @@ void ClockApp::renderClockPage(bool full_refresh) {
     last_date_text_rendered_ = "";
     last_weekday_rendered_ = 255;
     last_battery_percentage_ = 255;
+    time_digit_partial_counts_.fill(0);
+    humidity_digit_partial_counts_.fill(0);
+    temperature_digit_partial_counts_.fill(0);
+    battery_partial_count_ = 0;
 
     updateTimeCanvas(true);
     updateBatteryCanvas(true);
@@ -420,9 +495,16 @@ void ClockApp::updateClockPage() {
         millis() - enter_clock_at_ms_ > kClockRefreshIntervalMs &&
         partial_refresh_count_ >= 30;
 
-    if (minute_changed || time_for_gc16) {
-        updateTimeCanvas(time_for_gc16);
-        updateDateCanvas(time_for_gc16);
+    if (time_for_gc16) {
+        renderClockPage(true);
+        last_time_ = current_time;
+        last_date_ = current_date;
+        return;
+    }
+
+    if (minute_changed) {
+        updateTimeCanvas(false);
+        updateDateCanvas(false);
         last_time_ = current_time;
         last_date_ = current_date;
     }
@@ -441,40 +523,41 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
     M5.RTC.getTime(&current_time);
 
     const String time_digits = formatTimeDigits(current_time);
-    if (full_refresh || last_time_text_rendered_.length() != 4) {
-        const String time_text =
-            time_digits.substring(0, 2) + ":" + time_digits.substring(2);
-        time_canvas_.fillCanvas(kWhite);
-        renderer_.drawText(time_canvas_, kTimeDigitXs[0], kTimeDigitY, time_text,
-                           kTimeDigitWidth, kTimeDigitHeight, kTimeGap, kText,
-                           kMutedText);
-        time_canvas_.pushCanvas(kTimeX, kTimeY, UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(),
-                          time_canvas_.height(), UPDATE_MODE_GC16);
-        partial_refresh_count_ = 0;
+    if (!full_refresh && time_digits == last_time_text_rendered_) {
+        return;
+    }
+
+    const bool can_refresh_minutes_only =
+        !full_refresh && last_time_text_rendered_.length() == 4 &&
+        time_digits.substring(0, 2) == last_time_text_rendered_.substring(0, 2);
+
+    if (can_refresh_minutes_only) {
+        drawMinuteTime(renderer_, minute_canvas_, time_digits, kText, kTimeEdgeText);
+        minute_canvas_.pushCanvas(kTimeMinuteCanvasX, kTimeMinuteCanvasY,
+                                  UPDATE_MODE_NONE);
+        M5.EPD.UpdateArea(kTimeMinuteCanvasX, kTimeMinuteCanvasY,
+                          minute_canvas_.width(), minute_canvas_.height(),
+                          UPDATE_MODE_GC16);
+        ++partial_refresh_count_;
         last_time_text_rendered_ = time_digits;
         return;
     }
 
-    uint32_t changed_regions = 0;
-    for (size_t index = 0; index < 4; ++index) {
-        if (time_digits.charAt(index) == last_time_text_rendered_.charAt(index)) {
-            continue;
-        }
-        drawSegmentChar(renderer_, time_digit_canvases_[index],
-                        time_digits.charAt(index), kTimeDigitWidth,
-                        kTimeDigitHeight, kText, kMutedText);
-        const int16_t absolute_x = kTimeX + kTimeDigitXs[index];
-        const int16_t absolute_y = kTimeY + kTimeDigitY;
-        time_digit_canvases_[index].pushCanvas(absolute_x, absolute_y,
-                                               UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(absolute_x, absolute_y, kTimeDigitWidth,
-                          kTimeDigitHeight, UPDATE_MODE_GL16);
-        ++changed_regions;
-    }
+    const String time_text =
+        time_digits.substring(0, 2) + ":" + time_digits.substring(2);
+    time_canvas_.fillCanvas(kWhite);
+    renderer_.drawText(time_canvas_, kTimeDigitXs[0], kTimeDigitY, time_text,
+                       kTimeDigitWidth, kTimeDigitHeight, kTimeGap, kText,
+                       kTimeEdgeText);
+    time_canvas_.pushCanvas(kTimeX, kTimeY, UPDATE_MODE_NONE);
+    M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(),
+                      time_canvas_.height(), UPDATE_MODE_GC16);
 
-    if (changed_regions > 0) {
-        partial_refresh_count_ += changed_regions;
+    if (full_refresh) {
+        partial_refresh_count_ = 0;
+        time_digit_partial_counts_.fill(0);
+    } else {
+        ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
 }
@@ -517,6 +600,8 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         partial_refresh_count_ = 0;
         last_humidity_text_rendered_ = humidity_text;
         last_temperature_text_rendered_ = temperature_text;
+        humidity_digit_partial_counts_.fill(0);
+        temperature_digit_partial_counts_.fill(0);
         return;
     }
 
@@ -524,30 +609,39 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
     for (size_t index = 0; index < 3; ++index) {
         if (last_humidity_text_rendered_.length() != 3 ||
             humidity_text.charAt(index) != last_humidity_text_rendered_.charAt(index)) {
-            drawSegmentChar(renderer_, humidity_digit_canvases_[index],
-                            humidity_text.charAt(index), kSmallDigitWidth,
-                            kSmallDigitHeight, kText, kMutedText);
+            M5EPD_Canvas& digit_canvas = humidity_digit_canvases_[index];
             const int16_t absolute_x = kInfoX + kHumidityDigitXs[index];
             const int16_t absolute_y = kInfoY + kInfoDigitY;
-            humidity_digit_canvases_[index].pushCanvas(absolute_x, absolute_y,
-                                                       UPDATE_MODE_NONE);
-            M5.EPD.UpdateArea(absolute_x, absolute_y, kSmallDigitWidth,
-                              kSmallDigitHeight, UPDATE_MODE_GL16);
+            const PartialRegion region = makePartialRegion(absolute_x, absolute_y);
+            digit_canvas.fillCanvas(kWhite);
+            drawSegmentCharAt(renderer_, digit_canvas, region.draw_x, region.draw_y,
+                              humidity_text.charAt(index), kSmallDigitWidth,
+                              kSmallDigitHeight, kText, kMutedText);
+            const m5epd_update_mode_t mode =
+                nextPartialMode(humidity_digit_partial_counts_[index]);
+            digit_canvas.pushCanvas(region.update_x, region.update_y,
+                                    UPDATE_MODE_NONE);
+            M5.EPD.UpdateArea(region.update_x, region.update_y, digit_canvas.width(),
+                              digit_canvas.height(), mode);
             ++changed_regions;
         }
         if (last_temperature_text_rendered_.length() != 3 ||
             temperature_text.charAt(index) !=
                 last_temperature_text_rendered_.charAt(index)) {
-            drawSegmentChar(renderer_, temperature_digit_canvases_[index],
-                            temperature_text.charAt(index), kSmallDigitWidth,
-                            kSmallDigitHeight, kText, kMutedText);
+            M5EPD_Canvas& digit_canvas = temperature_digit_canvases_[index];
             const int16_t absolute_x = kInfoX + kTemperatureDigitXs[index];
             const int16_t absolute_y = kInfoY + kInfoDigitY;
-            temperature_digit_canvases_[index].pushCanvas(absolute_x,
-                                                          absolute_y,
-                                                          UPDATE_MODE_NONE);
-            M5.EPD.UpdateArea(absolute_x, absolute_y, kSmallDigitWidth,
-                              kSmallDigitHeight, UPDATE_MODE_GL16);
+            const PartialRegion region = makePartialRegion(absolute_x, absolute_y);
+            digit_canvas.fillCanvas(kWhite);
+            drawSegmentCharAt(renderer_, digit_canvas, region.draw_x, region.draw_y,
+                              temperature_text.charAt(index), kSmallDigitWidth,
+                              kSmallDigitHeight, kText, kMutedText);
+            const m5epd_update_mode_t mode =
+                nextPartialMode(temperature_digit_partial_counts_[index]);
+            digit_canvas.pushCanvas(region.update_x, region.update_y,
+                                    UPDATE_MODE_NONE);
+            M5.EPD.UpdateArea(region.update_x, region.update_y, digit_canvas.width(),
+                              digit_canvas.height(), mode);
             ++changed_regions;
         }
     }
@@ -589,7 +683,7 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     if (full_refresh) {
         M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
     } else {
-        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GL16);
+        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
     last_date_text_rendered_ = date_text;
@@ -626,9 +720,11 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     if (full_refresh) {
         M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
                           UPDATE_MODE_GC16);
+        battery_partial_count_ = 0;
     } else {
+        const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
         M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
-                          UPDATE_MODE_GL16);
+                          mode);
         ++partial_refresh_count_;
     }
     last_battery_percentage_ = battery;
