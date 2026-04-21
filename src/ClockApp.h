@@ -4,6 +4,7 @@
 #include <M5EPD.h>
 
 #include <array>
+#include <initializer_list>
 #include <vector>
 
 #include "ConnectivityService.h"
@@ -95,6 +96,11 @@ private:
 
     void initializeHardware();
     void createCanvases();
+    void initializeTypography();
+    bool loadCjkFont(M5EPD_Canvas& canvas,
+                     std::initializer_list<uint8_t> legacy_sizes);
+    bool ensureCjkCanvas(M5EPD_Canvas& canvas, int16_t width, int16_t height,
+                         std::initializer_list<uint8_t> legacy_sizes);
     void renderPage(m5epd_update_mode_t mode, bool force = false);
     void renderSettingsPage(m5epd_update_mode_t mode);
     void renderWifiScanPage(m5epd_update_mode_t mode);
@@ -109,7 +115,8 @@ private:
     void updateBatteryCanvas(bool full_refresh);
     void updateDashboardCalendarCanvas(bool full_refresh);
     void updateDashboardTimeCanvas(bool full_refresh);
-    void updateDashboardSummaryCanvas(bool full_refresh);
+    void updateDashboardSummaryCanvas(bool full_refresh,
+                                      bool allow_fetch = true);
     void updateDashboardClimateCanvas(bool full_refresh);
     bool refreshMarketQuote(bool force);
     void updatePasswordFieldCanvas(m5epd_update_mode_t mode);
@@ -119,9 +126,10 @@ private:
     void drawHeader(const String& title, bool show_back);
     void drawButton(const Button& button, bool pressed = false);
     void drawCard(const Rect& rect, uint8_t fill = 0, uint8_t border = 11);
-    void drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed = false);
+    void drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed = false,
+                    bool use_cjk_font = true);
     void drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
-                                int16_t origin_y);
+                                int16_t origin_y, bool use_cjk_font = true);
     void drawStatusLine(const String& label, const String& value, int16_t x,
                         int16_t y);
     void drawWifiRow(const Button& button, const WiFiNetwork& network);
@@ -182,10 +190,12 @@ private:
     M5EPD_Canvas temperature_canvas_ {&M5.EPD};
     M5EPD_Canvas comfort_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
+    M5EPD_Canvas date_cjk_canvas_ {&M5.EPD};
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_calendar_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_time_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_summary_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_summary_cjk_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_climate_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};
     M5EPD_Canvas password_status_canvas_ {&M5.EPD};
@@ -215,11 +225,20 @@ private:
     ClockStyle clock_style_ = ClockStyle::Classic;
     BackgroundConnectivityTask background_connectivity_task_ =
         BackgroundConnectivityTask::Idle;
+    bool littlefs_ready_ = false;
+    bool cjk_font_ready_ = false;
+    bool date_cjk_font_ready_ = false;
+    bool dashboard_calendar_cjk_font_ready_ = false;
+    bool dashboard_summary_cjk_font_ready_ = false;
+    bool fast_dashboard_entry_render_ = false;
+    bool pending_dashboard_date_cjk_render_ = false;
+    bool pending_dashboard_calendar_cjk_render_ = false;
 
     uint32_t last_sensor_read_ms_ = 0;
     uint32_t last_market_fetch_ms_ = 0;
     uint32_t last_clock_tick_ms_ = 0;
     uint32_t partial_refresh_count_ = 0;
+    bool pending_market_refresh_ = false;
 
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;

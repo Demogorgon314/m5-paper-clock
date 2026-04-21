@@ -196,4 +196,26 @@ inline HolidayDisplay HolidayDisplayForDate(int year, int month, int day) {
     return display;
 }
 
+inline const char* HolidayNameZh(HolidayId id) {
+    switch (id) {
+        case HolidayId::YuanDan:
+            return u8"元旦";
+        case HolidayId::ChunJie:
+            return u8"春节";
+        case HolidayId::QingMing:
+            return u8"清明节";
+        case HolidayId::LaoDong:
+            return u8"劳动节";
+        case HolidayId::DuanWu:
+            return u8"端午节";
+        case HolidayId::ZhongQiu:
+            return u8"中秋节";
+        case HolidayId::GuoQing:
+            return u8"国庆节";
+        case HolidayId::None:
+        default:
+            return "";
+    }
+}
+
 }  // namespace logic

@@ -85,8 +85,12 @@ MarketQuote MarketService::fetchShanghaiIndex() const {
         return quote;
     }
 
-    quote.symbol = "SH000001";
-    quote.display_name = "SSE Index";
+    quote.symbol =
+        parsed.code.empty() ? String("SH000001") : String(parsed.code.c_str());
+    const std::string normalized_name =
+        logic::NormalizeTencentQuoteName(parsed.code, parsed.name);
+    quote.display_name = normalized_name.empty() ? String("上证指数")
+                                                 : String(normalized_name.c_str());
     quote.price = String(parsed.price.c_str());
     quote.change = String(parsed.change.c_str());
     quote.change_percent = String(parsed.change_percent.c_str());

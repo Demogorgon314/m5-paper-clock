@@ -4,7 +4,7 @@
 
 struct MarketQuote {
     String symbol = "SH000001";
-    String display_name = "SSE Index";
+    String display_name = "上证指数";
     String price = "--";
     String change = "--";
     String change_percent = "--";

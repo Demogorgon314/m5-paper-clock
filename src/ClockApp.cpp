@@ -1,12 +1,11 @@
 #include "ClockApp.h"
 
+#include <SPIFFS.h>
 #include <WiFi.h>
 
 #include "logic/HolidayLogic.h"
 #include "logic/UiLogic.h"
-#include "resources/holiday_countdown_bitmaps.h"
 #include "resources/wifi_bitmaps.h"
-#include "resources/weekday_bitmaps.h"
 
 namespace {
 
@@ -49,12 +48,12 @@ constexpr int16_t kTimeX = 100;
 constexpr int16_t kTimeY = 72;
 constexpr int16_t kDateX = 24;
 constexpr int16_t kDateY = 20;
-constexpr int16_t kDateW = 640;
+constexpr int16_t kDateW = 744;
 constexpr int16_t kDateH = 44;
-constexpr int16_t kDateWeekdayGap = 24;
-constexpr int16_t kDateCountdownGap = 18;
-constexpr int16_t kDateCountdownNumberGap = 4;
-constexpr int16_t kDateHolidayProgressGap = 10;
+constexpr uint8_t kDateCjkTextSize = 7;
+constexpr int16_t kDateCjkDateX = 0;
+constexpr int16_t kDateCjkWeekdayX = 142;
+constexpr int16_t kDateCjkHolidayX = 222;
 constexpr int16_t kBatteryX = 792;
 constexpr int16_t kBatteryY = 20;
 constexpr int16_t kBatteryW = 152;
@@ -145,14 +144,19 @@ constexpr int16_t kDashboardSummaryX = 72;
 constexpr int16_t kDashboardSummaryY = 392;
 constexpr int16_t kDashboardSummaryW = 332;
 constexpr int16_t kDashboardSummaryH = 86;
+constexpr int16_t kDashboardSummaryTitleX = 16;
+constexpr int16_t kDashboardSummaryTitleY = 9;
+constexpr int16_t kDashboardSummaryPriceRight = kDashboardSummaryW - 14;
+constexpr int16_t kDashboardSummaryPriceY = 16;
+constexpr int16_t kDashboardSummaryBottomY = 58;
+constexpr int16_t kDashboardSummaryArrowGap = 12;
+constexpr int16_t kDashboardSummaryValueGap = 14;
 constexpr int16_t kDashboardClimateX = 430;
 constexpr int16_t kDashboardClimateY = 392;
 constexpr int16_t kDashboardClimateW = 452;
 constexpr int16_t kDashboardClimateH = 86;
 constexpr int16_t kDashboardClimateHumidityDividerX = 126;
 constexpr int16_t kDashboardClimateTemperatureDividerX = 286;
-constexpr int16_t kDashboardWeekdayCropX = 36;
-constexpr int16_t kDashboardWeekdayCropW = 28;
 constexpr uint8_t kCalendarPastFill = 4;
 constexpr uint8_t kCalendarTodayFill = 15;
 
@@ -162,6 +166,48 @@ struct PartialRegion {
     int16_t draw_x = 0;
     int16_t draw_y = 0;
 };
+
+inline uint16_t uiTextPixelSize(uint8_t legacy_size) {
+    switch (legacy_size) {
+        case 2:
+            return 20;
+        case 3:
+            return 30;
+        case 4:
+            return 38;
+        case 5:
+            return 48;
+        case 6:
+            return 60;
+        case 7:
+            return 24;
+        default:
+            break;
+    }
+    return static_cast<uint16_t>(legacy_size) * 10;
+}
+
+void setCanvasTextSize(M5EPD_Canvas& canvas, bool use_cjk_font,
+                       uint8_t legacy_size) {
+    canvas.useFreetypeFont(use_cjk_font);
+    canvas.setTextSize(use_cjk_font ? uiTextPixelSize(legacy_size) : legacy_size);
+}
+
+bool ensureCanvasSize(M5EPD_Canvas& canvas, int16_t width, int16_t height) {
+    if (canvas.width() == width && canvas.height() == height) {
+        return true;
+    }
+    canvas.deleteCanvas();
+    return canvas.createCanvas(width, height) != nullptr;
+}
+
+void drawFauxBoldString(M5EPD_Canvas& canvas, const String& text, int16_t x,
+                        int16_t y, int16_t offset_x = 1) {
+    canvas.drawString(text, x, y);
+    if (offset_x != 0 && !text.isEmpty()) {
+        canvas.drawString(text, x + offset_x, y);
+    }
+}
 
 String formatTwoDigits(int value) {
     char buf[8];
@@ -255,6 +301,46 @@ String formatHolidayDisplaySignature(const logic::HolidayDisplay& display) {
     return String(buf);
 }
 
+String weekdayLabel(uint8_t week) {
+    switch (week % 7) {
+        case 0:
+            return String(u8"周日");
+        case 1:
+            return String(u8"周一");
+        case 2:
+            return String(u8"周二");
+        case 3:
+            return String(u8"周三");
+        case 4:
+            return String(u8"周四");
+        case 5:
+            return String(u8"周五");
+        case 6:
+        default:
+            return String(u8"周六");
+    }
+}
+
+String calendarWeekdayLabel(uint8_t week) {
+    switch (week % 7) {
+        case 0:
+            return String(u8"日");
+        case 1:
+            return String(u8"一");
+        case 2:
+            return String(u8"二");
+        case 3:
+            return String(u8"三");
+        case 4:
+            return String(u8"四");
+        case 5:
+            return String(u8"五");
+        case 6:
+        default:
+            return String(u8"六");
+    }
+}
+
 uint8_t calculateWeekday(const rtc_date_t& date) {
     if (date.mon < 1 || date.mon > 12 || date.day < 1 || date.day > 31) {
         return 0;
@@ -269,10 +355,6 @@ uint8_t calculateWeekday(const rtc_date_t& date) {
     return static_cast<uint8_t>((year + year / 4 - year / 100 + year / 400 +
                                  kMonthOffsets[date.mon - 1] + date.day) %
                                 7);
-}
-
-const WeekdayBitmap& weekdayBitmap(uint8_t week) {
-    return kWeekdayBitmaps[week % 7];
 }
 
 bool isLeapYear(int year) {
@@ -306,9 +388,9 @@ String formatDashboardSummaryDetail(const rtc_date_t& date) {
 
 String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
     if (quote.valid) {
-        return String("valid|") + quote.symbol + "|" + quote.price + "|" +
-               quote.change + "|" + quote.change_percent + "|" +
-               (quote.positive ? "1" : "0");
+        return String("valid|") + quote.symbol + "|" + quote.display_name + "|" +
+               quote.price + "|" + quote.change + "|" + quote.change_percent +
+               "|" + (quote.positive ? "1" : "0");
     }
 
     const String status_detail =
@@ -316,6 +398,16 @@ String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
             ? quote.error_message
             : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
     return String("invalid|") + quote.symbol + "|" + status_detail;
+}
+
+String marketDisplayLabel(const MarketQuote& quote, bool prefer_display_name) {
+    if (prefer_display_name && !quote.display_name.isEmpty()) {
+        return quote.display_name;
+    }
+    if (!quote.symbol.isEmpty()) {
+        return quote.symbol;
+    }
+    return String(u8"上证指数");
 }
 
 String formatDashboardHumidity(const EnvironmentReading& reading) {
@@ -332,69 +424,6 @@ String formatDashboardTemperature(const EnvironmentReading& reading) {
     return formatTemperature(reading.temperature);
 }
 
-uint8_t bitmapPixel4(const uint8_t* data, uint16_t width, int16_t x, int16_t y) {
-    const uint16_t row_bytes = (width + 1) / 2;
-    const uint8_t value = data[static_cast<size_t>(y) * row_bytes + (x / 2)];
-    return (x % 2 == 0) ? ((value >> 4) & 0x0F) : (value & 0x0F);
-}
-
-void drawBitmapCrop(M5EPD_Canvas& canvas, const WeekdayBitmap& bitmap,
-                    int16_t src_x, int16_t src_y, int16_t crop_w,
-                    int16_t crop_h, int16_t dst_x, int16_t dst_y) {
-    const int16_t max_w = min<int16_t>(crop_w, bitmap.width - src_x);
-    const int16_t max_h = min<int16_t>(crop_h, bitmap.height - src_y);
-    for (int16_t y = 0; y < max_h; ++y) {
-        for (int16_t x = 0; x < max_w; ++x) {
-            const uint8_t pixel =
-                bitmapPixel4(bitmap.data, bitmap.width, src_x + x, src_y + y);
-            if (pixel > 0) {
-                canvas.drawPixel(dst_x + x, dst_y + y, pixel);
-            }
-        }
-    }
-}
-
-int16_t measureHolidayDisplayWidth(M5EPD_Canvas& canvas,
-                                   const logic::HolidayDisplay& display,
-                                   bool show_progress) {
-    if (!display.valid() || display.id == logic::HolidayId::None) {
-        return 0;
-    }
-
-    canvas.setTextSize(2);
-    switch (display.state) {
-        case logic::HolidayDisplayState::Countdown: {
-            const HolidayBannerBitmap& label =
-                holidayCountdownLabelBitmap(display.id);
-            const HolidayBannerBitmap& suffix =
-                holidayCountdownDaySuffixBitmap();
-            return label.width + 6 +
-                   canvas.textWidth(String(display.days_remaining)) +
-                   kDateCountdownNumberGap + suffix.width;
-        }
-        case logic::HolidayDisplayState::InHoliday: {
-            const HolidayBannerBitmap& label =
-                holidayActiveLabelBitmap(display.id);
-            if (!show_progress) {
-                return label.width;
-            }
-            const String progress_text = String(display.holiday_day_index) +
-                                         "/" +
-                                         String(display.holiday_total_days);
-            return label.width + kDateHolidayProgressGap +
-                   canvas.textWidth(progress_text);
-        }
-        case logic::HolidayDisplayState::LastDay: {
-            const HolidayBannerBitmap& label =
-                holidayLastDayLabelBitmap(display.id);
-            return label.width;
-        }
-        case logic::HolidayDisplayState::None:
-        default:
-            return 0;
-    }
-}
-
 void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
                         const logic::HolidayDisplay& display,
                         bool show_progress) {
@@ -404,55 +433,33 @@ void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
 
     canvas.setTextDatum(CL_DATUM);
     canvas.setTextColor(kText);
-    canvas.setTextSize(2);
+    setCanvasTextSize(canvas, true, kDateCjkTextSize);
     switch (display.state) {
-        case logic::HolidayDisplayState::Countdown: {
-            const HolidayBannerBitmap& label =
-                holidayCountdownLabelBitmap(display.id);
-            const HolidayBannerBitmap& suffix =
-                holidayCountdownDaySuffixBitmap();
-            const int16_t label_y = (kDateH - label.height) / 2;
-            canvas.pushImage(start_x, label_y, label.width, label.height,
-                             label.data);
-
-            const String days_text = String(display.days_remaining);
-            const int16_t number_x = start_x + label.width + 6;
-            const int16_t number_y = kDateH / 2;
-            canvas.drawString(days_text, number_x, number_y);
-
-            const int16_t days_width = canvas.textWidth(days_text);
-            const int16_t suffix_x =
-                number_x + days_width + kDateCountdownNumberGap;
-            const int16_t suffix_y = (kDateH - suffix.height) / 2;
-            canvas.pushImage(suffix_x, suffix_y, suffix.width, suffix.height,
-                             suffix.data);
+        case logic::HolidayDisplayState::Countdown:
+            drawFauxBoldString(
+                canvas,
+                String(u8"距 ") + String(logic::HolidayNameZh(display.id)) +
+                    String(u8" 还有 ") + String(display.days_remaining) +
+                    String(u8" 天"),
+                start_x, kDateH / 2);
             break;
-        }
         case logic::HolidayDisplayState::InHoliday: {
-            const HolidayBannerBitmap& label =
-                holidayActiveLabelBitmap(display.id);
-            const int16_t label_y = (kDateH - label.height) / 2;
-            canvas.pushImage(start_x, label_y, label.width, label.height,
-                             label.data);
-            if (show_progress) {
-                const String progress_text = String(display.holiday_day_index) +
-                                             "/" +
-                                             String(display.holiday_total_days);
-                canvas.drawString(progress_text,
-                                  start_x + label.width +
-                                      kDateHolidayProgressGap,
-                                  kDateH / 2);
+            String text = String(logic::HolidayNameZh(display.id)) +
+                          String(u8"假期中");
+            if (show_progress && display.holiday_day_index > 0 &&
+                display.holiday_total_days > 0) {
+                text += " " + String(display.holiday_day_index) + "/" +
+                        String(display.holiday_total_days);
             }
+            drawFauxBoldString(canvas, text, start_x, kDateH / 2);
             break;
         }
-        case logic::HolidayDisplayState::LastDay: {
-            const HolidayBannerBitmap& label =
-                holidayLastDayLabelBitmap(display.id);
-            const int16_t label_y = (kDateH - label.height) / 2;
-            canvas.pushImage(start_x, label_y, label.width, label.height,
-                             label.data);
+        case logic::HolidayDisplayState::LastDay:
+            drawFauxBoldString(canvas,
+                               String(logic::HolidayNameZh(display.id)) +
+                                   String(u8"最后一天"),
+                               start_x, kDateH / 2);
             break;
-        }
         case logic::HolidayDisplayState::None:
         default:
             break;
@@ -507,20 +514,20 @@ void drawMinuteTime(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
 
 void drawHumidityInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                       const String& humidity_text, uint8_t body_color,
-                      uint8_t edge_color) {
+                      uint8_t edge_color, bool use_cjk_font) {
     canvas.fillCanvas(kWhite);
     canvas.setTextDatum(TL_DATUM);
     renderer.drawText(canvas, kHumidityDrawX, kInfoDigitY, humidity_text,
                       kSmallDigitWidth, kSmallDigitHeight, kSmallGap,
                       body_color, edge_color);
     canvas.setTextColor(body_color);
-    canvas.setTextSize(3);
+    setCanvasTextSize(canvas, use_cjk_font, 3);
     canvas.drawString("%", kHumidityUnitDrawX, kHumidityUnitY);
 }
 
 void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                          const String& temperature_text, uint8_t body_color,
-                         uint8_t edge_color) {
+                         uint8_t edge_color, bool use_cjk_font) {
     canvas.fillCanvas(kWhite);
     canvas.setTextDatum(TL_DATUM);
     const String temperature_display =
@@ -529,9 +536,9 @@ void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                       kSmallDigitWidth, kSmallDigitHeight, kSmallGap,
                       body_color, edge_color);
     canvas.setTextColor(body_color);
-    canvas.setTextSize(3);
+    setCanvasTextSize(canvas, use_cjk_font, 3);
     canvas.drawString(" C", kTemperatureUnitDrawX, kTemperatureUnitY);
-    canvas.setTextSize(2);
+    setCanvasTextSize(canvas, use_cjk_font, 2);
     canvas.drawString("o", kTemperatureDegreeDrawX, kTemperatureDegreeY);
 }
 
@@ -558,7 +565,7 @@ String comfortFace(const EnvironmentReading& reading) {
 }
 
 void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
-                       const String& face, uint8_t color) {
+                       const String& face, uint8_t color, bool use_cjk_font) {
     const auto drawWideLine = [&](int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                                   int16_t thickness) {
         const int16_t radius = thickness / 2;
@@ -584,7 +591,7 @@ void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
 
     canvas.setTextDatum(CC_DATUM);
     canvas.setTextColor(color);
-    canvas.setTextSize(6);
+    setCanvasTextSize(canvas, use_cjk_font, 6);
     canvas.drawString("(", center_x - 78, center_y);
     canvas.drawString(")", center_x + 78, center_y);
 
@@ -607,14 +614,16 @@ void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
     drawDash(center_x, center_y + 18, 12, 2);
 }
 
-void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color) {
+void drawComfortInfo(M5EPD_Canvas& canvas, const String& face, uint8_t color,
+                     bool use_cjk_font) {
     canvas.fillCanvas(kWhite);
-    drawComfortInfoAt(canvas, kComfortFaceDrawX, kComfortFaceDrawY, face, color);
+    drawComfortInfoAt(canvas, kComfortFaceDrawX, kComfortFaceDrawY, face, color,
+                      use_cjk_font);
 }
 
 void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
                               int16_t center_y, const String& face,
-                              uint8_t color) {
+                              uint8_t color, bool use_cjk_font) {
     const auto drawWideLine = [&](int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                                   int16_t thickness) {
         const int16_t radius = thickness / 2;
@@ -640,7 +649,7 @@ void drawCompactComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x,
 
     canvas.setTextDatum(CC_DATUM);
     canvas.setTextColor(color);
-    canvas.setTextSize(4);
+    setCanvasTextSize(canvas, use_cjk_font, 4);
     canvas.drawString("(", center_x - 40, center_y);
     canvas.drawString(")", center_x + 40, center_y);
 
@@ -712,16 +721,103 @@ m5epd_update_mode_t nextPartialMode(uint8_t& count) {
 }  // namespace
 
 void ClockApp::begin() {
+    Serial.println("[boot] begin: initializeHardware");
     initializeHardware();
+    Serial.println("[boot] begin: createCanvases");
     createCanvases();
+    Serial.println("[boot] begin: initializeTypography");
+    initializeTypography();
+    Serial.println("[boot] begin: store.begin");
     store_.begin();
+    Serial.println("[boot] begin: store.load");
     settings_ = store_.load();
     settings_.timezone = logic::ClampTimeZone(settings_.timezone);
     clock_style_ = settings_.clock_style == 1 ? ClockStyle::Dashboard
                                               : ClockStyle::Classic;
     M5.RTC.getTime(&last_time_);
     M5.RTC.getDate(&last_date_);
+    Serial.println("[boot] begin: renderPage");
     renderPage(UPDATE_MODE_GC16, true);
+    Serial.println("[boot] begin: ready");
+}
+
+void ClockApp::initializeTypography() {
+    Serial.println("[font] mounting SPIFFS");
+    littlefs_ready_ = SPIFFS.begin(false);
+    if (!littlefs_ready_) {
+        Serial.println("[font] SPIFFS mount failed; using built-in font");
+        cjk_font_ready_ = false;
+        date_cjk_font_ready_ = false;
+        dashboard_calendar_cjk_font_ready_ = false;
+        dashboard_summary_cjk_font_ready_ = false;
+        SPIFFS.end();
+        return;
+    }
+
+    Serial.printf("[font] SPIFFS total=%u used=%u exists=%d\n",
+                  SPIFFS.totalBytes(), SPIFFS.usedBytes(),
+                  SPIFFS.exists("/cjk.ttf") ? 1 : 0);
+    date_cjk_font_ready_ = loadCjkFont(date_cjk_canvas_, {2, 3, 7});
+    dashboard_calendar_cjk_font_ready_ =
+        loadCjkFont(dashboard_calendar_canvas_, {2, 3, 7});
+    dashboard_summary_cjk_font_ready_ =
+        loadCjkFont(dashboard_summary_cjk_canvas_, {2, 3, 7});
+    cjk_font_ready_ = false;
+
+    Serial.printf("[font] date=%s calendar=%s market=%s\n",
+                  date_cjk_font_ready_ ? "ready" : "fallback",
+                  dashboard_calendar_cjk_font_ready_ ? "ready" : "fallback",
+                  dashboard_summary_cjk_font_ready_ ? "ready" : "fallback");
+}
+
+bool ClockApp::loadCjkFont(M5EPD_Canvas& canvas,
+                           std::initializer_list<uint8_t> legacy_sizes) {
+    if (!littlefs_ready_) {
+        Serial.println("[font] load skipped: SPIFFS not ready");
+        return false;
+    }
+
+    const esp_err_t rc = canvas.loadFont("/cjk.ttf", SPIFFS);
+    if (rc != ESP_OK) {
+        Serial.printf("[font] loadFont failed rc=%d\n", static_cast<int>(rc));
+        return false;
+    }
+
+    std::array<bool, 8> created {};
+    for (uint8_t legacy_size : legacy_sizes) {
+        if (legacy_size >= created.size() || created[legacy_size]) {
+            continue;
+        }
+        created[legacy_size] = true;
+        const uint16_t cache_size = legacy_size <= 2 ? 48 : 24;
+        const esp_err_t render_rc =
+            canvas.createRender(uiTextPixelSize(legacy_size), cache_size);
+        if (render_rc != ESP_OK) {
+            Serial.printf("[font] createRender failed size=%u rc=%d\n",
+                          static_cast<unsigned>(uiTextPixelSize(legacy_size)),
+                          static_cast<int>(render_rc));
+            return false;
+        }
+    }
+    canvas.useFreetypeFont(false);
+    Serial.println("[font] loadFont + createRender OK");
+    return true;
+}
+
+bool ClockApp::ensureCjkCanvas(M5EPD_Canvas& canvas, int16_t width,
+                               int16_t height,
+                               std::initializer_list<uint8_t> legacy_sizes) {
+    if (canvas.width() == width && canvas.height() == height) {
+        return true;
+    }
+
+    canvas.deleteCanvas();
+    if (canvas.createCanvas(width, height) == nullptr) {
+        Serial.printf("[font] createCanvas failed %dx%d\n", width, height);
+        return false;
+    }
+    canvas.useFreetypeFont(false);
+    return loadCjkFont(canvas, legacy_sizes);
 }
 
 void ClockApp::loop() {
@@ -735,6 +831,23 @@ void ClockApp::loop() {
     }
 
     if (current_page_ == PageId::Clock) {
+        if (pending_dashboard_date_cjk_render_) {
+            pending_dashboard_date_cjk_render_ = false;
+            updateDateCanvas(false);
+            return;
+        }
+        if (pending_dashboard_calendar_cjk_render_) {
+            pending_dashboard_calendar_cjk_render_ = false;
+            updateDashboardCalendarCanvas(false);
+            return;
+        }
+        if (pending_market_refresh_) {
+            pending_market_refresh_ = false;
+            if (connectivity_.isConnected()) {
+                refreshMarketQuote(true);
+                updateDashboardSummaryCanvas(false, false);
+            }
+        }
         updateClockPage();
     }
 }
@@ -783,6 +896,8 @@ void ClockApp::createCanvases() {
     comfort_canvas_.useFreetypeFont(false);
     date_canvas_.createCanvas(kDateW, kDateH);
     date_canvas_.useFreetypeFont(false);
+    date_cjk_canvas_.createCanvas(kDateW, kDateH);
+    date_cjk_canvas_.useFreetypeFont(false);
     battery_canvas_.createCanvas(kBatteryW, kBatteryH);
     battery_canvas_.useFreetypeFont(false);
     dashboard_calendar_canvas_.createCanvas(kDashboardCalendarW,
@@ -793,6 +908,9 @@ void ClockApp::createCanvases() {
     dashboard_summary_canvas_.createCanvas(kDashboardSummaryW,
                                            kDashboardSummaryH);
     dashboard_summary_canvas_.useFreetypeFont(false);
+    dashboard_summary_cjk_canvas_.createCanvas(kDashboardSummaryW,
+                                               kDashboardSummaryH);
+    dashboard_summary_cjk_canvas_.useFreetypeFont(false);
     dashboard_climate_canvas_.createCanvas(kDashboardClimateW,
                                            kDashboardClimateH);
     dashboard_climate_canvas_.useFreetypeFont(false);
@@ -841,7 +959,8 @@ void ClockApp::renderSettingsPage(m5epd_update_mode_t mode) {
     page_canvas_.setTextColor(kText);
     drawHeader("Clock Setup", false);
 
-    drawSettingsStatusCard(page_canvas_, kSettingsStatusX, kSettingsStatusY);
+    drawSettingsStatusCard(page_canvas_, kSettingsStatusX, kSettingsStatusY,
+                           cjk_font_ready_);
 
     const Rect wifi_card {24, 238, 430, 122};
     const Rect tz_card {482, 238, 454, 122};
@@ -866,7 +985,7 @@ void ClockApp::renderSettingsPage(m5epd_update_mode_t mode) {
 
     page_canvas_.setTextDatum(TR_DATUM);
     page_canvas_.setTextColor(kMutedText);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.drawString("M5Paper horizontal ink clock", kScreenWidth - 28,
                             kScreenHeight - 22);
 
@@ -880,7 +999,7 @@ void ClockApp::renderWifiScanPage(m5epd_update_mode_t mode) {
     drawHeader("Choose Wi-Fi", true);
 
     page_canvas_.setTextDatum(TL_DATUM);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.setTextColor(kMutedText);
     page_canvas_.drawString("Tap a network and then enter its password.", 28,
                             82);
@@ -917,7 +1036,7 @@ void ClockApp::renderPasswordPage(m5epd_update_mode_t mode) {
     drawHeader("Enter Password", true);
 
     page_canvas_.setTextDatum(TL_DATUM);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.setTextColor(kMutedText);
     page_canvas_.drawString("SSID", 28, 82);
     page_canvas_.setTextColor(kText);
@@ -949,7 +1068,9 @@ void ClockApp::renderClockPage(bool full_refresh) {
 }
 
 void ClockApp::renderClassicClockPage(bool full_refresh) {
-    (void)full_refresh;
+    const uint32_t render_started_ms = millis();
+    Serial.printf("[perf] renderClassicClockPage start full=%d at=%lu\n",
+                  full_refresh ? 1 : 0, render_started_ms);
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
 
@@ -969,16 +1090,37 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
 
+    uint32_t step_started_ms = millis();
     updateTimeCanvas(true);
+    Serial.printf("[perf] classic updateTimeCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateBatteryCanvas(true);
+    Serial.printf("[perf] classic updateBatteryCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateInfoCanvas(true);
+    Serial.printf("[perf] classic updateInfoCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateDateCanvas(true);
-    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+    Serial.printf("[perf] classic updateDateCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
+    const m5epd_update_mode_t mode =
+        full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
+    M5.EPD.UpdateFull(mode);
+    Serial.printf("[perf] classic UpdateFull mode=%d took=%lu\n",
+                  static_cast<int>(mode), millis() - step_started_ms);
     partial_refresh_count_ = 0;
+    Serial.printf("[perf] renderClassicClockPage total=%lu\n",
+                  millis() - render_started_ms);
 }
 
 void ClockApp::renderDashboardClockPage(bool full_refresh) {
-    (void)full_refresh;
+    const uint32_t render_started_ms = millis();
+    Serial.printf("[perf] renderDashboardClockPage start full=%d at=%lu\n",
+                  full_refresh ? 1 : 0, render_started_ms);
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
 
@@ -997,15 +1139,46 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
+    const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
 
+    uint32_t step_started_ms = millis();
     updateDateCanvas(true);
+    Serial.printf("[perf] dashboard updateDateCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateBatteryCanvas(true);
+    Serial.printf("[perf] dashboard updateBatteryCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateDashboardCalendarCanvas(true);
+    Serial.printf("[perf] dashboard updateDashboardCalendarCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateDashboardTimeCanvas(true);
-    updateDashboardSummaryCanvas(true);
+    Serial.printf("[perf] dashboard updateDashboardTimeCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
+    updateDashboardSummaryCanvas(true, false);
+    Serial.printf("[perf] dashboard updateDashboardSummaryCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     updateDashboardClimateCanvas(true);
-    M5.EPD.UpdateFull(UPDATE_MODE_GC16);
+    Serial.printf("[perf] dashboard updateDashboardClimateCanvas took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
+    const m5epd_update_mode_t mode =
+        full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
+    M5.EPD.UpdateFull(mode);
+    Serial.printf("[perf] dashboard UpdateFull mode=%d took=%lu\n",
+                  static_cast<int>(mode), millis() - step_started_ms);
     partial_refresh_count_ = 0;
+    if (fast_entry) {
+        pending_dashboard_date_cjk_render_ = true;
+        pending_dashboard_calendar_cjk_render_ = true;
+    }
+    fast_dashboard_entry_render_ = false;
+    Serial.printf("[perf] renderDashboardClockPage total=%lu\n",
+                  millis() - render_started_ms);
 }
 
 void ClockApp::updateClockPage() {
@@ -1127,7 +1300,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                            humidity_text, kSmallDigitWidth, kSmallDigitHeight,
                            kSmallGap, kText, kMutedText);
         info_canvas_.setTextColor(kText);
-        info_canvas_.setTextSize(3);
+        setCanvasTextSize(info_canvas_, cjk_font_ready_, 3);
         info_canvas_.drawString("%", kHumidityUnitX, kHumidityUnitY);
 
         const String temperature_display = temperature_text.substring(0, 2) +
@@ -1137,12 +1310,13 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                            kSmallDigitHeight, kSmallGap, kText, kMutedText);
         info_canvas_.setTextColor(kText);
         info_canvas_.drawString(" C", kTemperatureUnitX, kTemperatureUnitY);
-        info_canvas_.setTextSize(2);
+        setCanvasTextSize(info_canvas_, cjk_font_ready_, 2);
         info_canvas_.drawString("o", kTemperatureDegreeX, kTemperatureDegreeY);
 
         info_canvas_.setTextDatum(CC_DATUM);
         info_canvas_.setTextColor(kText);
-        drawComfortInfoAt(info_canvas_, 640, 58, comfort_face, kText);
+        drawComfortInfoAt(info_canvas_, 640, 58, comfort_face, kText,
+                          cjk_font_ready_);
 
         info_canvas_.pushCanvas(kInfoX, kInfoY, UPDATE_MODE_NONE);
         partial_refresh_count_ = 0;
@@ -1160,7 +1334,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
     if (humidity_changed) {
         drawHumidityInfo(renderer_, humidity_canvas_, humidity_text, kText,
-                         kMutedText);
+                         kMutedText, cjk_font_ready_);
         humidity_canvas_.pushCanvas(kHumidityCanvasX, kHumidityCanvasY,
                                     UPDATE_MODE_NONE);
         M5.EPD.UpdateArea(kHumidityCanvasX, kHumidityCanvasY,
@@ -1172,7 +1346,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
     if (temperature_changed) {
         drawTemperatureInfo(renderer_, temperature_canvas_, temperature_text, kText,
-                            kMutedText);
+                            kMutedText, cjk_font_ready_);
         temperature_canvas_.pushCanvas(kTemperatureCanvasX, kTemperatureCanvasY,
                                        UPDATE_MODE_NONE);
         M5.EPD.UpdateArea(kTemperatureCanvasX, kTemperatureCanvasY,
@@ -1182,7 +1356,7 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         temperature_digit_partial_counts_.fill(0);
     }
     if (comfort_changed) {
-        drawComfortInfo(comfort_canvas_, comfort_face, kText);
+        drawComfortInfo(comfort_canvas_, comfort_face, kText, cjk_font_ready_);
         comfort_canvas_.pushCanvas(kComfortCanvasX, kComfortCanvasY,
                                    UPDATE_MODE_NONE);
         M5.EPD.UpdateArea(kComfortCanvasX, kComfortCanvasY,
@@ -1211,49 +1385,58 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         return;
     }
 
-    date_canvas_.fillCanvas(kWhite);
-    const WeekdayBitmap& weekday = weekdayBitmap(week);
-
-    date_canvas_.setTextDatum(CL_DATUM);
-    date_canvas_.setTextColor(kText);
-    date_canvas_.setTextSize(3);
-    date_canvas_.drawString(date_text, 0, kDateH / 2);
-
-    const int16_t date_width = date_canvas_.textWidth(date_text);
-    const int16_t weekday_x = date_width + kDateWeekdayGap;
-    const int16_t weekday_y = (kDateH - weekday.height) / 2;
-    if (!date_text.isEmpty() && weekday_x + weekday.width <= kDateW) {
-        date_canvas_.pushImage(weekday_x, weekday_y, weekday.width,
-                               weekday.height, weekday.data);
+    const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
+    bool use_date_cjk = date_cjk_font_ready_ && !fast_ascii_only;
+    if (use_date_cjk &&
+        !ensureCjkCanvas(date_cjk_canvas_, kDateW, kDateH, {2, 3, 7})) {
+        use_date_cjk = false;
+        date_cjk_font_ready_ = false;
     }
+    M5EPD_Canvas& active_date_canvas =
+        use_date_cjk ? date_cjk_canvas_ : date_canvas_;
 
-    if (holiday_display.valid()) {
-        const int16_t countdown_x =
-            weekday_x + weekday.width + kDateCountdownGap;
-        bool show_progress =
-            holiday_display.state == logic::HolidayDisplayState::InHoliday;
-        int16_t holiday_width =
-            measureHolidayDisplayWidth(date_canvas_, holiday_display,
-                                       show_progress);
-        if (show_progress && countdown_x + holiday_width > kDateW) {
-            show_progress = false;
-            holiday_width = measureHolidayDisplayWidth(date_canvas_,
-                                                       holiday_display, false);
+    active_date_canvas.fillCanvas(kWhite);
+    const String weekday_text = weekdayLabel(week);
+
+    active_date_canvas.setTextDatum(CL_DATUM);
+    active_date_canvas.setTextColor(kText);
+    if (use_date_cjk) {
+        setCanvasTextSize(active_date_canvas, true, kDateCjkTextSize);
+        if (!date_text.isEmpty()) {
+            drawFauxBoldString(active_date_canvas, date_text, kDateCjkDateX,
+                               kDateH / 2);
         }
-        if (countdown_x + holiday_width <= kDateW) {
-            drawHolidayDisplay(date_canvas_, countdown_x, holiday_display,
-                               show_progress);
+        if (!weekday_text.isEmpty()) {
+            drawFauxBoldString(active_date_canvas, weekday_text,
+                               kDateCjkWeekdayX, kDateH / 2);
+        }
+        if (holiday_display.valid()) {
+            bool show_progress =
+                holiday_display.state == logic::HolidayDisplayState::InHoliday;
+            drawHolidayDisplay(active_date_canvas, kDateCjkHolidayX,
+                               holiday_display, show_progress);
+        }
+    } else {
+        setCanvasTextSize(active_date_canvas, false, 3);
+        if (!date_text.isEmpty()) {
+            active_date_canvas.drawString(date_text, 0, kDateH / 2);
         }
     }
-    date_canvas_.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
+    active_date_canvas.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
     if (!full_refresh) {
         M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
-    last_date_text_rendered_ = date_text;
-    last_holiday_display_rendered_ = holiday_signature;
-    last_weekday_rendered_ = week;
+    if (fast_ascii_only) {
+        last_date_text_rendered_ = "";
+        last_holiday_display_rendered_ = "";
+        last_weekday_rendered_ = 255;
+    } else {
+        last_date_text_rendered_ = date_text;
+        last_holiday_display_rendered_ = holiday_signature;
+        last_weekday_rendered_ = week;
+    }
 }
 
 void ClockApp::updateBatteryCanvas(bool full_refresh) {
@@ -1289,7 +1472,7 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
 
     battery_canvas_.fillCanvas(kWhite);
     battery_canvas_.setTextColor(kText);
-    battery_canvas_.setTextSize(2);
+    setCanvasTextSize(battery_canvas_, cjk_font_ready_, 2);
     battery_canvas_.setTextDatum(CR_DATUM);
     const int16_t label_width = battery_canvas_.textWidth(String(battery_label));
     const int16_t wifi_gap = 8;
@@ -1323,11 +1506,12 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
 void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
     rtc_date_t current_date;
     M5.RTC.getDate(&current_date);
+    const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
 
     dashboard_calendar_canvas_.fillCanvas(kWhite);
     dashboard_calendar_canvas_.setTextColor(kText);
     dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
-    dashboard_calendar_canvas_.setTextSize(5);
+    setCanvasTextSize(dashboard_calendar_canvas_, cjk_font_ready_, 5);
     dashboard_calendar_canvas_.drawString(formatDashboardMonth(current_date),
                                           kDashboardCalendarW / 2, 24);
 
@@ -1339,12 +1523,24 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
     const int16_t grid_y = 86;
 
     for (int col = 0; col < 7; ++col) {
-        const WeekdayBitmap& weekday = weekdayBitmap(static_cast<uint8_t>(col));
-        const int16_t dst_x = start_x + col * cell_w +
-                              (cell_w - kDashboardWeekdayCropW) / 2;
-        drawBitmapCrop(dashboard_calendar_canvas_, weekday,
-                       kDashboardWeekdayCropX, 0, kDashboardWeekdayCropW,
-                       weekday.height, dst_x, header_y);
+        const int16_t center_x = start_x + col * cell_w + (cell_w - 2) / 2;
+        if (dashboard_calendar_cjk_font_ready_ && !fast_ascii_only) {
+            dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
+            dashboard_calendar_canvas_.setTextColor(kText);
+            setCanvasTextSize(dashboard_calendar_canvas_, true, 2);
+            dashboard_calendar_canvas_.drawString(
+                calendarWeekdayLabel(static_cast<uint8_t>(col)),
+                center_x, header_y + 8);
+        } else {
+            static constexpr const char* kFallbackWeekdayLabels[] = {"S", "M", "T",
+                                                                     "W", "T", "F",
+                                                                     "S"};
+            dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
+            dashboard_calendar_canvas_.setTextColor(kText);
+            setCanvasTextSize(dashboard_calendar_canvas_, false, 2);
+            dashboard_calendar_canvas_.drawString(
+                kFallbackWeekdayLabels[col], center_x, header_y + 8);
+        }
     }
 
     rtc_date_t first_day = current_date;
@@ -1352,7 +1548,7 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
     const uint8_t first_weekday = calculateWeekday(first_day);
     const uint8_t month_days = daysInMonth(current_date.year, current_date.mon);
 
-    dashboard_calendar_canvas_.setTextSize(2);
+    setCanvasTextSize(dashboard_calendar_canvas_, cjk_font_ready_, 2);
     dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
     for (int row = 0; row < 6; ++row) {
         for (int col = 0; col < 7; ++col) {
@@ -1421,8 +1617,15 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
     last_time_text_rendered_ = time_digits;
 }
 
-void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
-    refreshMarketQuote(full_refresh);
+void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
+                                            bool allow_fetch) {
+    if (allow_fetch) {
+        refreshMarketQuote(full_refresh);
+    } else if (connectivity_.isConnected() &&
+               (!market_quote_.valid ||
+                millis() - last_market_fetch_ms_ > kDashboardMarketIntervalMs)) {
+        pending_market_refresh_ = true;
+    }
     const bool wifi_connected = connectivity_.isConnected();
     const String summary_signature =
         marketSummarySignature(market_quote_, wifi_connected);
@@ -1430,84 +1633,102 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh) {
         return;
     }
 
-    dashboard_summary_canvas_.fillCanvas(kWhite);
-    dashboard_summary_canvas_.drawRoundRect(0, 0, kDashboardSummaryW,
-                                            kDashboardSummaryH, 6, kBorder);
-    const int16_t header_y = 10;
-    const int16_t price_y = 32;
-    const int16_t baseline_y = 64;
+    const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
+    bool use_summary_cjk = dashboard_summary_cjk_font_ready_ && !fast_ascii_only;
+    if (use_summary_cjk &&
+        !ensureCjkCanvas(dashboard_summary_cjk_canvas_, kDashboardSummaryW,
+                         kDashboardSummaryH, {2, 3, 7})) {
+        use_summary_cjk = false;
+        dashboard_summary_cjk_font_ready_ = false;
+    }
+    M5EPD_Canvas& active_summary_canvas =
+        use_summary_cjk ? dashboard_summary_cjk_canvas_
+                        : dashboard_summary_canvas_;
 
-    dashboard_summary_canvas_.setTextDatum(TL_DATUM);
-    dashboard_summary_canvas_.setTextColor(kMutedText);
-    dashboard_summary_canvas_.setTextSize(2);
-    dashboard_summary_canvas_.drawString(market_quote_.symbol,
-                                         16, header_y);
+    active_summary_canvas.fillCanvas(kWhite);
+    active_summary_canvas.drawRoundRect(0, 0, kDashboardSummaryW,
+                                        kDashboardSummaryH, 6, kBorder);
+    active_summary_canvas.setTextDatum(TL_DATUM);
+    active_summary_canvas.setTextColor(kText);
+    setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
+    const String market_title =
+        marketDisplayLabel(market_quote_, use_summary_cjk);
+    if (use_summary_cjk) {
+        drawFauxBoldString(active_summary_canvas, market_title,
+                           kDashboardSummaryTitleX, kDashboardSummaryTitleY);
+    } else {
+        active_summary_canvas.drawString(market_title,
+                                         kDashboardSummaryTitleX,
+                                         kDashboardSummaryTitleY);
+    }
 
     if (market_quote_.valid) {
-        dashboard_summary_canvas_.setTextDatum(TR_DATUM);
-        dashboard_summary_canvas_.setTextSize(3);
-        dashboard_summary_canvas_.setTextColor(kText);
-        dashboard_summary_canvas_.drawString(market_quote_.price,
-                                             kDashboardSummaryW - 16, price_y);
+        active_summary_canvas.setTextDatum(TR_DATUM);
+        setCanvasTextSize(active_summary_canvas, false, 4);
+        active_summary_canvas.setTextColor(kText);
+        active_summary_canvas.drawString(market_quote_.price,
+                                         kDashboardSummaryPriceRight,
+                                         kDashboardSummaryPriceY);
 
         const String change_prefix = market_quote_.positive ? "+" : "";
         const String change_value = change_prefix + market_quote_.change;
         const String percent_value =
             change_prefix + market_quote_.change_percent + "%";
-        dashboard_summary_canvas_.setTextSize(2);
-        dashboard_summary_canvas_.setTextColor(kText);
-        dashboard_summary_canvas_.setTextDatum(TR_DATUM);
-        const int16_t percent_right = kDashboardSummaryW - 16;
+        setCanvasTextSize(active_summary_canvas, false, 2);
+        active_summary_canvas.setTextColor(kText);
+        active_summary_canvas.setTextDatum(TR_DATUM);
+        const int16_t percent_right = kDashboardSummaryPriceRight;
         const int16_t percent_width =
-            dashboard_summary_canvas_.textWidth(percent_value);
-        const int16_t change_right = percent_right - percent_width - 18;
+            active_summary_canvas.textWidth(percent_value);
+        const int16_t change_right =
+            percent_right - percent_width - kDashboardSummaryValueGap;
         const int16_t change_width =
-            dashboard_summary_canvas_.textWidth(change_value);
+            active_summary_canvas.textWidth(change_value);
         const int16_t change_left = change_right - change_width;
-        const int16_t arrow_center_x = change_left - 14;
-        const int16_t arrow_center_y = baseline_y + 5;
+        const int16_t arrow_center_x = change_left - kDashboardSummaryArrowGap;
+        const int16_t arrow_center_y = kDashboardSummaryBottomY + 5;
         if (market_quote_.positive) {
-            dashboard_summary_canvas_.fillTriangle(arrow_center_x - 8,
-                                                   arrow_center_y + 6,
-                                                   arrow_center_x,
-                                                   arrow_center_y - 6,
-                                                   arrow_center_x + 8,
-                                                   arrow_center_y + 6, kText);
+            active_summary_canvas.fillTriangle(arrow_center_x - 8,
+                                               arrow_center_y + 6,
+                                               arrow_center_x,
+                                               arrow_center_y - 6,
+                                               arrow_center_x + 8,
+                                               arrow_center_y + 6, kText);
         } else {
-            dashboard_summary_canvas_.fillTriangle(arrow_center_x - 8,
-                                                   arrow_center_y - 6,
-                                                   arrow_center_x,
-                                                   arrow_center_y + 6,
-                                                   arrow_center_x + 8,
-                                                   arrow_center_y - 6, kText);
+            active_summary_canvas.fillTriangle(arrow_center_x - 8,
+                                               arrow_center_y - 6,
+                                               arrow_center_x,
+                                               arrow_center_y + 6,
+                                               arrow_center_x + 8,
+                                               arrow_center_y - 6, kText);
         }
-        dashboard_summary_canvas_.drawString(change_value, change_right,
-                                             baseline_y);
-        dashboard_summary_canvas_.drawString(percent_value, percent_right,
-                                             baseline_y);
+        active_summary_canvas.drawString(change_value, change_right,
+                                         kDashboardSummaryBottomY);
+        active_summary_canvas.drawString(percent_value, percent_right,
+                                         kDashboardSummaryBottomY);
     } else {
-        dashboard_summary_canvas_.setTextDatum(TL_DATUM);
-        dashboard_summary_canvas_.setTextSize(3);
-        dashboard_summary_canvas_.setTextColor(kText);
-        dashboard_summary_canvas_.drawString("No quote", 16, 34);
-        dashboard_summary_canvas_.setTextSize(2);
-        dashboard_summary_canvas_.setTextColor(kMutedText);
+        active_summary_canvas.setTextDatum(TL_DATUM);
+        setCanvasTextSize(active_summary_canvas, false, 3);
+        active_summary_canvas.setTextColor(kText);
+        active_summary_canvas.drawString("No quote", 16, 34);
+        setCanvasTextSize(active_summary_canvas, false, 2);
+        active_summary_canvas.setTextColor(kMutedText);
         const String status_detail =
             !market_quote_.error_message.isEmpty()
                 ? market_quote_.error_message
                 : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
-        dashboard_summary_canvas_.drawString(status_detail, 16, 62);
+        active_summary_canvas.drawString(status_detail, 16, 62);
     }
 
-    dashboard_summary_canvas_.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
-                                         UPDATE_MODE_NONE);
+    active_summary_canvas.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
+                                     UPDATE_MODE_NONE);
     if (!full_refresh) {
         M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
                           kDashboardSummaryW, kDashboardSummaryH,
                           UPDATE_MODE_GC16);
         ++partial_refresh_count_;
     }
-    last_market_summary_rendered_ = summary_signature;
+    last_market_summary_rendered_ = fast_ascii_only ? String("") : summary_signature;
 }
 
 void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
@@ -1541,21 +1762,21 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
 
     dashboard_climate_canvas_.setTextDatum(CL_DATUM);
     dashboard_climate_canvas_.setTextColor(kText);
-    dashboard_climate_canvas_.setTextSize(5);
+    setCanvasTextSize(dashboard_climate_canvas_, cjk_font_ready_, 5);
     dashboard_climate_canvas_.drawString(humidity_text, humidity_x,
                                          climate_value_y);
     const int16_t humidity_width = dashboard_climate_canvas_.textWidth(humidity_text);
-    dashboard_climate_canvas_.setTextSize(2);
+    setCanvasTextSize(dashboard_climate_canvas_, cjk_font_ready_, 2);
     dashboard_climate_canvas_.drawString("%", humidity_x + humidity_width + 6,
                                          climate_value_y + 14);
 
-    dashboard_climate_canvas_.setTextSize(5);
+    setCanvasTextSize(dashboard_climate_canvas_, cjk_font_ready_, 5);
     dashboard_climate_canvas_.drawString(temperature_text, temperature_x,
                                          climate_value_y);
     const int16_t temperature_width =
         dashboard_climate_canvas_.textWidth(temperature_text);
     const int16_t unit_x = temperature_x + temperature_width + 4;
-    dashboard_climate_canvas_.setTextSize(2);
+    setCanvasTextSize(dashboard_climate_canvas_, cjk_font_ready_, 2);
     dashboard_climate_canvas_.drawString("o", unit_x, climate_value_y - 8);
     dashboard_climate_canvas_.drawString("C", unit_x + 14,
                                          climate_value_y + 14);
@@ -1564,7 +1785,8 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
         kDashboardClimateTemperatureDividerX +
         ((kDashboardClimateW - kDashboardClimateTemperatureDividerX) / 2);
     drawCompactComfortInfoAt(dashboard_climate_canvas_, face_cell_center_x,
-                             kDashboardClimateH / 2 + 2, comfort_face, kText);
+                             kDashboardClimateH / 2 + 2, comfort_face, kText,
+                             cjk_font_ready_);
 
     dashboard_climate_canvas_.pushCanvas(kDashboardClimateX, kDashboardClimateY,
                                          UPDATE_MODE_NONE);
@@ -1607,7 +1829,7 @@ void ClockApp::updatePasswordFieldCanvas(m5epd_update_mode_t mode) {
                                          6, kBorder);
     password_field_canvas_.setTextDatum(CL_DATUM);
     password_field_canvas_.setTextColor(kText);
-    password_field_canvas_.setTextSize(2);
+    setCanvasTextSize(password_field_canvas_, cjk_font_ready_, 2);
     password_field_canvas_.drawString(maskedPassword(), 16, kPasswordFieldH / 2);
     password_field_canvas_.pushCanvas(kPasswordFieldX, kPasswordFieldY,
                                       UPDATE_MODE_NONE);
@@ -1618,7 +1840,7 @@ void ClockApp::updatePasswordFieldCanvas(m5epd_update_mode_t mode) {
 void ClockApp::updatePasswordStatusCanvas(m5epd_update_mode_t mode) {
     password_status_canvas_.fillCanvas(kWhite);
     password_status_canvas_.setTextDatum(CL_DATUM);
-    password_status_canvas_.setTextSize(2);
+    setCanvasTextSize(password_status_canvas_, cjk_font_ready_, 2);
     password_status_canvas_.setTextColor(status_error_ ? kErrorText : kAccentText);
     password_status_canvas_.drawString(status_message_, 0, kPasswordStatusH / 2);
     password_status_canvas_.pushCanvas(kPasswordStatusX, kPasswordStatusY,
@@ -1630,9 +1852,9 @@ void ClockApp::updatePasswordStatusCanvas(m5epd_update_mode_t mode) {
 void ClockApp::updateSettingsStatusCanvas(m5epd_update_mode_t mode) {
     M5EPD_Canvas settings_status_canvas(&M5.EPD);
     settings_status_canvas.createCanvas(kSettingsStatusW, kSettingsStatusH);
-    settings_status_canvas.useFreetypeFont(false);
+    const bool local_cjk_font_ready = false;
     settings_status_canvas.fillCanvas(kWhite);
-    drawSettingsStatusCard(settings_status_canvas, 0, 0);
+    drawSettingsStatusCard(settings_status_canvas, 0, 0, local_cjk_font_ready);
     settings_status_canvas.pushCanvas(kSettingsStatusX, kSettingsStatusY,
                                       UPDATE_MODE_NONE);
     M5.EPD.UpdateArea(kSettingsStatusX, kSettingsStatusY, kSettingsStatusW,
@@ -1643,21 +1865,21 @@ void ClockApp::drawHeader(const String& title, bool show_back) {
     (void)show_back;
     page_canvas_.drawFastHLine(0, kHeaderHeight - 1, kScreenWidth, kBorder);
     page_canvas_.setTextDatum(CC_DATUM);
-    page_canvas_.setTextSize(4);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 4);
     page_canvas_.setTextColor(kText);
     page_canvas_.drawString(title, kScreenWidth / 2, 26);
 }
 
 void ClockApp::drawButton(const Button& button, bool pressed) {
-    drawButton(page_canvas_, button, pressed);
+    drawButton(page_canvas_, button, pressed, cjk_font_ready_);
 }
 
-void ClockApp::drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed) {
+void ClockApp::drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed,
+                          bool use_cjk_font) {
     if (!button.visible) {
         return;
     }
 
-    canvas.useFreetypeFont(false);
     const uint8_t fill = pressed ? kPressedFill :
                          (button.primary ? kPrimaryFill : kWhite);
     const uint8_t border = button.enabled ? kBorder : 12;
@@ -1667,7 +1889,7 @@ void ClockApp::drawButton(M5EPD_Canvas& canvas, const Button& button, bool press
                          button.bounds.h, 6, border);
     canvas.setTextDatum(CC_DATUM);
     canvas.setTextColor(button.enabled ? kText : kMutedText);
-    canvas.setTextSize(2);
+    setCanvasTextSize(canvas, use_cjk_font, 2);
     canvas.drawString(button.label, button.bounds.x + button.bounds.w / 2,
                       button.bounds.y + button.bounds.h / 2);
 }
@@ -1678,14 +1900,13 @@ void ClockApp::drawCard(const Rect& rect, uint8_t fill, uint8_t border) {
 }
 
 void ClockApp::drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
-                                      int16_t origin_y) {
-    canvas.useFreetypeFont(false);
+                                      int16_t origin_y, bool use_cjk_font) {
     canvas.fillRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
                          kWhite);
     canvas.drawRoundRect(origin_x, origin_y, kSettingsStatusW, kSettingsStatusH, 6,
                          kBorder);
     canvas.setTextDatum(TL_DATUM);
-    canvas.setTextSize(2);
+    setCanvasTextSize(canvas, use_cjk_font, 2);
     canvas.setTextColor(kText);
     canvas.drawString("Network", origin_x + 18, origin_y + 18);
     canvas.drawString("RTC", origin_x + 18, origin_y + 52);
@@ -1700,7 +1921,7 @@ void ClockApp::drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
 void ClockApp::drawStatusLine(const String& label, const String& value,
                               int16_t x, int16_t y) {
     page_canvas_.setTextDatum(TL_DATUM);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.setTextColor(kMutedText);
     page_canvas_.drawString(label, x, y);
     page_canvas_.setTextColor(kText);
@@ -1717,7 +1938,7 @@ void ClockApp::drawWifiRow(const Button& button, const WiFiNetwork& network) {
 
     page_canvas_.setTextDatum(CL_DATUM);
     page_canvas_.setTextColor(kText);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.drawString(label, button.bounds.x + 18,
                             button.bounds.y + button.bounds.h / 2);
 
@@ -1733,7 +1954,7 @@ void ClockApp::drawPasswordField(const Rect& rect) {
     page_canvas_.drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6, kBorder);
     page_canvas_.setTextDatum(CL_DATUM);
     page_canvas_.setTextColor(kText);
-    page_canvas_.setTextSize(2);
+    setCanvasTextSize(page_canvas_, cjk_font_ready_, 2);
     page_canvas_.drawString(maskedPassword(), rect.x + 16, rect.y + rect.h / 2);
 }
 
@@ -1741,12 +1962,12 @@ void ClockApp::updateButtonCanvas(const Button& button, m5epd_update_mode_t mode
                                   bool pressed) {
     M5EPD_Canvas button_canvas(&M5.EPD);
     button_canvas.createCanvas(button.bounds.w, button.bounds.h);
-    button_canvas.useFreetypeFont(false);
+    const bool local_cjk_font_ready = false;
     button_canvas.fillCanvas(kWhite);
     Button local_button = button;
     local_button.bounds.x = 0;
     local_button.bounds.y = 0;
-    drawButton(button_canvas, local_button, pressed);
+    drawButton(button_canvas, local_button, pressed, local_cjk_font_ready);
     button_canvas.pushCanvas(button.bounds.x, button.bounds.y, UPDATE_MODE_NONE);
     M5.EPD.UpdateArea(button.bounds.x, button.bounds.y, button.bounds.w,
                       button.bounds.h, mode);
@@ -2046,9 +2267,23 @@ int ClockApp::buttonIdAt(int16_t x, int16_t y) const {
 }
 
 void ClockApp::switchPage(PageId page, bool force_full_refresh) {
+    const uint32_t started_ms = millis();
+    Serial.printf("[perf] switchPage from=%d to=%d force_full=%d at=%lu\n",
+                  static_cast<int>(current_page_), static_cast<int>(page),
+                  force_full_refresh ? 1 : 0, started_ms);
+    const PageId previous_page = current_page_;
     current_page_ = page;
+    if (page == PageId::Clock && previous_page != PageId::Clock &&
+        usesDashboardClockStyle()) {
+        fast_dashboard_entry_render_ = true;
+        pending_dashboard_date_cjk_render_ = false;
+        pending_dashboard_calendar_cjk_render_ = false;
+    }
     buttons_.clear();
-    renderPage(force_full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16, true);
+    renderPage(force_full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16,
+               force_full_refresh);
+    Serial.printf("[perf] switchPage to=%d done total=%lu\n",
+                  static_cast<int>(page), millis() - started_ms);
 }
 
 void ClockApp::refreshCurrentPage() {
@@ -2171,6 +2406,10 @@ bool ClockApp::usesDashboardClockStyle() const {
 }
 
 void ClockApp::autoConnectIfNeeded() {
+    const uint32_t started_ms = millis();
+    Serial.printf("[perf] autoConnectIfNeeded start attempted=%d ssid=%d at=%lu\n",
+                  auto_connect_attempted_ ? 1 : 0,
+                  settings_.ssid.isEmpty() ? 0 : 1, started_ms);
     if (auto_connect_attempted_ || settings_.ssid.isEmpty()) {
         return;
     }
@@ -2178,19 +2417,35 @@ void ClockApp::autoConnectIfNeeded() {
     auto_connect_attempted_ = true;
     status_message_ = "Connecting to " + settings_.ssid + "...";
     status_error_ = false;
+    uint32_t step_started_ms = millis();
     updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+    Serial.printf("[perf] autoConnect status(connecting) took=%lu\n",
+                  millis() - step_started_ms);
 
+    step_started_ms = millis();
     if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
+        Serial.printf("[perf] autoConnect ensureConnected failed after=%lu\n",
+                      millis() - step_started_ms);
         status_message_ = "Wi-Fi connect failed";
         status_error_ = true;
         updateSettingsStatusCanvas(UPDATE_MODE_GL16);
         return;
     }
+    Serial.printf("[perf] autoConnect ensureConnected ok after=%lu\n",
+                  millis() - step_started_ms);
 
     status_message_ = "Wi-Fi connected, syncing time...";
+    step_started_ms = millis();
     updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+    Serial.printf("[perf] autoConnect status(syncing) took=%lu\n",
+                  millis() - step_started_ms);
+    step_started_ms = millis();
     if (trySyncTime(false)) {
+        Serial.printf("[perf] autoConnect trySyncTime ok after=%lu\n",
+                      millis() - step_started_ms);
         switchPage(PageId::Clock);
+        Serial.printf("[perf] autoConnect switchPage done total=%lu\n",
+                      millis() - started_ms);
     }
 }
 
@@ -2222,6 +2477,10 @@ void ClockApp::scanWiFi() {
 }
 
 bool ClockApp::trySyncTime(bool allow_connect) {
+    const uint32_t started_ms = millis();
+    Serial.printf("[perf] trySyncTime start allow_connect=%d connected=%d at=%lu\n",
+                  allow_connect ? 1 : 0, connectivity_.isConnected() ? 1 : 0,
+                  started_ms);
     if (allow_connect && !connectivity_.isConnected()) {
         if (settings_.ssid.isEmpty()) {
             status_message_ = "Configure Wi-Fi first";
@@ -2231,7 +2490,10 @@ bool ClockApp::trySyncTime(bool allow_connect) {
             }
             return false;
         }
+        const uint32_t connect_started_ms = millis();
         if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
+            Serial.printf("[perf] trySyncTime ensureConnected failed after=%lu\n",
+                          millis() - connect_started_ms);
             status_message_ = "Wi-Fi connect failed";
             status_error_ = true;
             if (current_page_ == PageId::Settings) {
@@ -2239,6 +2501,8 @@ bool ClockApp::trySyncTime(bool allow_connect) {
             }
             return false;
         }
+        Serial.printf("[perf] trySyncTime ensureConnected ok after=%lu\n",
+                      millis() - connect_started_ms);
     }
 
     if (!connectivity_.isConnected()) {
@@ -2250,7 +2514,10 @@ bool ClockApp::trySyncTime(bool allow_connect) {
         return false;
     }
 
+    const uint32_t sync_started_ms = millis();
     if (connectivity_.syncTimeToRtc(settings_.timezone)) {
+        Serial.printf("[perf] trySyncTime syncTimeToRtc ok after=%lu\n",
+                      millis() - sync_started_ms);
         settings_.time_synced = true;
         store_.saveTimeSynced(true);
         status_message_ = "Time sync successful";
@@ -2258,13 +2525,20 @@ bool ClockApp::trySyncTime(bool allow_connect) {
         M5.RTC.getTime(&last_time_);
         M5.RTC.getDate(&last_date_);
     } else {
+        Serial.printf("[perf] trySyncTime syncTimeToRtc failed after=%lu\n",
+                      millis() - sync_started_ms);
         status_message_ = "Time sync failed";
         status_error_ = true;
     }
 
     if (current_page_ == PageId::Settings) {
+        const uint32_t status_started_ms = millis();
         updateSettingsStatusCanvas(UPDATE_MODE_GL16);
+        Serial.printf("[perf] trySyncTime settings status update took=%lu\n",
+                      millis() - status_started_ms);
     }
+    Serial.printf("[perf] trySyncTime done success=%d total=%lu\n",
+                  status_error_ ? 0 : 1, millis() - started_ms);
     return !status_error_;
 }
 

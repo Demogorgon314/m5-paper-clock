@@ -18,6 +18,87 @@ struct TencentQuoteSnapshot {
     bool positive = false;
 };
 
+inline bool IsValidUtf8(const std::string& value) {
+    size_t index = 0;
+    while (index < value.size()) {
+        const unsigned char lead =
+            static_cast<unsigned char>(value[index]);
+        size_t expected_length = 0;
+        if ((lead & 0x80) == 0x00) {
+            expected_length = 1;
+        } else if ((lead & 0xE0) == 0xC0) {
+            expected_length = 2;
+            if (lead < 0xC2) {
+                return false;
+            }
+        } else if ((lead & 0xF0) == 0xE0) {
+            expected_length = 3;
+        } else if ((lead & 0xF8) == 0xF0) {
+            expected_length = 4;
+            if (lead > 0xF4) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if (index + expected_length > value.size()) {
+            return false;
+        }
+
+        for (size_t offset = 1; offset < expected_length; ++offset) {
+            const unsigned char continuation =
+                static_cast<unsigned char>(value[index + offset]);
+            if ((continuation & 0xC0) != 0x80) {
+                return false;
+            }
+        }
+
+        if (expected_length == 3) {
+            const unsigned char second =
+                static_cast<unsigned char>(value[index + 1]);
+            if ((lead == 0xE0 && second < 0xA0) ||
+                (lead == 0xED && second >= 0xA0)) {
+                return false;
+            }
+        } else if (expected_length == 4) {
+            const unsigned char second =
+                static_cast<unsigned char>(value[index + 1]);
+            if ((lead == 0xF0 && second < 0x90) ||
+                (lead == 0xF4 && second >= 0x90)) {
+                return false;
+            }
+        }
+
+        index += expected_length;
+    }
+    return true;
+}
+
+inline std::string KnownMarketDisplayName(const std::string& code) {
+    if (code == "000001") {
+        return u8"上证指数";
+    }
+    return "";
+}
+
+inline std::string NormalizeTencentQuoteName(const std::string& code,
+                                             const std::string& name) {
+    if (!name.empty() && IsValidUtf8(name)) {
+        return name;
+    }
+
+    const std::string fallback_name = KnownMarketDisplayName(code);
+    if (!fallback_name.empty()) {
+        return fallback_name;
+    }
+
+    if (!name.empty()) {
+        return name;
+    }
+    return code;
+}
+
 inline std::vector<std::string> SplitTencentQuoteFields(
     const std::string& payload) {
     std::vector<std::string> fields;

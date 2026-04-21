@@ -82,6 +82,21 @@ void test_parse_tencent_quote_with_trade_details() {
     TEST_ASSERT_TRUE(snapshot.positive);
 }
 
+void test_normalize_tencent_quote_name_uses_known_utf8_fallback() {
+    const std::string name_gbk = "\xC9\xCF\xD6\xA4\xD6\xB8\xCA\xFD";
+    const std::string normalized =
+        logic::NormalizeTencentQuoteName("000001", name_gbk);
+
+    TEST_ASSERT_EQUAL_STRING("上证指数", normalized.c_str());
+}
+
+void test_normalize_tencent_quote_name_keeps_utf8_name() {
+    const std::string normalized =
+        logic::NormalizeTencentQuoteName("000001", "SSE Index");
+
+    TEST_ASSERT_EQUAL_STRING("SSE Index", normalized.c_str());
+}
+
 void test_next_holiday_countdown() {
     const logic::HolidayCountdown countdown =
         logic::NextHolidayCountdown(2026, 4, 21);
@@ -90,6 +105,11 @@ void test_next_holiday_countdown() {
     TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::LaoDong),
                       static_cast<int>(countdown.id));
     TEST_ASSERT_EQUAL(10, countdown.days_remaining);
+}
+
+void test_holiday_name_zh() {
+    TEST_ASSERT_EQUAL_STRING("劳动节",
+                             logic::HolidayNameZh(logic::HolidayId::LaoDong));
 }
 
 const logic::HolidayPeriod* find_holiday_period(logic::HolidayId id,
@@ -185,7 +205,10 @@ int main() {
     RUN_TEST(test_segment_masks);
     RUN_TEST(test_parse_tencent_quote);
     RUN_TEST(test_parse_tencent_quote_with_trade_details);
+    RUN_TEST(test_normalize_tencent_quote_name_uses_known_utf8_fallback);
+    RUN_TEST(test_normalize_tencent_quote_name_keeps_utf8_name);
     RUN_TEST(test_next_holiday_countdown);
+    RUN_TEST(test_holiday_name_zh);
     RUN_TEST(test_holiday_display_in_holiday);
     RUN_TEST(test_holiday_display_last_day);
     RUN_TEST(test_next_holiday_skips_current_holiday_start);
