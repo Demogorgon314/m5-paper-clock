@@ -157,6 +157,8 @@ private:
     M5EPD_Canvas time_canvas_ {&M5.EPD};
     M5EPD_Canvas minute_canvas_ {&M5.EPD};
     M5EPD_Canvas info_canvas_ {&M5.EPD};
+    M5EPD_Canvas humidity_canvas_ {&M5.EPD};
+    M5EPD_Canvas temperature_canvas_ {&M5.EPD};
     M5EPD_Canvas date_canvas_ {&M5.EPD};
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas password_field_canvas_ {&M5.EPD};

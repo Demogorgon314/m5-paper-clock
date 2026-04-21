@@ -86,6 +86,27 @@ constexpr int16_t kTimeMinuteCanvasH = 292;
 constexpr int16_t kTimeMinuteDrawX = (kTimeX + kTimeColonX) - kTimeMinuteCanvasX;
 constexpr int16_t kSmallPartialCanvasW = alignUpTo4(kSmallDigitWidth + 3);
 constexpr int16_t kSmallPartialCanvasH = alignUpTo4(kSmallDigitHeight + 3);
+constexpr int16_t kHumidityCanvasX = alignDownTo4(kInfoX + kHumidityDigitXs[0]);
+constexpr int16_t kHumidityCanvasY = kInfoY;
+constexpr int16_t kHumidityCanvasW =
+    alignUpTo4((kInfoX + kHumidityUnitX + 36) - kHumidityCanvasX);
+constexpr int16_t kHumidityCanvasH = kInfoCanvasH;
+constexpr int16_t kHumidityDrawX =
+    (kInfoX + kHumidityDigitXs[0]) - kHumidityCanvasX;
+constexpr int16_t kHumidityUnitDrawX =
+    (kInfoX + kHumidityUnitX) - kHumidityCanvasX;
+constexpr int16_t kTemperatureCanvasX =
+    alignDownTo4(kInfoX + kTemperatureDigitXs[0]);
+constexpr int16_t kTemperatureCanvasY = kInfoY;
+constexpr int16_t kTemperatureCanvasW =
+    alignUpTo4((kInfoX + kTemperatureUnitX + 48) - kTemperatureCanvasX);
+constexpr int16_t kTemperatureCanvasH = kInfoCanvasH;
+constexpr int16_t kTemperatureDrawX =
+    (kInfoX + kTemperatureDigitXs[0]) - kTemperatureCanvasX;
+constexpr int16_t kTemperatureDegreeDrawX =
+    (kInfoX + kTemperatureDegreeX) - kTemperatureCanvasX;
+constexpr int16_t kTemperatureUnitDrawX =
+    (kInfoX + kTemperatureUnitX) - kTemperatureCanvasX;
 
 struct PartialRegion {
     int16_t update_x = 0;
@@ -238,6 +259,36 @@ void drawMinuteTime(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
                       edge_color);
 }
 
+void drawHumidityInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
+                      const String& humidity_text, uint8_t body_color,
+                      uint8_t edge_color) {
+    canvas.fillCanvas(kWhite);
+    canvas.setTextDatum(TL_DATUM);
+    renderer.drawText(canvas, kHumidityDrawX, kInfoDigitY, humidity_text,
+                      kSmallDigitWidth, kSmallDigitHeight, kSmallGap,
+                      body_color, edge_color);
+    canvas.setTextColor(body_color);
+    canvas.setTextSize(3);
+    canvas.drawString("%", kHumidityUnitDrawX, 54);
+}
+
+void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
+                         const String& temperature_text, uint8_t body_color,
+                         uint8_t edge_color) {
+    canvas.fillCanvas(kWhite);
+    canvas.setTextDatum(TL_DATUM);
+    const String temperature_display =
+        temperature_text.substring(0, 2) + "." + temperature_text.substring(2);
+    renderer.drawText(canvas, kTemperatureDrawX, kInfoDigitY, temperature_display,
+                      kSmallDigitWidth, kSmallDigitHeight, kSmallGap,
+                      body_color, edge_color);
+    canvas.setTextColor(body_color);
+    canvas.setTextSize(3);
+    canvas.drawString(" C", kTemperatureUnitDrawX, 54);
+    canvas.setTextSize(2);
+    canvas.drawString("o", kTemperatureDegreeDrawX, 44);
+}
+
 m5epd_update_mode_t nextPartialMode(uint8_t& count) {
     if (++count >= kPartialCleanInterval) {
         count = 0;
@@ -309,6 +360,10 @@ void ClockApp::createCanvases() {
     minute_canvas_.useFreetypeFont(false);
     info_canvas_.createCanvas(kInfoCanvasW, kInfoCanvasH);
     info_canvas_.useFreetypeFont(false);
+    humidity_canvas_.createCanvas(kHumidityCanvasW, kHumidityCanvasH);
+    humidity_canvas_.useFreetypeFont(false);
+    temperature_canvas_.createCanvas(kTemperatureCanvasW, kTemperatureCanvasH);
+    temperature_canvas_.useFreetypeFont(false);
     date_canvas_.createCanvas(kDateW, kDateH);
     date_canvas_.useFreetypeFont(false);
     battery_canvas_.createCanvas(kBatteryW, kBatteryH);
@@ -605,49 +660,31 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         return;
     }
 
-    uint32_t changed_regions = 0;
-    for (size_t index = 0; index < 3; ++index) {
-        if (last_humidity_text_rendered_.length() != 3 ||
-            humidity_text.charAt(index) != last_humidity_text_rendered_.charAt(index)) {
-            M5EPD_Canvas& digit_canvas = humidity_digit_canvases_[index];
-            const int16_t absolute_x = kInfoX + kHumidityDigitXs[index];
-            const int16_t absolute_y = kInfoY + kInfoDigitY;
-            const PartialRegion region = makePartialRegion(absolute_x, absolute_y);
-            digit_canvas.fillCanvas(kWhite);
-            drawSegmentCharAt(renderer_, digit_canvas, region.draw_x, region.draw_y,
-                              humidity_text.charAt(index), kSmallDigitWidth,
-                              kSmallDigitHeight, kText, kMutedText);
-            const m5epd_update_mode_t mode =
-                nextPartialMode(humidity_digit_partial_counts_[index]);
-            digit_canvas.pushCanvas(region.update_x, region.update_y,
+    bool humidity_changed = humidity_text != last_humidity_text_rendered_;
+    bool temperature_changed = temperature_text != last_temperature_text_rendered_;
+
+    if (humidity_changed) {
+        drawHumidityInfo(renderer_, humidity_canvas_, humidity_text, kText,
+                         kMutedText);
+        humidity_canvas_.pushCanvas(kHumidityCanvasX, kHumidityCanvasY,
                                     UPDATE_MODE_NONE);
-            M5.EPD.UpdateArea(region.update_x, region.update_y, digit_canvas.width(),
-                              digit_canvas.height(), mode);
-            ++changed_regions;
-        }
-        if (last_temperature_text_rendered_.length() != 3 ||
-            temperature_text.charAt(index) !=
-                last_temperature_text_rendered_.charAt(index)) {
-            M5EPD_Canvas& digit_canvas = temperature_digit_canvases_[index];
-            const int16_t absolute_x = kInfoX + kTemperatureDigitXs[index];
-            const int16_t absolute_y = kInfoY + kInfoDigitY;
-            const PartialRegion region = makePartialRegion(absolute_x, absolute_y);
-            digit_canvas.fillCanvas(kWhite);
-            drawSegmentCharAt(renderer_, digit_canvas, region.draw_x, region.draw_y,
-                              temperature_text.charAt(index), kSmallDigitWidth,
-                              kSmallDigitHeight, kText, kMutedText);
-            const m5epd_update_mode_t mode =
-                nextPartialMode(temperature_digit_partial_counts_[index]);
-            digit_canvas.pushCanvas(region.update_x, region.update_y,
-                                    UPDATE_MODE_NONE);
-            M5.EPD.UpdateArea(region.update_x, region.update_y, digit_canvas.width(),
-                              digit_canvas.height(), mode);
-            ++changed_regions;
-        }
+        M5.EPD.UpdateArea(kHumidityCanvasX, kHumidityCanvasY,
+                          humidity_canvas_.width(), humidity_canvas_.height(),
+                          UPDATE_MODE_GC16);
+        ++partial_refresh_count_;
+        humidity_digit_partial_counts_.fill(0);
     }
 
-    if (changed_regions > 0) {
-        partial_refresh_count_ += changed_regions;
+    if (temperature_changed) {
+        drawTemperatureInfo(renderer_, temperature_canvas_, temperature_text, kText,
+                            kMutedText);
+        temperature_canvas_.pushCanvas(kTemperatureCanvasX, kTemperatureCanvasY,
+                                       UPDATE_MODE_NONE);
+        M5.EPD.UpdateArea(kTemperatureCanvasX, kTemperatureCanvasY,
+                          temperature_canvas_.width(),
+                          temperature_canvas_.height(), UPDATE_MODE_GC16);
+        ++partial_refresh_count_;
+        temperature_digit_partial_counts_.fill(0);
     }
     last_humidity_text_rendered_ = humidity_text;
     last_temperature_text_rendered_ = temperature_text;
