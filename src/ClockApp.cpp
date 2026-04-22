@@ -4,6 +4,7 @@
 #include <SPIFFS.h>
 #include <WiFi.h>
 
+#include "logic/ComfortLogic.h"
 #include "logic/HolidayLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/UiLogic.h"
@@ -127,10 +128,6 @@ constexpr int16_t kComfortCanvasW =
 constexpr int16_t kComfortCanvasH = kInfoCanvasH;
 constexpr int16_t kComfortFaceDrawX = (kInfoX + 640) - kComfortCanvasX;
 constexpr int16_t kComfortFaceDrawY = 58;
-constexpr float kComfortMinTemperature = 19.0f;
-constexpr float kComfortMaxTemperature = 27.0f;
-constexpr float kComfortMinHumidity = 20.0f;
-constexpr float kComfortMaxHumidity = 85.0f;
 constexpr int16_t kDashboardCalendarX = 72;
 constexpr int16_t kDashboardCalendarY = 106;
 constexpr int16_t kDashboardCalendarW = 304;
@@ -599,26 +596,11 @@ void drawTemperatureInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
     canvas.drawString("o", kTemperatureDegreeDrawX, kTemperatureDegreeY);
 }
 
-bool isComfortable(const EnvironmentReading& reading) {
-    if (!reading.valid) {
-        return false;
-    }
-
-    return reading.temperature >= kComfortMinTemperature &&
-           reading.temperature <= kComfortMaxTemperature &&
-           reading.humidity >= kComfortMinHumidity &&
-           reading.humidity <= kComfortMaxHumidity;
-}
-
-String comfortFace(const EnvironmentReading& reading) {
-    if (!reading.valid) {
-        return String("(-_-)");
-    }
-
-    if (isComfortable(reading)) {
-        return String("(^_^)");
-    }
-    return String("(-^-)");
+String comfortFace(const EnvironmentReading& reading,
+                   const logic::ComfortSettings& comfort_settings) {
+    return String(logic::ComfortFaceText(logic::ComfortStateForReading(
+        reading.temperature, reading.humidity, reading.valid,
+        comfort_settings)));
 }
 
 void drawComfortInfoAt(M5EPD_Canvas& canvas, int16_t center_x, int16_t center_y,
@@ -795,6 +777,8 @@ void ClockApp::begin() {
     if (settings_.market_name.isEmpty()) {
         settings_.market_name = "上证指数";
     }
+    settings_.comfort_settings =
+        logic::NormalizeComfortSettings(settings_.comfort_settings);
     clock_style_ = settings_.clock_style == 1 ? ClockStyle::Dashboard
                                               : ClockStyle::Classic;
     seedMarketQuoteFromSettings();
@@ -1363,7 +1347,8 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
 
     const String humidity_text = formatHumidityField(last_environment_);
     const String temperature_text = formatTemperatureField(last_environment_);
-    const String comfort_face = comfortFace(last_environment_);
+    const String comfort_face =
+        comfortFace(last_environment_, settings_.comfort_settings);
 
     if (full_refresh) {
         info_canvas_.fillCanvas(kWhite);
@@ -1825,7 +1810,8 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
 
     const String humidity_text = formatDashboardHumidity(last_environment_);
     const String temperature_text = formatDashboardTemperature(last_environment_);
-    const String comfort_face = comfortFace(last_environment_);
+    const String comfort_face =
+        comfortFace(last_environment_, settings_.comfort_settings);
     const bool humidity_changed = humidity_text != last_humidity_text_rendered_;
     const bool temperature_changed =
         temperature_text != last_temperature_text_rendered_;
@@ -2300,6 +2286,34 @@ void ClockApp::processSerialConfigLine(const String& line) {
             settings_.clock_style =
                 clock_style_ == ClockStyle::Dashboard ? 1 : 0;
             store_.saveClockStyle(settings_.clock_style);
+            settings_changed = true;
+        }
+        logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
+        bool comfort_settings_changed = false;
+        if (data.containsKey("comfortTemperatureMin")) {
+            next_comfort_settings.min_temperature =
+                data["comfortTemperatureMin"].as<float>();
+            comfort_settings_changed = true;
+        }
+        if (data.containsKey("comfortTemperatureMax")) {
+            next_comfort_settings.max_temperature =
+                data["comfortTemperatureMax"].as<float>();
+            comfort_settings_changed = true;
+        }
+        if (data.containsKey("comfortHumidityMin")) {
+            next_comfort_settings.min_humidity =
+                data["comfortHumidityMin"].as<float>();
+            comfort_settings_changed = true;
+        }
+        if (data.containsKey("comfortHumidityMax")) {
+            next_comfort_settings.max_humidity =
+                data["comfortHumidityMax"].as<float>();
+            comfort_settings_changed = true;
+        }
+        if (comfort_settings_changed) {
+            settings_.comfort_settings =
+                logic::NormalizeComfortSettings(next_comfort_settings);
+            store_.saveComfortSettings(settings_.comfort_settings);
             settings_changed = true;
         }
         if (data.containsKey("marketSymbol")) {
@@ -3030,6 +3044,10 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["marketDisplayName"] = currentMarketDisplayName();
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
+    data["comfortTemperatureMin"] = settings_.comfort_settings.min_temperature;
+    data["comfortTemperatureMax"] = settings_.comfort_settings.max_temperature;
+    data["comfortHumidityMin"] = settings_.comfort_settings.min_humidity;
+    data["comfortHumidityMax"] = settings_.comfort_settings.max_humidity;
     data["statusMessage"] = status_message_;
     data["statusError"] = status_error_;
 }

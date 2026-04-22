@@ -3,6 +3,18 @@ const DEFAULT_BAUD_RATE = 115200;
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
+const DEFAULT_COMFORT_SETTINGS = Object.freeze({
+  comfortTemperatureMin: 19,
+  comfortTemperatureMax: 27,
+  comfortHumidityMin: 20,
+  comfortHumidityMax: 85,
+});
+const COMFORT_LIMITS = Object.freeze({
+  temperatureMin: -20,
+  temperatureMax: 60,
+  humidityMin: 0,
+  humidityMax: 100,
+});
 
 const DEFAULT_MARKETS = [
   {
@@ -98,6 +110,10 @@ const elements = {
   passwordInput: document.querySelector("#password-input"),
   timezoneSelect: document.querySelector("#timezone-select"),
   clockStyleSelect: document.querySelector("#clock-style-select"),
+  comfortTempMinInput: document.querySelector("#comfort-temp-min-input"),
+  comfortTempMaxInput: document.querySelector("#comfort-temp-max-input"),
+  comfortHumidityMinInput: document.querySelector("#comfort-humidity-min-input"),
+  comfortHumidityMaxInput: document.querySelector("#comfort-humidity-max-input"),
   marketCurrentName: document.querySelector("#market-current-name"),
   marketCurrentCode: document.querySelector("#market-current-code"),
   marketSearchInput: document.querySelector("#market-search-input"),
@@ -149,6 +165,87 @@ function withCurrentFlag(items) {
 
 function marketKindLabel(kind) {
   return kind === "index" ? "指数" : "股票";
+}
+
+function formatConfigNumber(value, fractionDigits = 1) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return "";
+  }
+  const rounded = Number(number.toFixed(fractionDigits));
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function applyComfortInputs(settings = DEFAULT_COMFORT_SETTINGS) {
+  elements.comfortTempMinInput.value = formatConfigNumber(
+    settings.comfortTemperatureMin,
+    1,
+  );
+  elements.comfortTempMaxInput.value = formatConfigNumber(
+    settings.comfortTemperatureMax,
+    1,
+  );
+  elements.comfortHumidityMinInput.value = formatConfigNumber(
+    settings.comfortHumidityMin,
+    0,
+  );
+  elements.comfortHumidityMaxInput.value = formatConfigNumber(
+    settings.comfortHumidityMax,
+    0,
+  );
+}
+
+function readNumberField(element, label, min, max) {
+  const rawValue = String(element.value || "").trim();
+  const value = Number(rawValue);
+  if (!rawValue || !Number.isFinite(value)) {
+    throw new Error(`请输入有效的${label}`);
+  }
+  if (value < min || value > max) {
+    throw new Error(`${label}需要在 ${min} 到 ${max} 之间`);
+  }
+  return value;
+}
+
+function readComfortSettingsFromInputs() {
+  const comfortTemperatureMin = readNumberField(
+    elements.comfortTempMinInput,
+    "最低舒适温度",
+    COMFORT_LIMITS.temperatureMin,
+    COMFORT_LIMITS.temperatureMax,
+  );
+  const comfortTemperatureMax = readNumberField(
+    elements.comfortTempMaxInput,
+    "最高舒适温度",
+    COMFORT_LIMITS.temperatureMin,
+    COMFORT_LIMITS.temperatureMax,
+  );
+  const comfortHumidityMin = readNumberField(
+    elements.comfortHumidityMinInput,
+    "最低舒适湿度",
+    COMFORT_LIMITS.humidityMin,
+    COMFORT_LIMITS.humidityMax,
+  );
+  const comfortHumidityMax = readNumberField(
+    elements.comfortHumidityMaxInput,
+    "最高舒适湿度",
+    COMFORT_LIMITS.humidityMin,
+    COMFORT_LIMITS.humidityMax,
+  );
+
+  if (comfortTemperatureMin > comfortTemperatureMax) {
+    throw new Error("最低舒适温度不能高于最高舒适温度");
+  }
+  if (comfortHumidityMin > comfortHumidityMax) {
+    throw new Error("最低舒适湿度不能高于最高舒适湿度");
+  }
+
+  return {
+    comfortTemperatureMin,
+    comfortTemperatureMax,
+    comfortHumidityMin,
+    comfortHumidityMax,
+  };
 }
 
 function localMarketMatches(item, query) {
@@ -436,6 +533,16 @@ function updateStatus(status) {
   if (status.clockStyle) {
     elements.clockStyleSelect.value = status.clockStyle;
   }
+  applyComfortInputs({
+    comfortTemperatureMin:
+      status.comfortTemperatureMin ?? DEFAULT_COMFORT_SETTINGS.comfortTemperatureMin,
+    comfortTemperatureMax:
+      status.comfortTemperatureMax ?? DEFAULT_COMFORT_SETTINGS.comfortTemperatureMax,
+    comfortHumidityMin:
+      status.comfortHumidityMin ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMin,
+    comfortHumidityMax:
+      status.comfortHumidityMax ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMax,
+  });
 
   const message = status.statusMessage || "已连接";
   setMessage(message, Boolean(status.statusError));
@@ -796,6 +903,7 @@ async function saveSettings({ connectNow, syncTime }) {
   const password = elements.passwordInput.value;
   const timezone = Number(elements.timezoneSelect.value);
   const clockStyle = elements.clockStyleSelect.value;
+  const comfortSettings = readComfortSettingsFromInputs();
 
   if (!ssid) {
     throw new Error("请先输入或选择 Wi-Fi 名称");
@@ -810,6 +918,7 @@ async function saveSettings({ connectNow, syncTime }) {
     clockStyle,
     connectNow,
     syncTime,
+    ...comfortSettings,
   };
 
   if (!savedSsid || typedSsid !== savedSsid) {
@@ -956,6 +1065,7 @@ function handleActionError(error) {
 
 async function initialize() {
   renderTimezoneOptions();
+  applyComfortInputs(DEFAULT_COMFORT_SETTINGS);
   renderNetworks();
   state.marketResults = withCurrentFlag(DEFAULT_MARKETS);
   renderMarketHotList();

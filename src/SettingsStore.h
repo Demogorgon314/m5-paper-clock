@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "logic/ComfortLogic.h"
+
 struct AppSettings {
     String ssid;
     String password;
@@ -11,6 +13,7 @@ struct AppSettings {
     uint8_t clock_style = 0;
     String market_symbol = "sh000001";
     String market_name = "上证指数";
+    logic::ComfortSettings comfort_settings;
 };
 
 class SettingsStore {
@@ -23,6 +26,7 @@ public:
     void saveTimeSynced(bool time_synced);
     void saveClockStyle(uint8_t clock_style);
     void saveMarket(const String& market_symbol, const String& market_name);
+    void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
 
 private:
     static constexpr const char* kNamespace = "paper-clock";

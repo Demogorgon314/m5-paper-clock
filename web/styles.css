@@ -232,6 +232,26 @@ code {
   margin-top: 14px;
 }
 
+.config-subsection {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.config-subheading h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.config-subheading .helper-text {
+  margin-top: 6px;
+}
+
+.comfort-grid {
+  margin-top: 12px;
+}
+
 .field {
   display: grid;
   gap: 8px;

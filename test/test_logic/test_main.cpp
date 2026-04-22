@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "logic/ComfortLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/HolidayLogic.h"
 #include "logic/SegmentLogic.h"
@@ -151,6 +152,31 @@ void test_cn_a_share_market_closed_on_weekends_and_holidays() {
     TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 5, 1, 10, 0));
 }
 
+void test_normalize_comfort_settings_clamps_and_swaps_ranges() {
+    const logic::ComfortSettings normalized =
+        logic::NormalizeComfortSettings(
+            logic::ComfortSettings(32.0f, 18.0f, 105.0f, -5.0f));
+
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 18.0f, normalized.min_temperature);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 32.0f, normalized.max_temperature);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, normalized.min_humidity);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 100.0f, normalized.max_humidity);
+}
+
+void test_comfort_state_for_reading_respects_custom_thresholds() {
+    const logic::ComfortSettings custom(22.0f, 26.0f, 35.0f, 60.0f);
+
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::ComfortState::Comfortable),
+        static_cast<int>(logic::ComfortStateForReading(24.5f, 48.0f, true, custom)));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::ComfortState::Uncomfortable),
+        static_cast<int>(logic::ComfortStateForReading(27.0f, 48.0f, true, custom)));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::ComfortState::Offline),
+        static_cast<int>(logic::ComfortStateForReading(24.5f, 48.0f, false, custom)));
+}
+
 void test_next_holiday_countdown() {
     const logic::HolidayCountdown countdown =
         logic::NextHolidayCountdown(2026, 4, 21);
@@ -268,6 +294,8 @@ int main() {
     RUN_TEST(test_cn_a_share_market_open_during_session);
     RUN_TEST(test_cn_a_share_market_closed_during_breaks);
     RUN_TEST(test_cn_a_share_market_closed_on_weekends_and_holidays);
+    RUN_TEST(test_normalize_comfort_settings_clamps_and_swaps_ranges);
+    RUN_TEST(test_comfort_state_for_reading_respects_custom_thresholds);
     RUN_TEST(test_next_holiday_countdown);
     RUN_TEST(test_holiday_name_zh);
     RUN_TEST(test_holiday_display_in_holiday);
