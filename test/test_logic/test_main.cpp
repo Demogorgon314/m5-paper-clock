@@ -97,6 +97,33 @@ void test_normalize_tencent_quote_name_keeps_utf8_name() {
     TEST_ASSERT_EQUAL_STRING("SSE Index", normalized.c_str());
 }
 
+void test_weekday_from_civil() {
+    TEST_ASSERT_EQUAL(2, logic::WeekdayFromCivil(2026, 4, 21));
+    TEST_ASSERT_EQUAL(0, logic::WeekdayFromCivil(2026, 4, 26));
+}
+
+void test_is_holiday_date() {
+    TEST_ASSERT_TRUE(logic::IsHolidayDate(2026, 5, 1));
+    TEST_ASSERT_FALSE(logic::IsHolidayDate(2026, 4, 21));
+}
+
+void test_cn_a_share_market_open_during_session() {
+    TEST_ASSERT_TRUE(logic::IsCnAShareMarketOpen(2026, 4, 21, 10, 0));
+    TEST_ASSERT_TRUE(logic::IsCnAShareMarketOpen(2026, 4, 21, 11, 30));
+    TEST_ASSERT_TRUE(logic::IsCnAShareMarketOpen(2026, 4, 21, 15, 0));
+}
+
+void test_cn_a_share_market_closed_during_breaks() {
+    TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 4, 21, 9, 29));
+    TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 4, 21, 12, 0));
+    TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 4, 21, 15, 1));
+}
+
+void test_cn_a_share_market_closed_on_weekends_and_holidays() {
+    TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 4, 25, 10, 0));
+    TEST_ASSERT_FALSE(logic::IsCnAShareMarketOpen(2026, 5, 1, 10, 0));
+}
+
 void test_next_holiday_countdown() {
     const logic::HolidayCountdown countdown =
         logic::NextHolidayCountdown(2026, 4, 21);
@@ -207,6 +234,11 @@ int main() {
     RUN_TEST(test_parse_tencent_quote_with_trade_details);
     RUN_TEST(test_normalize_tencent_quote_name_uses_known_utf8_fallback);
     RUN_TEST(test_normalize_tencent_quote_name_keeps_utf8_name);
+    RUN_TEST(test_weekday_from_civil);
+    RUN_TEST(test_is_holiday_date);
+    RUN_TEST(test_cn_a_share_market_open_during_session);
+    RUN_TEST(test_cn_a_share_market_closed_during_breaks);
+    RUN_TEST(test_cn_a_share_market_closed_on_weekends_and_holidays);
     RUN_TEST(test_next_holiday_countdown);
     RUN_TEST(test_holiday_name_zh);
     RUN_TEST(test_holiday_display_in_holiday);

@@ -196,6 +196,38 @@ inline HolidayDisplay HolidayDisplayForDate(int year, int month, int day) {
     return display;
 }
 
+inline uint8_t WeekdayFromCivil(int year, int month, int day) {
+    if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) {
+        return 0;
+    }
+    const int civil_days =
+        DaysFromCivil(year, static_cast<unsigned>(month),
+                      static_cast<unsigned>(day));
+    const int weekday = (civil_days + 4) % 7;
+    return static_cast<uint8_t>(weekday < 0 ? weekday + 7 : weekday);
+}
+
+inline bool IsHolidayDate(int year, int month, int day) {
+    if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31) {
+        return false;
+    }
+
+    const int current_days =
+        DaysFromCivil(year, static_cast<unsigned>(month),
+                      static_cast<unsigned>(day));
+    for (const HolidayPeriod& period : kHolidayPeriods) {
+        const int start_days =
+            DaysFromCivil(period.start_year, period.start_month,
+                          period.start_day);
+        const int end_days =
+            DaysFromCivil(period.end_year, period.end_month, period.end_day);
+        if (current_days >= start_days && current_days <= end_days) {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline const char* HolidayNameZh(HolidayId id) {
     switch (id) {
         case HolidayId::YuanDan:

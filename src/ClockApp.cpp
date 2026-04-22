@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include "logic/HolidayLogic.h"
+#include "logic/MarketLogic.h"
 #include "logic/UiLogic.h"
 #include "resources/wifi_bitmaps.h"
 
@@ -388,9 +389,22 @@ String formatDashboardSummaryDetail(const rtc_date_t& date) {
 
 String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
     if (quote.valid) {
+        const String quote_time =
+            quote.updated_at.length() >= 12
+                ? quote.updated_at.substring(8, 10) + ":" +
+                      quote.updated_at.substring(10, 12)
+                : String("");
+        rtc_date_t current_date;
+        rtc_time_t current_time;
+        M5.RTC.getDate(&current_date);
+        M5.RTC.getTime(&current_time);
+        const bool market_open = logic::IsCnAShareMarketOpen(
+            current_date.year, current_date.mon, current_date.day,
+            current_time.hour, current_time.min);
         return String("valid|") + quote.symbol + "|" + quote.display_name + "|" +
                quote.price + "|" + quote.change + "|" + quote.change_percent +
-               "|" + (quote.positive ? "1" : "0");
+               "|" + (quote.positive ? "1" : "0") + "|" +
+               (market_open ? "1" : "0") + "|" + quote_time;
     }
 
     const String status_detail =
@@ -398,6 +412,34 @@ String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
             ? quote.error_message
             : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
     return String("invalid|") + quote.symbol + "|" + status_detail;
+}
+
+String marketQuoteTimeLabel(const MarketQuote& quote) {
+    if (quote.updated_at.length() < 12) {
+        return String("");
+    }
+    return quote.updated_at.substring(8, 10) + ":" +
+           quote.updated_at.substring(10, 12);
+}
+
+String marketStatusLabel(const MarketQuote& quote, bool market_open,
+                         bool use_cjk_font) {
+    const String quote_time = marketQuoteTimeLabel(quote);
+    if (use_cjk_font) {
+        if (market_open) {
+            return quote_time.isEmpty() ? String(u8"交易中")
+                                        : String(u8"更新 ") + quote_time;
+        }
+        return quote_time.isEmpty() ? String(u8"休市")
+                                    : String(u8"休市 ") + quote_time;
+    }
+
+    if (market_open) {
+        return quote_time.isEmpty() ? String("Open")
+                                    : String("Upd ") + quote_time;
+    }
+    return quote_time.isEmpty() ? String("Closed")
+                                : String("Closed ") + quote_time;
 }
 
 String marketDisplayLabel(const MarketQuote& quote, bool prefer_display_name) {
@@ -1627,6 +1669,13 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         pending_market_refresh_ = true;
     }
     const bool wifi_connected = connectivity_.isConnected();
+    rtc_date_t current_date;
+    rtc_time_t current_time;
+    M5.RTC.getDate(&current_date);
+    M5.RTC.getTime(&current_time);
+    const bool market_open = logic::IsCnAShareMarketOpen(
+        current_date.year, current_date.mon, current_date.day, current_time.hour,
+        current_time.min);
     const String summary_signature =
         marketSummarySignature(market_quote_, wifi_connected);
     if (!full_refresh && summary_signature == last_market_summary_rendered_) {
@@ -1674,6 +1723,8 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         const String change_value = change_prefix + market_quote_.change;
         const String percent_value =
             change_prefix + market_quote_.change_percent + "%";
+        const String status_label =
+            marketStatusLabel(market_quote_, market_open, use_summary_cjk);
         setCanvasTextSize(active_summary_canvas, false, 2);
         active_summary_canvas.setTextColor(kText);
         active_summary_canvas.setTextDatum(TR_DATUM);
@@ -1702,6 +1753,13 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
                                                arrow_center_x + 8,
                                                arrow_center_y - 6, kText);
         }
+        active_summary_canvas.setTextDatum(TL_DATUM);
+        active_summary_canvas.setTextColor(kMutedText);
+        setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
+        active_summary_canvas.drawString(status_label, 16, 58);
+        active_summary_canvas.setTextColor(kText);
+        setCanvasTextSize(active_summary_canvas, false, 2);
+        active_summary_canvas.setTextDatum(TR_DATUM);
         active_summary_canvas.drawString(change_value, change_right,
                                          kDashboardSummaryBottomY);
         active_summary_canvas.drawString(percent_value, percent_right,
@@ -1806,10 +1864,23 @@ bool ClockApp::refreshMarketQuote(bool force) {
         return market_quote_.valid;
     }
 
-    last_market_fetch_ms_ = millis();
     if (!connectivity_.isConnected()) {
         return market_quote_.valid;
     }
+
+    rtc_date_t current_date;
+    rtc_time_t current_time;
+    M5.RTC.getDate(&current_date);
+    M5.RTC.getTime(&current_time);
+
+    const bool market_open = logic::IsCnAShareMarketOpen(
+        current_date.year, current_date.mon, current_date.day, current_time.hour,
+        current_time.min);
+    if (!force && !market_open && market_quote_.valid) {
+        return true;
+    }
+
+    last_market_fetch_ms_ = millis();
 
     const MarketQuote fetched = market_.fetchShanghaiIndex();
     if (!fetched.valid) {

@@ -28,9 +28,8 @@ the M5EPD Arduino library.
 
 ## Build
 
-Builds automatically refresh holiday data for the current year and next year
-before compilation. Set
-`HOLIDAY_ASSET_YEARS="2026 2027"` to override the default year range.
+Builds use the checked-in holiday data directly, so day-to-day compilation works
+offline without any pre-build network step.
 
 ```bash
 /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire
@@ -45,7 +44,7 @@ flashing a fresh device you should upload the filesystem once:
 
 ## Update Holiday Assets
 
-Refresh the embedded holiday table:
+Refresh the embedded holiday table manually when you want newer holiday data:
 
 ```bash
 node tools/update_holiday_data.mjs 2026 2027

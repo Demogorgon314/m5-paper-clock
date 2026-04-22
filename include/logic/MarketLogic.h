@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "logic/HolidayLogic.h"
+
 namespace logic {
 
 struct TencentQuoteSnapshot {
@@ -162,6 +164,28 @@ inline TencentQuoteSnapshot ParseTencentQuote(const std::string& body) {
                      !snapshot.change_percent.empty();
     snapshot.positive = snapshot.valid && snapshot.change.front() != '-';
     return snapshot;
+}
+
+inline bool IsCnAShareMarketOpen(int year, int month, int day, int hour,
+                                 int minute) {
+    if (year <= 0 || month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return false;
+    }
+
+    const uint8_t weekday = WeekdayFromCivil(year, month, day);
+    if (weekday == 0 || weekday == 6 || IsHolidayDate(year, month, day)) {
+        return false;
+    }
+
+    const int total_minutes = hour * 60 + minute;
+    const int morning_start = 9 * 60 + 30;
+    const int morning_end = 11 * 60 + 30;
+    const int afternoon_start = 13 * 60;
+    const int afternoon_end = 15 * 60;
+
+    return (total_minutes >= morning_start && total_minutes <= morning_end) ||
+           (total_minutes >= afternoon_start && total_minutes <= afternoon_end);
 }
 
 }  // namespace logic
