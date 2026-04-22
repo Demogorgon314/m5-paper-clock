@@ -81,7 +81,48 @@ inline std::string KnownMarketDisplayName(const std::string& code) {
     if (code == "000001") {
         return u8"上证指数";
     }
+    if (code == "000300") {
+        return u8"沪深300";
+    }
+    if (code == "000688") {
+        return u8"科创50";
+    }
+    if (code == "000905") {
+        return u8"中证500";
+    }
+    if (code == "399001") {
+        return u8"深证成指";
+    }
+    if (code == "399006") {
+        return u8"创业板指";
+    }
     return "";
+}
+
+inline std::string KnownMarketRequestSymbol(const std::string& code) {
+    if (code == "000001") {
+        return "sh000001";
+    }
+    if (code == "000300") {
+        return "sh000300";
+    }
+    if (code == "000688") {
+        return "sh000688";
+    }
+    if (code == "000905") {
+        return "sh000905";
+    }
+    if (code == "399001") {
+        return "sz399001";
+    }
+    if (code == "399006") {
+        return "sz399006";
+    }
+    return "";
+}
+
+inline bool IsKnownIndexCode(const std::string& code) {
+    return !KnownMarketRequestSymbol(code).empty();
 }
 
 inline std::string NormalizeTencentQuoteName(const std::string& code,
@@ -115,6 +156,83 @@ inline std::vector<std::string> SplitTencentQuoteFields(
         start = end + 1;
     }
     return fields;
+}
+
+inline std::string NormalizeMarketSearchQuery(const std::string& raw_value) {
+    std::string normalized;
+    normalized.reserve(raw_value.size());
+    for (unsigned char ch : raw_value) {
+        if (std::isspace(ch) != 0) {
+            continue;
+        }
+        normalized.push_back(
+            static_cast<char>(std::tolower(ch)));
+    }
+    return normalized;
+}
+
+inline bool IsDigitsOnly(const std::string& value) {
+    return !value.empty() &&
+           std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+               return std::isdigit(ch) != 0;
+           });
+}
+
+inline bool StartsWith(const std::string& value, const std::string& prefix) {
+    return value.size() >= prefix.size() &&
+           value.compare(0, prefix.size(), prefix) == 0;
+}
+
+inline void AppendUniqueMarketSymbol(std::vector<std::string>& values,
+                                     const std::string& next_value) {
+    if (next_value.empty()) {
+        return;
+    }
+    if (std::find(values.begin(), values.end(), next_value) != values.end()) {
+        return;
+    }
+    values.push_back(next_value);
+}
+
+inline std::vector<std::string> InferTencentQuoteSymbols(
+    const std::string& raw_query) {
+    const std::string query = NormalizeMarketSearchQuery(raw_query);
+    std::vector<std::string> symbols;
+
+    if (query.size() == 8 &&
+        (StartsWith(query, "sh") || StartsWith(query, "sz")) &&
+        IsDigitsOnly(query.substr(2))) {
+        symbols.push_back(query);
+        return symbols;
+    }
+
+    if (query.size() != 6 || !IsDigitsOnly(query)) {
+        return symbols;
+    }
+
+    AppendUniqueMarketSymbol(symbols, KnownMarketRequestSymbol(query));
+
+    if (StartsWith(query, "600") || StartsWith(query, "601") ||
+        StartsWith(query, "603") || StartsWith(query, "605") ||
+        StartsWith(query, "688") || StartsWith(query, "900")) {
+        AppendUniqueMarketSymbol(symbols, "sh" + query);
+    }
+
+    if (StartsWith(query, "000") || StartsWith(query, "001") ||
+        StartsWith(query, "002") || StartsWith(query, "003") ||
+        StartsWith(query, "300") || StartsWith(query, "301")) {
+        AppendUniqueMarketSymbol(symbols, "sz" + query);
+    }
+
+    return symbols;
+}
+
+inline std::string MarketKindForRequestSymbol(const std::string& request_symbol,
+                                              const std::string& code) {
+    if (IsKnownIndexCode(code) && KnownMarketRequestSymbol(code) == request_symbol) {
+        return "index";
+    }
+    return "stock";
 }
 
 inline bool IsTencentQuoteTimestamp(const std::string& value) {

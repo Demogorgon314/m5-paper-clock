@@ -17,8 +17,5 @@ if [ ! -d "$WEB_DIR" ]; then
   exit 1
 fi
 
-echo "Serving Web Serial config UI at http://localhost:$PORT"
-echo "Press Ctrl+C to stop."
-
 cd "$PROJECT_DIR"
-exec python3 -m http.server "$PORT" --directory "$WEB_DIR"
+exec python3 "$PROJECT_DIR/tools/web_config_server.py" "$PORT"

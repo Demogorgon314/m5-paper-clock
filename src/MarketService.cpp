@@ -7,8 +7,29 @@
 namespace {
 constexpr const char* kShanghaiIndexHost = "qt.gtimg.cn";
 constexpr uint16_t kShanghaiIndexPort = 80;
-constexpr const char* kShanghaiIndexPath = "/q=sh000001";
 constexpr uint16_t kHttpTimeoutMs = 5000;
+
+struct MarketPreset {
+    const char* request_symbol;
+    const char* code;
+    const char* display_name;
+    const char* kind;
+};
+
+constexpr MarketPreset kHotMarketPresets[] = {
+    {"sh000001", "000001", u8"上证指数", "index"},
+    {"sz399001", "399001", u8"深证成指", "index"},
+    {"sz399006", "399006", u8"创业板指", "index"},
+    {"sh000300", "000300", u8"沪深300", "index"},
+    {"sh000905", "000905", u8"中证500", "index"},
+    {"sh000688", "000688", u8"科创50", "index"},
+    {"sh600519", "600519", u8"贵州茅台", "stock"},
+    {"sh601318", "601318", u8"中国平安", "stock"},
+    {"sz000858", "000858", u8"五粮液", "stock"},
+    {"sz300750", "300750", u8"宁德时代", "stock"},
+    {"sz000001", "000001", u8"平安银行", "stock"},
+    {"sh601127", "601127", u8"赛力斯", "stock"},
+};
 
 int parseHttpStatusCode(const String& status_line) {
     const int first_space = status_line.indexOf(' ');
@@ -22,10 +43,35 @@ int parseHttpStatusCode(const String& status_line) {
                          : status_line.substring(first_space + 1, second_space);
     return code.toInt();
 }
+
+bool startsWith(const String& value, const String& prefix) {
+    return prefix.isEmpty() || value.startsWith(prefix);
 }
 
-MarketQuote MarketService::fetchShanghaiIndex() const {
+void appendUniqueSearchResult(std::vector<MarketSearchResult>& results,
+                              const MarketSearchResult& next_result) {
+    for (const MarketSearchResult& current : results) {
+        if (current.request_symbol == next_result.request_symbol) {
+            return;
+        }
+    }
+    results.push_back(next_result);
+}
+
+bool isKnownPresetSymbol(const String& request_symbol) {
+    for (const MarketPreset& preset : kHotMarketPresets) {
+        if (request_symbol == preset.request_symbol) {
+            return true;
+        }
+    }
+    return false;
+}
+}
+
+MarketQuote MarketService::fetchQuote(const String& request_symbol) const {
     MarketQuote quote;
+    quote.request_symbol = request_symbol.isEmpty() ? String("sh000001")
+                                                    : request_symbol;
 
     WiFiClient client;
     client.setTimeout(kHttpTimeoutMs);
@@ -34,7 +80,7 @@ MarketQuote MarketService::fetchShanghaiIndex() const {
         return quote;
     }
 
-    client.print(String("GET ") + kShanghaiIndexPath + " HTTP/1.0\r\n");
+    client.print(String("GET /q=") + quote.request_symbol + " HTTP/1.0\r\n");
     client.print(String("Host: ") + kShanghaiIndexHost + "\r\n");
     client.print("User-Agent: M5PaperClock/1.0\r\n");
     client.print("Accept: */*\r\n");
@@ -85,8 +131,8 @@ MarketQuote MarketService::fetchShanghaiIndex() const {
         return quote;
     }
 
-    quote.symbol =
-        parsed.code.empty() ? String("SH000001") : String(parsed.code.c_str());
+    quote.symbol = parsed.code.empty() ? String("000001")
+                                       : String(parsed.code.c_str());
     const std::string normalized_name =
         logic::NormalizeTencentQuoteName(parsed.code, parsed.name);
     quote.display_name = normalized_name.empty() ? String("上证指数")
@@ -99,4 +145,68 @@ MarketQuote MarketService::fetchShanghaiIndex() const {
     quote.valid = true;
     quote.positive = parsed.positive;
     return quote;
+}
+
+std::vector<MarketSearchResult> MarketService::hotMarkets() {
+    std::vector<MarketSearchResult> results;
+    results.reserve(sizeof(kHotMarketPresets) / sizeof(kHotMarketPresets[0]));
+
+    for (const MarketPreset& preset : kHotMarketPresets) {
+        MarketSearchResult result;
+        result.request_symbol = preset.request_symbol;
+        result.code = preset.code;
+        result.display_name = preset.display_name;
+        result.kind = preset.kind;
+        results.push_back(result);
+    }
+    return results;
+}
+
+std::vector<MarketSearchResult> MarketService::searchMarkets(
+    const String& raw_query) const {
+    const String query =
+        String(logic::NormalizeMarketSearchQuery(std::string(raw_query.c_str())).c_str());
+    std::vector<MarketSearchResult> results;
+
+    for (const MarketPreset& preset : kHotMarketPresets) {
+        const String preset_symbol = preset.request_symbol;
+        const String preset_code = preset.code;
+        if (!query.isEmpty() && !startsWith(preset_code, query) &&
+            !startsWith(preset_symbol, query)) {
+            continue;
+        }
+
+        MarketSearchResult result;
+        result.request_symbol = preset.request_symbol;
+        result.code = preset.code;
+        result.display_name = preset.display_name;
+        result.kind = preset.kind;
+        appendUniqueSearchResult(results, result);
+    }
+
+    const std::vector<std::string> inferred_symbols =
+        logic::InferTencentQuoteSymbols(std::string(query.c_str()));
+    for (const std::string& inferred_symbol : inferred_symbols) {
+        const String request_symbol(inferred_symbol.c_str());
+        if (isKnownPresetSymbol(request_symbol)) {
+            continue;
+        }
+
+        const MarketQuote quote = fetchQuote(request_symbol);
+        if (!quote.valid) {
+            continue;
+        }
+
+        MarketSearchResult result;
+        result.request_symbol = request_symbol;
+        result.code = quote.symbol;
+        result.display_name = quote.display_name;
+        result.kind = String(
+            logic::MarketKindForRequestSymbol(
+                inferred_symbol, std::string(quote.symbol.c_str()))
+                .c_str());
+        appendUniqueSearchResult(results, result);
+    }
+
+    return results;
 }

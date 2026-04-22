@@ -97,6 +97,33 @@ void test_normalize_tencent_quote_name_keeps_utf8_name() {
     TEST_ASSERT_EQUAL_STRING("SSE Index", normalized.c_str());
 }
 
+void test_known_market_request_symbol() {
+    TEST_ASSERT_EQUAL_STRING("sh000001",
+                             logic::KnownMarketRequestSymbol("000001").c_str());
+    TEST_ASSERT_EQUAL_STRING("sz399001",
+                             logic::KnownMarketRequestSymbol("399001").c_str());
+    TEST_ASSERT_EQUAL_STRING("",
+                             logic::KnownMarketRequestSymbol("600519").c_str());
+}
+
+void test_infer_tencent_quote_symbols_for_known_index_and_stock() {
+    const std::vector<std::string> index_candidates =
+        logic::InferTencentQuoteSymbols("000001");
+    TEST_ASSERT_EQUAL(2, static_cast<int>(index_candidates.size()));
+    TEST_ASSERT_EQUAL_STRING("sh000001", index_candidates[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("sz000001", index_candidates[1].c_str());
+
+    const std::vector<std::string> stock_candidates =
+        logic::InferTencentQuoteSymbols("600519");
+    TEST_ASSERT_EQUAL(1, static_cast<int>(stock_candidates.size()));
+    TEST_ASSERT_EQUAL_STRING("sh600519", stock_candidates[0].c_str());
+
+    const std::vector<std::string> prefixed_candidates =
+        logic::InferTencentQuoteSymbols("sz300750");
+    TEST_ASSERT_EQUAL(1, static_cast<int>(prefixed_candidates.size()));
+    TEST_ASSERT_EQUAL_STRING("sz300750", prefixed_candidates[0].c_str());
+}
+
 void test_weekday_from_civil() {
     TEST_ASSERT_EQUAL(2, logic::WeekdayFromCivil(2026, 4, 21));
     TEST_ASSERT_EQUAL(0, logic::WeekdayFromCivil(2026, 4, 26));
@@ -234,6 +261,8 @@ int main() {
     RUN_TEST(test_parse_tencent_quote_with_trade_details);
     RUN_TEST(test_normalize_tencent_quote_name_uses_known_utf8_fallback);
     RUN_TEST(test_normalize_tencent_quote_name_keeps_utf8_name);
+    RUN_TEST(test_known_market_request_symbol);
+    RUN_TEST(test_infer_tencent_quote_symbols_for_known_index_and_stock);
     RUN_TEST(test_weekday_from_civil);
     RUN_TEST(test_is_holiday_date);
     RUN_TEST(test_cn_a_share_market_open_during_session);

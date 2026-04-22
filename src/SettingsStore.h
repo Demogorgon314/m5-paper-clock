@@ -9,6 +9,8 @@ struct AppSettings {
     int8_t timezone = 8;
     bool time_synced = false;
     uint8_t clock_style = 0;
+    String market_symbol = "sh000001";
+    String market_name = "上证指数";
 };
 
 class SettingsStore {
@@ -20,6 +22,7 @@ public:
     void saveTimezone(int8_t timezone);
     void saveTimeSynced(bool time_synced);
     void saveClockStyle(uint8_t clock_style);
+    void saveMarket(const String& market_symbol, const String& market_name);
 
 private:
     static constexpr const char* kNamespace = "paper-clock";

@@ -412,7 +412,8 @@ String marketSummarySignature(const MarketQuote& quote, bool wifi_connected) {
         !quote.error_message.isEmpty()
             ? quote.error_message
             : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
-    return String("invalid|") + quote.symbol + "|" + status_detail;
+    return String("invalid|") + quote.request_symbol + "|" + quote.symbol + "|" +
+           quote.display_name + "|" + status_detail;
 }
 
 String marketQuoteTimeLabel(const MarketQuote& quote) {
@@ -451,6 +452,19 @@ String marketDisplayLabel(const MarketQuote& quote, bool prefer_display_name) {
         return quote.symbol;
     }
     return String(u8"上证指数");
+}
+
+String marketCodeFromRequestSymbol(const String& request_symbol) {
+    if (request_symbol.length() >= 6) {
+        return request_symbol.substring(request_symbol.length() - 6);
+    }
+    return request_symbol;
+}
+
+bool marketSearchMatchesQuery(const MarketSearchResult& result,
+                              const String& query) {
+    return query.isEmpty() || result.code.startsWith(query) ||
+           result.request_symbol.startsWith(query);
 }
 
 String formatDashboardHumidity(const EnvironmentReading& reading) {
@@ -775,8 +789,15 @@ void ClockApp::begin() {
     Serial.println("[boot] begin: store.load");
     settings_ = store_.load();
     settings_.timezone = logic::ClampTimeZone(settings_.timezone);
+    if (settings_.market_symbol.isEmpty()) {
+        settings_.market_symbol = "sh000001";
+    }
+    if (settings_.market_name.isEmpty()) {
+        settings_.market_name = "上证指数";
+    }
     clock_style_ = settings_.clock_style == 1 ? ClockStyle::Dashboard
                                               : ClockStyle::Classic;
+    seedMarketQuoteFromSettings();
     M5.RTC.getTime(&last_time_);
     M5.RTC.getDate(&last_date_);
     Serial.println("[boot] begin: renderPage");
@@ -1891,15 +1912,19 @@ bool ClockApp::refreshMarketQuote(bool force) {
 
     last_market_fetch_ms_ = millis();
 
-    const MarketQuote fetched = market_.fetchShanghaiIndex();
+    const MarketQuote fetched = market_.fetchQuote(settings_.market_symbol);
     if (!fetched.valid) {
         if (!market_quote_.valid) {
-            market_quote_ = fetched;
+            seedMarketQuoteFromSettings();
+            market_quote_.error_message = fetched.error_message;
         }
         return market_quote_.valid;
     }
 
     market_quote_ = fetched;
+    if (!settings_.market_name.isEmpty()) {
+        market_quote_.display_name = settings_.market_name;
+    }
     return true;
 }
 
@@ -2191,7 +2216,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
     StaticJsonDocument<1024> request_doc;
     DeserializationError parse_error =
         deserializeJson(request_doc, line.c_str());
-    DynamicJsonDocument response_doc(8192);
+    DynamicJsonDocument response_doc(12288);
     const uint32_t request_id = request_doc["id"] | 0;
     response_doc["id"] = request_id;
 
@@ -2277,6 +2302,22 @@ void ClockApp::processSerialConfigLine(const String& line) {
             store_.saveClockStyle(settings_.clock_style);
             settings_changed = true;
         }
+        if (data.containsKey("marketSymbol")) {
+            settings_.market_symbol =
+                String(data["marketSymbol"].as<const char*>());
+            if (data.containsKey("marketName")) {
+                settings_.market_name =
+                    String(data["marketName"].as<const char*>());
+            } else {
+                settings_.market_name =
+                    marketCodeFromRequestSymbol(settings_.market_symbol);
+            }
+            store_.saveMarket(settings_.market_symbol, settings_.market_name);
+            seedMarketQuoteFromSettings();
+            last_market_summary_rendered_ = "";
+            last_market_fetch_ms_ = 0;
+            settings_changed = true;
+        }
 
         if (wifi_changed) {
             store_.saveWifi(settings_.ssid, settings_.password);
@@ -2321,6 +2362,91 @@ void ClockApp::processSerialConfigLine(const String& line) {
             response_doc["error"] =
                 error_message.isEmpty() ? "Apply settings failed" : error_message;
         }
+        JsonObject data_out = response_doc.createNestedObject("data");
+        populateSerialStatus(data_out);
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "search_market") {
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        const char* query_value = data["query"] | "";
+        const String normalized_query = String(
+            logic::NormalizeMarketSearchQuery(std::string(query_value)).c_str());
+        std::vector<MarketSearchResult> results =
+            connectivity_.isConnected() ? market_.searchMarkets(normalized_query)
+                                        : MarketService::hotMarkets();
+        if (!connectivity_.isConnected()) {
+            results.erase(
+                std::remove_if(
+                    results.begin(), results.end(),
+                    [&](const MarketSearchResult& result) {
+                        return !marketSearchMatchesQuery(result, normalized_query);
+                    }),
+                results.end());
+        }
+
+        response_doc["ok"] = true;
+        JsonObject data_out = response_doc.createNestedObject("data");
+        data_out["query"] = normalized_query;
+        data_out["wifiConnected"] = connectivity_.isConnected();
+        data_out["count"] = static_cast<uint32_t>(results.size());
+        if (!connectivity_.isConnected()) {
+            data_out["message"] = "Wi-Fi offline, showing hot symbols only";
+        }
+
+        JsonArray entries = data_out.createNestedArray("results");
+        for (const MarketSearchResult& result : results) {
+            JsonObject entry = entries.createNestedObject();
+            entry["requestSymbol"] = result.request_symbol;
+            entry["code"] = result.code;
+            entry["displayName"] = result.display_name;
+            entry["kind"] = result.kind;
+            entry["current"] = result.request_symbol == settings_.market_symbol;
+        }
+        populateSerialStatus(data_out.createNestedObject("status"));
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "set_market") {
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        const String request_symbol = String(data["requestSymbol"] | "");
+        String display_name = String(data["displayName"] | "");
+        if (request_symbol.isEmpty()) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Missing requestSymbol";
+            sendSerialConfigDoc(response_doc);
+            return;
+        }
+
+        settings_.market_symbol = request_symbol;
+        if (display_name.isEmpty()) {
+            display_name = marketCodeFromRequestSymbol(request_symbol);
+        }
+        settings_.market_name = display_name;
+        seedMarketQuoteFromSettings();
+        last_market_summary_rendered_ = "";
+        last_market_fetch_ms_ = 0;
+
+        if (connectivity_.isConnected()) {
+            const MarketQuote fetched = market_.fetchQuote(settings_.market_symbol);
+            if (fetched.valid) {
+                market_quote_ = fetched;
+                if (!settings_.market_name.isEmpty()) {
+                    market_quote_.display_name = settings_.market_name;
+                }
+            } else {
+                market_quote_.error_message = fetched.error_message;
+            }
+        }
+
+        store_.saveMarket(settings_.market_symbol, settings_.market_name);
+        if (current_page_ == PageId::Clock) {
+            refreshCurrentPage();
+        }
+
+        response_doc["ok"] = true;
         JsonObject data_out = response_doc.createNestedObject("data");
         populateSerialStatus(data_out);
         sendSerialConfigDoc(response_doc);
@@ -2899,6 +3025,9 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["ipAddress"] = currentIpAddress();
     data["timezone"] = settings_.timezone;
     data["timeSynced"] = settings_.time_synced;
+    data["marketSymbol"] = settings_.market_symbol;
+    data["marketCode"] = currentMarketCode();
+    data["marketDisplayName"] = currentMarketDisplayName();
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
     data["statusMessage"] = status_message_;
@@ -2931,6 +3060,39 @@ const char* ClockApp::clockStyleName() const {
 
 String ClockApp::currentIpAddress() const {
     return connectivity_.isConnected() ? WiFi.localIP().toString() : String("");
+}
+
+String ClockApp::currentMarketCode() const {
+    return marketCodeFromRequestSymbol(settings_.market_symbol);
+}
+
+String ClockApp::currentMarketDisplayName() const {
+    if (!settings_.market_name.isEmpty()) {
+        return settings_.market_name;
+    }
+    if (!market_quote_.display_name.isEmpty()) {
+        return market_quote_.display_name;
+    }
+    return currentMarketCode();
+}
+
+void ClockApp::seedMarketQuoteFromSettings() {
+    market_quote_ = MarketQuote {};
+    market_quote_.request_symbol = settings_.market_symbol.isEmpty()
+                                       ? String("sh000001")
+                                       : settings_.market_symbol;
+    market_quote_.symbol =
+        marketCodeFromRequestSymbol(market_quote_.request_symbol);
+    if (!settings_.market_name.isEmpty()) {
+        market_quote_.display_name = settings_.market_name;
+        return;
+    }
+
+    const std::string fallback_name =
+        logic::KnownMarketDisplayName(std::string(market_quote_.symbol.c_str()));
+    market_quote_.display_name = fallback_name.empty()
+                                     ? market_quote_.symbol
+                                     : String(fallback_name.c_str());
 }
 
 String ClockApp::timezoneLabel() const {

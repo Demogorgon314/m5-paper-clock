@@ -18,6 +18,16 @@ AppSettings SettingsStore::load() const {
     settings.timezone = preferences_.getChar("timezone", settings.timezone);
     settings.time_synced = preferences_.getBool("time_synced", false);
     settings.clock_style = preferences_.getUChar("clock_style", settings.clock_style);
+    settings.market_symbol =
+        preferences_.getString("market_symbol", settings.market_symbol);
+    settings.market_name =
+        preferences_.getString("market_name", settings.market_name);
+    if (settings.market_symbol.isEmpty()) {
+        settings.market_symbol = "sh000001";
+    }
+    if (settings.market_name.isEmpty()) {
+        settings.market_name = "上证指数";
+    }
     return settings;
 }
 
@@ -30,6 +40,8 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putChar("timezone", settings.timezone);
     preferences_.putBool("time_synced", settings.time_synced);
     preferences_.putUChar("clock_style", settings.clock_style);
+    preferences_.putString("market_symbol", settings.market_symbol);
+    preferences_.putString("market_name", settings.market_name);
 }
 
 void SettingsStore::saveWifi(const String& ssid, const String& password) {
@@ -59,4 +71,13 @@ void SettingsStore::saveClockStyle(uint8_t clock_style) {
         return;
     }
     preferences_.putUChar("clock_style", clock_style);
+}
+
+void SettingsStore::saveMarket(const String& market_symbol,
+                               const String& market_name) {
+    if (!started_) {
+        return;
+    }
+    preferences_.putString("market_symbol", market_symbol);
+    preferences_.putString("market_name", market_name);
 }

@@ -2,6 +2,70 @@ const CFG_PREFIX = "@cfg:";
 const DEFAULT_BAUD_RATE = 115200;
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
+const MARKET_SEARCH_API_PATH = "/api/market-search";
+
+const DEFAULT_MARKETS = [
+  {
+    requestSymbol: "sh000001",
+    code: "000001",
+    displayName: "上证指数",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sz399001",
+    code: "399001",
+    displayName: "深证成指",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sz399006",
+    code: "399006",
+    displayName: "创业板指",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sh000300",
+    code: "000300",
+    displayName: "沪深300",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sh000905",
+    code: "000905",
+    displayName: "中证500",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sh000688",
+    code: "000688",
+    displayName: "科创50",
+    kind: "index",
+  },
+  {
+    requestSymbol: "sh600519",
+    code: "600519",
+    displayName: "贵州茅台",
+    kind: "stock",
+  },
+  {
+    requestSymbol: "sh601318",
+    code: "601318",
+    displayName: "中国平安",
+    kind: "stock",
+  },
+  {
+    requestSymbol: "sz000858",
+    code: "000858",
+    displayName: "五粮液",
+    kind: "stock",
+  },
+  {
+    requestSymbol: "sz300750",
+    code: "300750",
+    displayName: "宁德时代",
+    kind: "stock",
+  },
+];
 
 const elements = {
   connectButton: document.querySelector("#connect-button"),
@@ -24,6 +88,7 @@ const elements = {
   ipAddress: document.querySelector("#ip-address"),
   timezoneLabel: document.querySelector("#timezone-label"),
   clockStyleLabel: document.querySelector("#clock-style-label"),
+  marketLabel: document.querySelector("#market-label"),
   batteryLabel: document.querySelector("#battery-label"),
   syncState: document.querySelector("#sync-state"),
   rtcLabel: document.querySelector("#rtc-label"),
@@ -33,6 +98,13 @@ const elements = {
   passwordInput: document.querySelector("#password-input"),
   timezoneSelect: document.querySelector("#timezone-select"),
   clockStyleSelect: document.querySelector("#clock-style-select"),
+  marketCurrentName: document.querySelector("#market-current-name"),
+  marketCurrentCode: document.querySelector("#market-current-code"),
+  marketSearchInput: document.querySelector("#market-search-input"),
+  marketSearchButton: document.querySelector("#market-search-button"),
+  marketHotList: document.querySelector("#market-hot-list"),
+  marketResultCount: document.querySelector("#market-result-count"),
+  marketResults: document.querySelector("#market-results"),
   networkList: document.querySelector("#network-list"),
   logOutput: document.querySelector("#log-output"),
 };
@@ -52,7 +124,92 @@ const state = {
   pollTimer: null,
   busyCount: 0,
   lastStatus: null,
+  marketResults: [],
 };
+
+function normalizeMarketQuery(value) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+function currentMarketSymbol() {
+  return normalizeMarketQuery(state.lastStatus?.marketSymbol || "");
+}
+
+function withCurrentFlag(items) {
+  const currentSymbol = currentMarketSymbol();
+  return items.map((item) => ({
+    ...item,
+    current:
+      Boolean(currentSymbol) &&
+      normalizeMarketQuery(item.requestSymbol) === currentSymbol,
+  }));
+}
+
+function marketKindLabel(kind) {
+  return kind === "index" ? "指数" : "股票";
+}
+
+function localMarketMatches(item, query) {
+  const normalizedQuery = normalizeMarketQuery(query);
+  return (
+    !normalizedQuery ||
+    normalizeMarketQuery(item.code).startsWith(normalizedQuery) ||
+    normalizeMarketQuery(item.requestSymbol).startsWith(normalizedQuery)
+  );
+}
+
+function normalizeMarketSearchKey(value) {
+  const normalized = normalizeMarketQuery(value);
+  if (/^(sh|sz)\d+$/.test(normalized)) {
+    return normalized.slice(2);
+  }
+  return normalized;
+}
+
+function dedupeMarkets(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = normalizeMarketQuery(item.requestSymbol || item.code || "");
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+async function fetchMarketSearchResults(query) {
+  const searchKey = normalizeMarketSearchKey(query);
+  if (!searchKey) {
+    return [];
+  }
+
+  const url = new URL(MARKET_SEARCH_API_PATH, window.location.origin);
+  url.searchParams.set("q", searchKey);
+
+  const response = await fetch(url.toString(), {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`行情搜索失败（HTTP ${response.status}）`);
+  }
+
+  const data = await response.json();
+  if (!data?.ok) {
+    throw new Error(data?.error || "行情搜索失败");
+  }
+
+  return Array.isArray(data.results)
+    ? data.results.map((item) => ({
+        requestSymbol: String(item.requestSymbol || ""),
+        code: String(item.code || ""),
+        displayName: String(item.displayName || item.code || ""),
+        kind: String(item.kind || "stock"),
+      }))
+    : [];
+}
 
 function appendLog(message, level = "info") {
   const timestamp = new Date().toLocaleTimeString("zh-CN", {
@@ -86,6 +243,9 @@ function setConnected(connected) {
   elements.syncButton.disabled = !allowDeviceActions;
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
+  elements.marketSearchButton.disabled = state.busyCount > 0;
+  renderMarketHotList();
+  renderMarketResults();
 }
 
 function setBusy(active) {
@@ -138,6 +298,69 @@ function renderNetworks() {
   }
 }
 
+function renderMarketHotList() {
+  const markets = withCurrentFlag(DEFAULT_MARKETS);
+  elements.marketHotList.innerHTML = "";
+
+  for (const market of markets) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "market-chip";
+    button.disabled = !state.connected || state.busyCount > 0;
+    if (market.current) {
+      button.classList.add("current");
+    }
+    button.innerHTML = `<strong>${escapeHtml(market.displayName)}</strong><span>${escapeHtml(
+      market.code,
+    )} · ${marketKindLabel(market.kind)}</span>`;
+    button.addEventListener("click", () => {
+      void selectMarket(market).catch(handleActionError);
+    });
+    elements.marketHotList.appendChild(button);
+  }
+}
+
+function renderMarketResults() {
+  elements.marketResults.innerHTML = "";
+  const results = withCurrentFlag(state.marketResults);
+  elements.marketResultCount.textContent = `${results.length} 个结果`;
+
+  if (!results.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = state.connected
+      ? "没有找到匹配的标的。"
+      : "连接设备后即可搜索并切换行情标的。";
+    elements.marketResults.appendChild(empty);
+    return;
+  }
+
+  for (const market of results) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "market-result";
+    button.disabled = !state.connected || state.busyCount > 0;
+    if (market.current) {
+      button.classList.add("current");
+    }
+    button.innerHTML = `
+      <span class="market-result-copy">
+        <span class="market-result-name">${escapeHtml(market.displayName)}</span>
+        <span class="market-result-meta">${escapeHtml(market.code)} · ${escapeHtml(
+      market.requestSymbol,
+    )}</span>
+      </span>
+      <span class="market-kind">${market.current ? "当前" : marketKindLabel(
+        market.kind,
+      )}</span>
+    `;
+    button.addEventListener("click", () => {
+      void selectMarket(market).catch(handleActionError);
+    });
+    elements.marketResults.appendChild(button);
+  }
+}
+
 function formatSignalLabel(rssi) {
   if (typeof rssi !== "number") {
     return "信号未知";
@@ -186,6 +409,11 @@ function updateStatus(status) {
       : status.clockStyle === "classic"
         ? "经典数字"
         : "-";
+  const marketDisplayName = status.marketDisplayName || "上证指数";
+  const marketCode = status.marketCode || "000001";
+  elements.marketLabel.textContent = `${marketDisplayName} · ${marketCode}`;
+  elements.marketCurrentName.textContent = marketDisplayName;
+  elements.marketCurrentCode.textContent = marketCode;
   elements.batteryLabel.textContent =
     typeof status.batteryPercent === "number"
       ? `${status.batteryPercent}%`
@@ -211,6 +439,8 @@ function updateStatus(status) {
 
   const message = status.statusMessage || "已连接";
   setMessage(message, Boolean(status.statusError));
+  renderMarketHotList();
+  renderMarketResults();
 }
 
 async function writeJson(payload) {
@@ -382,6 +612,8 @@ async function closePort() {
   setConnected(false);
   stopPolling();
   rejectPending(new Error("串口已断开"));
+  renderMarketHotList();
+  renderMarketResults();
 }
 
 async function openPort(port) {
@@ -411,6 +643,7 @@ async function openPort(port) {
   });
   startPolling();
   await refreshStatus();
+  await searchMarkets("", { silent: true });
 }
 
 async function requestPortAndConnect() {
@@ -466,6 +699,94 @@ async function scanWifi() {
   const data = await sendCommand("scan_wifi", undefined, 25000);
   const networks = Array.isArray(data.networks) ? data.networks.length : 0;
   setMessage(networks ? `找到 ${networks} 个网络。` : "没有找到可用网络。");
+}
+
+async function searchMarkets(queryOverride, options = {}) {
+  const { silent = false } = options;
+  const query = normalizeMarketQuery(
+    queryOverride ?? elements.marketSearchInput.value,
+  );
+  elements.marketSearchInput.value = query;
+  const localMatches = DEFAULT_MARKETS.filter((item) =>
+    localMarketMatches(item, query),
+  );
+
+  if (!query) {
+    state.marketResults = dedupeMarkets(localMatches);
+    renderMarketResults();
+    if (!silent) {
+      setMessage(
+        state.connected
+          ? "已加载热门标的。"
+          : "已加载热门标的。连接设备后即可直接切换首页行情。",
+      );
+    }
+    return;
+  }
+
+  if (!silent) {
+    setMessage("正在搜索行情标的。");
+  }
+
+  try {
+    const remoteMatches = await fetchMarketSearchResults(query);
+    state.marketResults = dedupeMarkets([
+      ...localMatches,
+      ...remoteMatches,
+    ]);
+  } catch (error) {
+    state.marketResults = dedupeMarkets(localMatches);
+    renderMarketResults();
+    if (state.marketResults.length) {
+      if (!silent) {
+        setMessage("搜索服务暂时不可用，先显示热门匹配标的。");
+      }
+      return;
+    }
+    throw error;
+  }
+
+  renderMarketResults();
+  if (!silent) {
+    setMessage(
+      state.marketResults.length
+        ? state.connected
+          ? `找到 ${state.marketResults.length} 个匹配标的。`
+          : `找到 ${state.marketResults.length} 个匹配标的，连接设备后即可切换。`
+        : "没有找到匹配的标的。",
+    );
+  }
+}
+
+async function selectMarket(market) {
+  if (!state.connected) {
+    throw new Error("请先连接设备，再切换行情标的");
+  }
+
+  const requestSymbol = String(market.requestSymbol || "");
+  const displayName = String(market.displayName || "");
+  if (!requestSymbol) {
+    throw new Error("缺少标的代码");
+  }
+
+  setMessage(`正在切换到 ${displayName || requestSymbol}。`);
+  const data = await sendCommand(
+    "set_market",
+    {
+      requestSymbol,
+      displayName,
+    },
+    20000,
+  );
+  updateStatus({
+    ...data,
+    marketSymbol: requestSymbol,
+    marketCode: String(market.code || data.marketCode || ""),
+    marketDisplayName: displayName || String(data.marketDisplayName || ""),
+  });
+  state.marketResults = withCurrentFlag(state.marketResults);
+  renderMarketResults();
+  setMessage(`首页行情已切换为 ${displayName || requestSymbol}。`);
 }
 
 async function saveSettings({ connectNow, syncTime }) {
@@ -572,6 +893,10 @@ function installEventHandlers() {
     withBusyWork(scanWifi).catch(handleActionError),
   );
 
+  elements.marketSearchButton.addEventListener("click", () =>
+    withBusyWork(() => searchMarkets()).catch(handleActionError),
+  );
+
   elements.saveButton.addEventListener("click", () =>
     withBusyWork(() =>
       saveSettings({ connectNow: false, syncTime: false }),
@@ -607,6 +932,14 @@ function installEventHandlers() {
     renderNetworks();
   });
 
+  elements.marketSearchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    void withBusyWork(() => searchMarkets()).catch(handleActionError);
+  });
+
   navigator.serial?.addEventListener("disconnect", async (event) => {
     if (state.port && event.port === state.port) {
       appendLog("串口已被系统断开", "error");
@@ -624,6 +957,9 @@ function handleActionError(error) {
 async function initialize() {
   renderTimezoneOptions();
   renderNetworks();
+  state.marketResults = withCurrentFlag(DEFAULT_MARKETS);
+  renderMarketHotList();
+  renderMarketResults();
   installEventHandlers();
   setConnected(false);
 

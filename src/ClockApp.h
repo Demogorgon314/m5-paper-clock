@@ -168,6 +168,9 @@ private:
     const char* currentPageName() const;
     const char* clockStyleName() const;
     String currentIpAddress() const;
+    String currentMarketCode() const;
+    String currentMarketDisplayName() const;
+    void seedMarketQuoteFromSettings();
 
     String timezoneLabel() const;
     String wifiStatusLabel() const;
