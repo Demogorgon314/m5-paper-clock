@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <M5EPD.h>
 
 #include <array>
@@ -145,6 +146,8 @@ private:
 
     void handleHardwareButtons();
     void handleTouch();
+    void handleSerialConfig();
+    void processSerialConfigLine(const String& line);
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
@@ -157,8 +160,14 @@ private:
 
     void autoConnectIfNeeded();
     void scanWiFi();
+    std::vector<WiFiNetwork> scanWiFiNetworks(bool update_status);
     bool trySyncTime(bool allow_connect);
     void connectSelectedNetwork();
+    void populateSerialStatus(JsonObject data) const;
+    void sendSerialConfigDoc(const JsonDocument& doc) const;
+    const char* currentPageName() const;
+    const char* clockStyleName() const;
+    String currentIpAddress() const;
 
     String timezoneLabel() const;
     String wifiStatusLabel() const;
@@ -209,6 +218,7 @@ private:
     PageId current_page_ = PageId::Settings;
     int wifi_page_index_ = 0;
     int pressed_button_id_ = -1;
+    String serial_config_rx_buffer_;
 
     String selected_ssid_;
     String password_input_;
@@ -239,6 +249,8 @@ private:
     uint32_t last_clock_tick_ms_ = 0;
     uint32_t partial_refresh_count_ = 0;
     bool pending_market_refresh_ = false;
+    bool pending_serial_reboot_ = false;
+    uint32_t pending_serial_reboot_at_ms_ = 0;
 
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;

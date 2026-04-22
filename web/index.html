@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>M5Paper Ink Clock USB 配置</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="band intro-band">
+        <div class="intro-copy">
+          <p class="eyebrow">M5Paper Ink Clock</p>
+          <h1>USB 配置</h1>
+          <p class="lead">
+            插上 USB 后，在 Chrome 中授权串口，保存 Wi-Fi、时区和时钟样式。
+          </p>
+          <ol class="steps">
+            <li>连接设备</li>
+            <li>扫描并选择 Wi-Fi</li>
+            <li>保存并连接</li>
+            <li>同步时间并回到时钟页</li>
+          </ol>
+          <div class="connection-row">
+            <button id="connect-button" class="action-button primary">
+              连接设备
+            </button>
+            <button id="reconnect-button" class="action-button">
+              恢复已授权设备
+            </button>
+            <button id="disconnect-button" class="action-button subtle" disabled>
+              断开
+            </button>
+            <button id="status-button" class="action-button subtle" disabled>
+              读取状态
+            </button>
+          </div>
+          <p id="browser-note" class="helper-text">
+            需要 Chrome 或 Edge，并从 <code>localhost</code> 或 HTTPS 打开。
+          </p>
+        </div>
+
+        <figure class="preview-figure">
+          <img
+            src="./assets/m5paper.webp"
+            alt="M5Paper 设备"
+            width="480"
+            height="360"
+          />
+        </figure>
+      </header>
+
+      <section class="band status-band">
+        <div class="band-heading">
+          <h2>设备状态</h2>
+          <p id="connection-state" class="status-pill offline">未连接</p>
+        </div>
+
+        <div class="status-grid">
+          <div class="status-tile">
+            <span class="status-label">设备</span>
+            <strong id="device-name">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">页面</span>
+            <strong id="page-name">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">Wi-Fi</span>
+            <strong id="wifi-name">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">IP</span>
+            <strong id="ip-address">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">时区</span>
+            <strong id="timezone-label">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">样式</span>
+            <strong id="clock-style-label">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">电量</span>
+            <strong id="battery-label">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">时间同步</span>
+            <strong id="sync-state">-</strong>
+          </div>
+          <div class="status-tile">
+            <span class="status-label">RTC</span>
+            <strong id="rtc-label">-</strong>
+          </div>
+        </div>
+
+        <div class="message-row">
+          <p id="device-message" class="device-message">
+            连接后会在这里显示设备返回的信息。
+          </p>
+        </div>
+      </section>
+
+      <section class="band workspace-band">
+        <div class="workspace-grid">
+          <div class="workspace-panel wifi-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Wi-Fi</h2>
+                <p class="helper-text">先扫描，再选网络，最后保存并连接。</p>
+              </div>
+              <button id="scan-button" class="action-button" disabled>
+                扫描
+              </button>
+            </div>
+
+            <label class="field">
+              <span>网络名称</span>
+              <input id="ssid-input" type="text" placeholder="选择或输入 SSID" />
+            </label>
+
+            <label class="field">
+              <span>密码</span>
+              <div class="password-row">
+                <input
+                  id="password-input"
+                  type="password"
+                  placeholder="输入 Wi-Fi 密码"
+                />
+                <button
+                  id="toggle-password-button"
+                  class="action-button subtle small"
+                  type="button"
+                >
+                  显示
+                </button>
+              </div>
+            </label>
+
+            <div class="saved-row">
+              <span class="status-label">已保存网络</span>
+              <strong id="saved-ssid">-</strong>
+            </div>
+
+            <div id="network-list" class="network-list" aria-live="polite">
+              <p class="empty-state">连接设备后可以开始扫描。</p>
+            </div>
+          </div>
+
+          <div class="workspace-panel config-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>设置</h2>
+                <p class="helper-text">保存后会写入设备存储，重启后继续生效。</p>
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>时区</span>
+                <select id="timezone-select"></select>
+              </label>
+              <label class="field">
+                <span>时钟样式</span>
+                <select id="clock-style-select">
+                  <option value="classic">经典数字</option>
+                  <option value="dashboard">仪表盘</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="config-actions">
+              <div class="action-row action-row-pair">
+                <button id="save-button" class="action-button" disabled>
+                  只保存
+                </button>
+                <button id="apply-button" class="action-button primary" disabled>
+                  保存并连接
+                </button>
+              </div>
+
+              <div class="action-row action-row-triple">
+                <button id="sync-button" class="action-button subtle" disabled>
+                  同步时间
+                </button>
+                <button id="refresh-button" class="action-button subtle" disabled>
+                  全量刷新
+                </button>
+                <button id="reboot-button" class="action-button subtle" disabled>
+                  重启设备
+                </button>
+              </div>
+            </div>
+
+            <div class="hint-list">
+              <p>Chrome 会记住你授权过的串口，点“恢复已授权设备”就能直接连回去。</p>
+              <p>设备重启后，串口可能会短暂断开，再点一次恢复即可。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band log-band">
+        <div class="band-heading">
+          <h2>通信日志</h2>
+          <button id="clear-log-button" class="action-button subtle small">
+            清空
+          </button>
+        </div>
+        <pre id="log-output" class="log-output" aria-live="polite"></pre>
+      </section>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

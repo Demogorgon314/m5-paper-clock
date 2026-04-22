@@ -23,6 +23,7 @@ the M5EPD Arduino library.
 - `src/ConnectivityService.*` - Wi-Fi and NTP sync
 - `src/SettingsStore.*` - persisted settings
 - `src/SensorService.*` - SHT30 temperature and humidity access
+- `web/*` - Chrome Web Serial USB configuration page
 - `include/logic/*` - small UI and segment helpers
 - `test/test_logic/test_main.cpp` - native logic tests
 
@@ -41,6 +42,36 @@ flashing a fresh device you should upload the filesystem once:
 ```bash
 /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire -t uploadfs
 ```
+
+## USB Web Config
+
+After flashing the firmware, you can configure the clock from Chrome over USB
+without entering the on-device settings flow.
+
+Start a local web server:
+
+```bash
+./tools/start_web_config.sh
+```
+
+Then open:
+
+```text
+http://localhost:4173
+```
+
+Use Chrome or Edge, plug the device in over USB, click `连接设备`, and allow the
+serial port. The page can:
+
+- read device status
+- scan nearby Wi-Fi networks
+- save SSID and password
+- save timezone and clock style
+- connect Wi-Fi and sync time
+- trigger a full refresh or reboot
+
+Only lines prefixed with `@cfg:` are treated as protocol messages, so normal
+device logs can continue to print on the same serial port.
 
 ## Update Holiday Assets
 

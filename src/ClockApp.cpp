@@ -1,5 +1,6 @@
 #include "ClockApp.h"
 
+#include <algorithm>
 #include <SPIFFS.h>
 #include <WiFi.h>
 
@@ -864,9 +865,17 @@ bool ClockApp::ensureCjkCanvas(M5EPD_Canvas& canvas, int16_t width,
 
 void ClockApp::loop() {
     M5.update();
+    handleSerialConfig();
     handleHardwareButtons();
     handleTouch();
     handleBackgroundConnectivity();
+
+    if (pending_serial_reboot_ &&
+        millis() >= pending_serial_reboot_at_ms_) {
+        Serial.flush();
+        delay(50);
+        ESP.restart();
+    }
 
     if (current_page_ == PageId::Settings) {
         autoConnectIfNeeded();
@@ -2152,6 +2161,214 @@ void ClockApp::rebuildPasswordButtons() {
 void ClockApp::rebuildClockButtons() {
 }
 
+void ClockApp::handleSerialConfig() {
+    while (Serial.available() > 0) {
+        const char ch = static_cast<char>(Serial.read());
+        if (ch == '\r') {
+            continue;
+        }
+        if (ch == '\n') {
+            String line = serial_config_rx_buffer_;
+            serial_config_rx_buffer_.clear();
+            line.trim();
+            if (!line.isEmpty()) {
+                processSerialConfigLine(line);
+            }
+            continue;
+        }
+
+        if (serial_config_rx_buffer_.length() < 1024) {
+            serial_config_rx_buffer_ += ch;
+        }
+    }
+}
+
+void ClockApp::processSerialConfigLine(const String& line) {
+    if (!line.startsWith("{")) {
+        return;
+    }
+
+    StaticJsonDocument<1024> request_doc;
+    DeserializationError parse_error =
+        deserializeJson(request_doc, line.c_str());
+    DynamicJsonDocument response_doc(8192);
+    const uint32_t request_id = request_doc["id"] | 0;
+    response_doc["id"] = request_id;
+
+    if (parse_error) {
+        response_doc["ok"] = false;
+        response_doc["error"] = "Invalid JSON request";
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    const String command = request_doc["cmd"] | "";
+    if (command == "get_status") {
+        response_doc["ok"] = true;
+        JsonObject data = response_doc.createNestedObject("data");
+        populateSerialStatus(data);
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "scan_wifi") {
+        wifi_networks_ = scanWiFiNetworks(true);
+        wifi_page_index_ = 0;
+        status_message_ =
+            wifi_networks_.empty() ? "No network found" : "Scan complete";
+        status_error_ = wifi_networks_.empty();
+
+        response_doc["ok"] = true;
+        JsonObject data = response_doc.createNestedObject("data");
+        JsonArray networks = data.createNestedArray("networks");
+        for (const WiFiNetwork& network : wifi_networks_) {
+            JsonObject entry = networks.createNestedObject();
+            entry["ssid"] = network.ssid;
+            entry["rssi"] = network.rssi;
+        }
+        data["count"] = wifi_networks_.size();
+        populateSerialStatus(data.createNestedObject("status"));
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "apply_settings") {
+        JsonObject data = request_doc["data"].as<JsonObject>();
+        if (data.isNull()) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Missing settings payload";
+            sendSerialConfigDoc(response_doc);
+            return;
+        }
+
+        bool settings_changed = false;
+        bool wifi_changed = false;
+        const bool connect_now = data["connectNow"] | false;
+        const bool sync_time = data["syncTime"] | false;
+
+        if (data.containsKey("ssid")) {
+            settings_.ssid = String(data["ssid"].as<const char*>());
+            settings_changed = true;
+            wifi_changed = true;
+        }
+        if (data.containsKey("password")) {
+            settings_.password = String(data["password"].as<const char*>());
+            settings_changed = true;
+            wifi_changed = true;
+        }
+        if (data.containsKey("timezone")) {
+            settings_.timezone =
+                logic::ClampTimeZone(data["timezone"].as<int>());
+            store_.saveTimezone(settings_.timezone);
+            settings_changed = true;
+        }
+        if (data.containsKey("clockStyle")) {
+            const String style_value =
+                String(data["clockStyle"].as<const char*>());
+            ClockStyle next_style = clock_style_;
+            if (style_value == "dashboard") {
+                next_style = ClockStyle::Dashboard;
+            } else if (style_value == "classic") {
+                next_style = ClockStyle::Classic;
+            }
+            clock_style_ = next_style;
+            settings_.clock_style =
+                clock_style_ == ClockStyle::Dashboard ? 1 : 0;
+            store_.saveClockStyle(settings_.clock_style);
+            settings_changed = true;
+        }
+
+        if (wifi_changed) {
+            store_.saveWifi(settings_.ssid, settings_.password);
+            settings_.time_synced = false;
+            store_.saveTimeSynced(false);
+            auto_connect_attempted_ = !connect_now;
+        }
+
+        bool ok = true;
+        String error_message;
+        if (connect_now) {
+            cancelBackgroundConnectivity();
+            status_message_ = "Connecting to " + settings_.ssid + "...";
+            status_error_ = false;
+            ok = connectivity_.ensureConnected(settings_.ssid, settings_.password);
+            if (ok) {
+                auto_connect_attempted_ = true;
+                status_message_ = "Connected";
+                status_error_ = false;
+            } else {
+                status_message_ = "Wi-Fi connect failed";
+                status_error_ = true;
+                error_message = status_message_;
+            }
+        }
+
+        if (ok && sync_time) {
+            ok = trySyncTime(true);
+            if (!ok) {
+                error_message = status_message_;
+            }
+        }
+
+        if (ok && connect_now && sync_time && current_page_ != PageId::Clock) {
+            switchPage(PageId::Clock);
+        } else if (settings_changed || connect_now || sync_time) {
+            refreshCurrentPage();
+        }
+
+        response_doc["ok"] = ok;
+        if (!ok) {
+            response_doc["error"] =
+                error_message.isEmpty() ? "Apply settings failed" : error_message;
+        }
+        JsonObject data_out = response_doc.createNestedObject("data");
+        populateSerialStatus(data_out);
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "sync_time") {
+        const bool ok = trySyncTime(true);
+        if (ok && current_page_ != PageId::Clock &&
+            connectivity_.isConnected()) {
+            switchPage(PageId::Clock);
+        } else {
+            refreshCurrentPage();
+        }
+
+        response_doc["ok"] = ok;
+        if (!ok) {
+            response_doc["error"] = status_message_;
+        }
+        JsonObject data = response_doc.createNestedObject("data");
+        populateSerialStatus(data);
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "refresh_screen") {
+        refreshCurrentPage();
+        response_doc["ok"] = true;
+        JsonObject data = response_doc.createNestedObject("data");
+        populateSerialStatus(data);
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    if (command == "reboot") {
+        pending_serial_reboot_ = true;
+        pending_serial_reboot_at_ms_ = millis() + 250;
+        response_doc["ok"] = true;
+        response_doc["data"]["message"] = "Reboot scheduled";
+        sendSerialConfigDoc(response_doc);
+        return;
+    }
+
+    response_doc["ok"] = false;
+    response_doc["error"] = "Unknown command";
+    sendSerialConfigDoc(response_doc);
+}
+
 void ClockApp::handleTouch() {
     if (!M5.TP.available()) {
         return;
@@ -2526,25 +2743,48 @@ void ClockApp::scanWiFi() {
     status_error_ = false;
     renderPage(UPDATE_MODE_GL16);
 
-    wifi_networks_.clear();
+    wifi_networks_ = scanWiFiNetworks(false);
     wifi_page_index_ = 0;
+
+    status_message_ = wifi_networks_.empty() ? "No network found" : "Scan complete";
+    status_error_ = wifi_networks_.empty();
+    renderPage(UPDATE_MODE_GC16);
+}
+
+std::vector<ClockApp::WiFiNetwork> ClockApp::scanWiFiNetworks(bool update_status) {
+    cancelBackgroundConnectivity();
+    if (update_status) {
+        status_message_ = "Scanning Wi-Fi...";
+        status_error_ = false;
+    }
+
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     delay(100);
+
+    std::vector<WiFiNetwork> networks;
     const int count = WiFi.scanNetworks();
     for (int index = 0; index < count; ++index) {
         WiFiNetwork network;
         network.ssid = WiFi.SSID(index);
         network.rssi = WiFi.RSSI(index);
         if (!network.ssid.isEmpty()) {
-            wifi_networks_.push_back(network);
+            networks.push_back(network);
         }
     }
     WiFi.scanDelete();
 
-    status_message_ = wifi_networks_.empty() ? "No network found" : "Scan complete";
-    status_error_ = wifi_networks_.empty();
-    renderPage(UPDATE_MODE_GC16);
+    std::sort(networks.begin(), networks.end(),
+              [](const WiFiNetwork& left, const WiFiNetwork& right) {
+                  return left.rssi > right.rssi;
+              });
+    networks.erase(
+        std::unique(networks.begin(), networks.end(),
+                    [](const WiFiNetwork& left, const WiFiNetwork& right) {
+                        return left.ssid == right.ssid;
+                    }),
+        networks.end());
+    return networks;
 }
 
 bool ClockApp::trySyncTime(bool allow_connect) {
@@ -2646,6 +2886,51 @@ void ClockApp::connectSelectedNetwork() {
         return;
     }
     switchPage(PageId::Settings);
+}
+
+void ClockApp::populateSerialStatus(JsonObject data) const {
+    data["deviceName"] = "M5Paper Ink Clock";
+    data["protocolVersion"] = 1;
+    data["page"] = currentPageName();
+    data["clockStyle"] = clockStyleName();
+    data["savedSsid"] = settings_.ssid;
+    data["wifiConnected"] = connectivity_.isConnected();
+    data["currentSsid"] = connectivity_.currentSsid();
+    data["ipAddress"] = currentIpAddress();
+    data["timezone"] = settings_.timezone;
+    data["timeSynced"] = settings_.time_synced;
+    data["rtc"] = formatRtcTimestamp();
+    data["batteryPercent"] = batteryPercentage();
+    data["statusMessage"] = status_message_;
+    data["statusError"] = status_error_;
+}
+
+void ClockApp::sendSerialConfigDoc(const JsonDocument& doc) const {
+    Serial.print("@cfg:");
+    serializeJson(doc, Serial);
+    Serial.println();
+}
+
+const char* ClockApp::currentPageName() const {
+    switch (current_page_) {
+        case PageId::Settings:
+            return "settings";
+        case PageId::WifiScan:
+            return "wifi_scan";
+        case PageId::Password:
+            return "password";
+        case PageId::Clock:
+        default:
+            return "clock";
+    }
+}
+
+const char* ClockApp::clockStyleName() const {
+    return clock_style_ == ClockStyle::Dashboard ? "dashboard" : "classic";
+}
+
+String ClockApp::currentIpAddress() const {
+    return connectivity_.isConnected() ? WiFi.localIP().toString() : String("");
 }
 
 String ClockApp::timezoneLabel() const {
