@@ -24,6 +24,7 @@ private:
     enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
     enum class BackgroundConnectivityTask : uint8_t {
         Idle = 0,
+        ReconnectScheduled,
         Reconnecting,
         SyncingTime,
     };
@@ -254,6 +255,7 @@ private:
     bool pending_market_refresh_ = false;
     bool pending_serial_reboot_ = false;
     uint32_t pending_serial_reboot_at_ms_ = 0;
+    uint32_t background_connectivity_due_ms_ = 0;
 
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;

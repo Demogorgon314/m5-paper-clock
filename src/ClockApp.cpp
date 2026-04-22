@@ -32,6 +32,7 @@ constexpr uint8_t kAccentText = 13;
 constexpr uint32_t kClockSensorIntervalMs = 15000;
 constexpr uint32_t kDashboardMarketIntervalMs = 60000;
 constexpr uint32_t kCenterButtonLongPressMs = 1500;
+constexpr uint32_t kBackgroundReconnectStartDelayMs = 1800;
 constexpr uint32_t kBackgroundReconnectTimeoutMs = 4000;
 constexpr uint32_t kBackgroundTimeSyncTimeoutMs = 3000;
 constexpr uint16_t kHeaderHeight = 60;
@@ -2730,28 +2731,48 @@ void ClockApp::startBackgroundReconnect() {
         return;
     }
 
-    const ConnectivityService::AsyncConnectState state =
-        connectivity_.beginConnectAsync(settings_.ssid, settings_.password,
-                                        kBackgroundReconnectTimeoutMs);
-    if (state == ConnectivityService::AsyncConnectState::InProgress) {
-        background_connectivity_task_ = BackgroundConnectivityTask::Reconnecting;
-        return;
-    }
-
-    if (state == ConnectivityService::AsyncConnectState::Succeeded) {
-        background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
-        updateBatteryCanvas(false);
-        if (usesDashboardClockStyle()) {
-            refreshMarketQuote(true);
-            updateDashboardSummaryCanvas(false);
-        }
-        connectivity_.beginTimeSyncAsync(settings_.timezone,
-                                         kBackgroundTimeSyncTimeoutMs);
-    }
+    background_connectivity_task_ =
+        BackgroundConnectivityTask::ReconnectScheduled;
+    background_connectivity_due_ms_ = millis() + kBackgroundReconnectStartDelayMs;
 }
 
 void ClockApp::handleBackgroundConnectivity() {
     if (background_connectivity_task_ == BackgroundConnectivityTask::Idle) {
+        return;
+    }
+
+    if (background_connectivity_task_ ==
+        BackgroundConnectivityTask::ReconnectScheduled) {
+        if (current_page_ != PageId::Clock || settings_.ssid.isEmpty() ||
+            connectivity_.isConnected()) {
+            cancelBackgroundConnectivity();
+            return;
+        }
+        if (millis() < background_connectivity_due_ms_) {
+            return;
+        }
+
+        const ConnectivityService::AsyncConnectState state =
+            connectivity_.beginConnectAsync(settings_.ssid, settings_.password,
+                                            kBackgroundReconnectTimeoutMs);
+        if (state == ConnectivityService::AsyncConnectState::InProgress) {
+            background_connectivity_task_ = BackgroundConnectivityTask::Reconnecting;
+            return;
+        }
+
+        if (state == ConnectivityService::AsyncConnectState::Succeeded) {
+            background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
+            updateBatteryCanvas(false);
+            if (usesDashboardClockStyle()) {
+                refreshMarketQuote(true);
+                updateDashboardSummaryCanvas(false);
+            }
+            connectivity_.beginTimeSyncAsync(settings_.timezone,
+                                             kBackgroundTimeSyncTimeoutMs);
+            return;
+        }
+
+        cancelBackgroundConnectivity();
         return;
     }
 
@@ -2808,6 +2829,7 @@ void ClockApp::handleBackgroundConnectivity() {
 
 void ClockApp::cancelBackgroundConnectivity() {
     background_connectivity_task_ = BackgroundConnectivityTask::Idle;
+    background_connectivity_due_ms_ = 0;
     connectivity_.cancelConnectAsync();
     connectivity_.cancelTimeSyncAsync();
 }
