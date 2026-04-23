@@ -31,19 +31,27 @@ fi
 ESPPY=${ESPTOOL_PY:-$PLATFORMIO_HOME/packages/tool-esptoolpy/esptool.py}
 
 FRAMEWORK_DIR=${ARDUINO_ESP32_DIR:-$PLATFORMIO_HOME/packages/framework-arduinoespressif32@3.20004.0}
-if [ ! -d "$FRAMEWORK_DIR" ] && [ -d "$PLATFORMIO_HOME/packages/framework-arduinoespressif32" ]; then
-  FRAMEWORK_DIR="$PLATFORMIO_HOME/packages/framework-arduinoespressif32"
-fi
 
 ENV_NAME=${PLATFORMIO_ENV:-m5stack-fire}
 BUILD_DIR="$PROJECT_DIR/.pio/build/$ENV_NAME"
 OUTPUT_PATH=${1:-"$BUILD_DIR/m5-paper-clock-complete.bin"}
 
-BOOTLOADER_BIN="$FRAMEWORK_DIR/tools/sdk/esp32/bin/bootloader_dio_40m.bin"
-BOOT_APP0_BIN="$FRAMEWORK_DIR/tools/partitions/boot_app0.bin"
 PARTITIONS_BIN="$BUILD_DIR/partitions.bin"
 FIRMWARE_BIN="$BUILD_DIR/firmware.bin"
 SPIFFS_BIN="$BUILD_DIR/spiffs.bin"
+
+find_framework_file() {
+  relative_path=$1
+  for candidate_dir in \
+    "$FRAMEWORK_DIR" \
+    "$PLATFORMIO_HOME"/packages/framework-arduinoespressif32*; do
+    if [ -f "$candidate_dir/$relative_path" ]; then
+      printf '%s\n' "$candidate_dir/$relative_path"
+      return 0
+    fi
+  done
+  return 1
+}
 
 cd "$PROJECT_DIR"
 
@@ -64,10 +72,8 @@ if [ ! -f "$ESPPY" ]; then
   exit 1
 fi
 
-if [ ! -d "$FRAMEWORK_DIR" ]; then
-  echo "framework-arduinoespressif32 not found: $FRAMEWORK_DIR" >&2
-  exit 1
-fi
+BOOTLOADER_BIN=$(find_framework_file "tools/sdk/esp32/bin/bootloader_dio_40m.bin" || true)
+BOOT_APP0_BIN=$(find_framework_file "tools/partitions/boot_app0.bin" || true)
 
 for required in \
   "$BOOTLOADER_BIN" \
