@@ -95,6 +95,26 @@ node tools/update_holiday_data.mjs 2026 2027
 platformio test -e native
 ```
 
+## Release Package
+
+Build release artifacts for GitHub Release, web full-flash, and OTA metadata:
+
+```bash
+./tools/package_release.sh
+```
+
+This writes a versioned directory under `dist/` with:
+
+- `firmware.bin` for OTA app updates
+- `m5-paper-clock-complete.bin` for full browser/serial flashing
+- `spiffs.bin` for filesystem recovery
+- `ota.json` for update checks
+- `web-flash-manifest.json` for ESP Web Tools-style full flashing
+
+Set `FIRMWARE_VERSION`, `FIRMWARE_GIT_SHA`, `FIRMWARE_BUILD_TIME`, or
+`RELEASE_BASE_URL` to override generated metadata. Pushing a tag like `v1.2.3`
+runs the release workflow and uploads these files to GitHub Release.
+
 ## Upload
 
 Replace the upload port with the one shown by `platformio device list`.

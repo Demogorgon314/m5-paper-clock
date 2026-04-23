@@ -191,6 +191,8 @@ private:
     void scanWiFi();
     std::vector<WiFiNetwork> scanWiFiNetworks(bool update_status);
     bool trySyncTime(bool allow_connect);
+    bool performOtaUpdate(const String& url, const String& expected_sha256,
+                          String& error_message);
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;

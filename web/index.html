@@ -72,6 +72,10 @@
             <strong id="device-name">-</strong>
           </div>
           <div class="status-tile">
+            <span class="status-label">固件</span>
+            <strong id="firmware-version">-</strong>
+          </div>
+          <div class="status-tile">
             <span class="status-label">页面</span>
             <strong id="page-name">-</strong>
           </div>
@@ -276,6 +280,56 @@
         </div>
       </section>
 
+      <section class="band update-band">
+        <div class="band-heading">
+          <div>
+            <h2>固件更新</h2>
+            <p class="helper-text">
+              OTA 只更新应用固件；字体或分区变化时使用完整刷写包。
+            </p>
+          </div>
+        </div>
+
+        <div class="workspace-panel update-panel">
+          <label class="field">
+            <span>OTA 信息地址</span>
+            <input id="ota-manifest-input" type="url" />
+          </label>
+
+          <div class="action-row action-row-pair update-actions">
+            <button id="check-update-button" class="action-button" type="button">
+              检查更新
+            </button>
+            <button id="ota-update-button" class="action-button primary" type="button" disabled>
+              OTA 更新
+            </button>
+          </div>
+
+          <p id="ota-summary" class="empty-state">
+            读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
+          </p>
+
+          <div class="config-subsection">
+            <label class="field">
+              <span>完整刷写 Manifest 地址</span>
+              <input id="web-flash-manifest-input" type="url" />
+            </label>
+
+            <esp-web-install-button id="web-flash-button">
+              <button slot="activate" class="action-button" type="button">
+                完整刷写
+              </button>
+              <p slot="unsupported" class="helper-text">
+                当前浏览器不支持 WebSerial，请使用桌面版 Chrome 或 Edge。
+              </p>
+              <p slot="not-allowed" class="helper-text">
+                请通过 localhost 或 HTTPS 打开页面。
+              </p>
+            </esp-web-install-button>
+          </div>
+        </div>
+      </section>
+
       <section class="band market-band">
         <div class="band-heading">
           <div>
@@ -342,6 +396,10 @@
       </section>
     </div>
 
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

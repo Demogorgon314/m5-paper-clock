@@ -9,6 +9,10 @@ const BLE_AUTH_STORAGE_KEY = "m5-paper-clock.bleAuthToken";
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
+const DEFAULT_OTA_MANIFEST_URL =
+  "https://github.com/Demogorgon314/m5-paper-clock/releases/latest/download/ota.json";
+const DEFAULT_WEB_FLASH_MANIFEST_URL =
+  "https://github.com/Demogorgon314/m5-paper-clock/releases/latest/download/web-flash-manifest.json";
 const DEFAULT_COMFORT_SETTINGS = Object.freeze({
   comfortTemperatureMin: 19,
   comfortTemperatureMax: 27,
@@ -102,12 +106,15 @@ const elements = {
   syncButton: document.querySelector("#sync-button"),
   refreshButton: document.querySelector("#refresh-button"),
   rebootButton: document.querySelector("#reboot-button"),
+  checkUpdateButton: document.querySelector("#check-update-button"),
+  otaUpdateButton: document.querySelector("#ota-update-button"),
   togglePasswordButton: document.querySelector("#toggle-password-button"),
   clearLogButton: document.querySelector("#clear-log-button"),
   connectionState: document.querySelector("#connection-state"),
   connectionStateLabel: document.querySelector("#connection-state-label"),
   browserNote: document.querySelector("#browser-note"),
   deviceName: document.querySelector("#device-name"),
+  firmwareVersion: document.querySelector("#firmware-version"),
   pageName: document.querySelector("#page-name"),
   transportIcon: document.querySelector("#transport-icon"),
   wifiName: document.querySelector("#wifi-name"),
@@ -128,6 +135,10 @@ const elements = {
   comfortTempMaxInput: document.querySelector("#comfort-temp-max-input"),
   comfortHumidityMinInput: document.querySelector("#comfort-humidity-min-input"),
   comfortHumidityMaxInput: document.querySelector("#comfort-humidity-max-input"),
+  otaManifestInput: document.querySelector("#ota-manifest-input"),
+  webFlashManifestInput: document.querySelector("#web-flash-manifest-input"),
+  webFlashButton: document.querySelector("#web-flash-button"),
+  otaSummary: document.querySelector("#ota-summary"),
   marketCurrentName: document.querySelector("#market-current-name"),
   marketCurrentCode: document.querySelector("#market-current-code"),
   marketSearchInput: document.querySelector("#market-search-input"),
@@ -162,6 +173,8 @@ const state = {
   supportsBluetooth: false,
   bleAuthToken: window.localStorage.getItem(BLE_AUTH_STORAGE_KEY) || "",
   lastStatus: null,
+  otaManifest: null,
+  otaManifestUrl: "",
   marketResults: [],
 };
 
@@ -374,6 +387,9 @@ function setConnected(connected) {
   elements.syncButton.disabled = !allowDeviceActions;
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
+  elements.checkUpdateButton.disabled = state.busyCount > 0;
+  elements.otaUpdateButton.disabled =
+    !allowDeviceActions || !state.otaManifest?.ota?.url;
   elements.marketSearchButton.disabled = state.busyCount > 0;
   renderMarketHotList();
   renderMarketResults();
@@ -542,6 +558,12 @@ function updateStatus(status) {
 
   state.lastStatus = status;
   elements.deviceName.textContent = status.deviceName || "M5Paper Ink Clock";
+  const firmwareSha = status.firmwareBuildSha
+    ? String(status.firmwareBuildSha).slice(0, 7)
+    : "";
+  elements.firmwareVersion.textContent = status.firmwareVersion
+    ? `${status.firmwareVersion}${firmwareSha ? ` · ${firmwareSha}` : ""}`
+    : "-";
   elements.pageName.textContent = status.page || "-";
   elements.wifiName.textContent = status.wifiConnected
     ? status.currentSsid || status.savedSsid || "-"
@@ -1218,6 +1240,87 @@ async function syncTime() {
   setMessage("时间同步已完成。");
 }
 
+function resolveReleaseAssetUrl(value, baseUrl) {
+  if (!value) {
+    return "";
+  }
+  return new URL(String(value), baseUrl).toString();
+}
+
+function renderOtaSummary(manifest) {
+  if (!manifest?.ota) {
+    elements.otaSummary.textContent = "没有可用的 OTA 固件信息。";
+    return;
+  }
+
+  const currentVersion = state.lastStatus?.firmwareVersion || "-";
+  const sizeMb = manifest.ota.size
+    ? (Number(manifest.ota.size) / 1024 / 1024).toFixed(2)
+    : "-";
+  elements.otaSummary.textContent =
+    `当前 ${currentVersion}，可用 ${manifest.version || "-"}，` +
+    `固件 ${sizeMb} MB。`;
+}
+
+function syncWebFlashManifest() {
+  const manifestUrl =
+    elements.webFlashManifestInput.value.trim() ||
+    DEFAULT_WEB_FLASH_MANIFEST_URL;
+  elements.webFlashButton.setAttribute("manifest", manifestUrl);
+}
+
+async function checkForUpdate() {
+  const manifestUrl =
+    elements.otaManifestInput.value.trim() || DEFAULT_OTA_MANIFEST_URL;
+  setMessage("正在读取 OTA 信息。");
+  const response = await fetch(manifestUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`OTA 信息读取失败（HTTP ${response.status}）`);
+  }
+
+  const manifest = await response.json();
+  if (!manifest?.ota?.url || !manifest?.ota?.sha256) {
+    throw new Error("OTA 信息缺少 firmware URL 或 sha256");
+  }
+
+  state.otaManifestUrl = manifestUrl;
+  state.otaManifest = {
+    ...manifest,
+    ota: {
+      ...manifest.ota,
+      url: resolveReleaseAssetUrl(manifest.ota.url, manifestUrl),
+    },
+  };
+  renderOtaSummary(state.otaManifest);
+  setConnected(state.connected);
+  setMessage("OTA 信息已读取。");
+}
+
+async function startOtaUpdate() {
+  if (!state.otaManifest?.ota?.url) {
+    await checkForUpdate();
+  }
+  const ota = state.otaManifest?.ota;
+  if (!ota?.url || !ota?.sha256) {
+    throw new Error("没有可用的 OTA 固件信息");
+  }
+
+  setMessage("设备正在下载并安装 OTA 固件，请保持供电。");
+  const data = await sendCommand(
+    "ota_update",
+    {
+      url: ota.url,
+      sha256: ota.sha256,
+    },
+    180000,
+  );
+  if (data.status) {
+    updateStatus(data.status);
+  }
+  setMessage("OTA 已安装，设备即将重启。");
+  await closePort();
+}
+
 async function refreshScreen() {
   setMessage("正在触发全量刷新。");
   const data = await sendCommand("refresh_screen", undefined, 12000);
@@ -1295,6 +1398,23 @@ function installEventHandlers() {
     withBusyWork(syncTime).catch(handleActionError),
   );
 
+  elements.checkUpdateButton.addEventListener("click", () =>
+    withBusyWork(checkForUpdate).catch(handleActionError),
+  );
+
+  elements.otaUpdateButton.addEventListener("click", () =>
+    withBusyWork(startOtaUpdate).catch(handleActionError),
+  );
+
+  elements.webFlashManifestInput.addEventListener(
+    "input",
+    syncWebFlashManifest,
+  );
+  elements.webFlashManifestInput.addEventListener(
+    "change",
+    syncWebFlashManifest,
+  );
+
   elements.refreshButton.addEventListener("click", () =>
     withBusyWork(refreshScreen).catch(handleActionError),
   );
@@ -1339,6 +1459,9 @@ function handleActionError(error) {
 async function initialize() {
   renderTimezoneOptions();
   applyComfortInputs(DEFAULT_COMFORT_SETTINGS);
+  elements.otaManifestInput.value = DEFAULT_OTA_MANIFEST_URL;
+  elements.webFlashManifestInput.value = DEFAULT_WEB_FLASH_MANIFEST_URL;
+  syncWebFlashManifest();
   renderNetworks();
   state.marketResults = withCurrentFlag(DEFAULT_MARKETS);
   renderMarketHotList();

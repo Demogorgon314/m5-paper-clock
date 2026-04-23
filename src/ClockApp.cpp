@@ -5,15 +5,31 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
+#include <HTTPClient.h>
 #include <SPIFFS.h>
+#include <Update.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <esp_system.h>
+#include <mbedtls/sha256.h>
 
 #include "logic/ComfortLogic.h"
 #include "logic/HolidayLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/UiLogic.h"
 #include "resources/wifi_bitmaps.h"
+
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "dev"
+#endif
+
+#ifndef FIRMWARE_GIT_SHA
+#define FIRMWARE_GIT_SHA "unknown"
+#endif
+
+#ifndef FIRMWARE_BUILD_TIME
+#define FIRMWARE_BUILD_TIME "unknown"
+#endif
 
 namespace {
 
@@ -315,6 +331,23 @@ String formatHolidayDisplaySignature(const logic::HolidayDisplay& display) {
              static_cast<unsigned>(display.holiday_day_index),
              static_cast<unsigned>(display.holiday_total_days));
     return String(buf);
+}
+
+String bytesToHex(const uint8_t* bytes, size_t length) {
+    static const char* hex = "0123456789abcdef";
+    String output;
+    output.reserve(length * 2);
+    for (size_t index = 0; index < length; ++index) {
+        output += hex[bytes[index] >> 4];
+        output += hex[bytes[index] & 0x0f];
+    }
+    return output;
+}
+
+String normalizedSha256(String value) {
+    value.trim();
+    value.toLowerCase();
+    return value;
 }
 
 String formatHolidayDisplayText(const logic::HolidayDisplay& display,
@@ -2895,6 +2928,36 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         return;
     }
 
+    if (command == "ota_update") {
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        const String url = String(data["url"] | "");
+        const String sha256 = String(data["sha256"] | "");
+        status_message_ = "OTA update downloading";
+        status_error_ = false;
+
+        String error_message;
+        const bool ok = performOtaUpdate(url, sha256, error_message);
+        response_doc["ok"] = ok;
+        if (ok) {
+            status_message_ = "OTA update installed";
+            status_error_ = false;
+            pending_serial_reboot_ = true;
+            pending_serial_reboot_at_ms_ = millis() + 750;
+            response_doc["data"]["message"] = "OTA installed, reboot scheduled";
+        } else {
+            status_message_ = error_message.isEmpty() ? "OTA update failed"
+                                                      : error_message;
+            status_error_ = true;
+            response_doc["error"] = status_message_;
+        }
+        JsonObject data_out = response_doc["data"].is<JsonObject>()
+                                  ? response_doc["data"].as<JsonObject>()
+                                  : response_doc.createNestedObject("data");
+        populateSerialStatus(data_out.createNestedObject("status"));
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
     if (command == "refresh_screen") {
         refreshCurrentPage();
         response_doc["ok"] = true;
@@ -3436,6 +3499,145 @@ bool ClockApp::trySyncTime(bool allow_connect) {
     return !status_error_;
 }
 
+bool ClockApp::performOtaUpdate(const String& url,
+                                const String& expected_sha256,
+                                String& error_message) {
+    if (url.isEmpty()) {
+        error_message = "Missing OTA URL";
+        return false;
+    }
+    const String expected = normalizedSha256(expected_sha256);
+    if (expected.length() != 64) {
+        error_message = "Missing OTA sha256";
+        return false;
+    }
+    if (!connectivity_.isConnected()) {
+        if (!connectivity_.ensureConnected(settings_.ssid, settings_.password,
+                                           10000)) {
+            error_message = "Wi-Fi is offline";
+            return false;
+        }
+    }
+
+    WiFiClient plain_client;
+    WiFiClientSecure secure_client;
+    HTTPClient http;
+    const bool use_https = url.startsWith("https://");
+    if (use_https) {
+        secure_client.setInsecure();
+        if (!http.begin(secure_client, url)) {
+            error_message = "OTA HTTPS begin failed";
+            return false;
+        }
+    } else if (!http.begin(plain_client, url)) {
+        error_message = "OTA HTTP begin failed";
+        return false;
+    }
+
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    http.addHeader("User-Agent", "M5PaperClock/" FIRMWARE_VERSION);
+
+    const int http_code = http.GET();
+    if (http_code != HTTP_CODE_OK) {
+        error_message = http_code > 0 ? "OTA HTTP " + String(http_code)
+                                      : "OTA connect failed";
+        http.end();
+        return false;
+    }
+
+    const int content_length = http.getSize();
+    if (content_length <= 0) {
+        error_message = "OTA missing content length";
+        http.end();
+        return false;
+    }
+
+    if (!Update.begin(static_cast<size_t>(content_length), U_FLASH)) {
+        error_message = String("OTA begin failed: ") + Update.errorString();
+        http.end();
+        return false;
+    }
+
+    WiFiClient* stream = http.getStreamPtr();
+    mbedtls_sha256_context sha_context;
+    mbedtls_sha256_init(&sha_context);
+    mbedtls_sha256_starts_ret(&sha_context, 0);
+
+    uint8_t buffer[1024];
+    size_t written = 0;
+    uint32_t last_progress_ms = millis();
+    bool ok = true;
+
+    while (written < static_cast<size_t>(content_length)) {
+        const size_t available = stream->available();
+        if (available == 0) {
+            if (millis() - last_progress_ms > 30000) {
+                error_message = "OTA download timeout";
+                ok = false;
+                break;
+            }
+            delay(10);
+            M5.update();
+            continue;
+        }
+
+        const size_t to_read =
+            std::min(available, sizeof(buffer));
+        const int read_count = stream->readBytes(buffer, to_read);
+        if (read_count <= 0) {
+            continue;
+        }
+
+        const size_t update_written =
+            Update.write(buffer, static_cast<size_t>(read_count));
+        if (update_written != static_cast<size_t>(read_count)) {
+            error_message = String("OTA write failed: ") + Update.errorString();
+            ok = false;
+            break;
+        }
+
+        mbedtls_sha256_update_ret(
+            &sha_context, buffer, static_cast<size_t>(read_count));
+        written += static_cast<size_t>(read_count);
+        last_progress_ms = millis();
+        M5.update();
+    }
+
+    uint8_t digest[32];
+    mbedtls_sha256_finish_ret(&sha_context, digest);
+    mbedtls_sha256_free(&sha_context);
+    http.end();
+
+    if (ok && written != static_cast<size_t>(content_length)) {
+        error_message = "OTA incomplete download";
+        ok = false;
+    }
+
+    if (ok) {
+        const String actual = bytesToHex(digest, sizeof(digest));
+        if (expected != actual) {
+            error_message = "OTA sha256 mismatch";
+            ok = false;
+        }
+    }
+
+    if (!ok) {
+        Update.abort();
+        return false;
+    }
+
+    if (!Update.end(true)) {
+        error_message = String("OTA end failed: ") + Update.errorString();
+        return false;
+    }
+    if (!Update.isFinished()) {
+        error_message = "OTA not finished";
+        return false;
+    }
+    return true;
+}
+
 void ClockApp::connectSelectedNetwork() {
     cancelBackgroundConnectivity();
     if (selected_ssid_.isEmpty()) {
@@ -3474,6 +3676,9 @@ void ClockApp::connectSelectedNetwork() {
 void ClockApp::populateSerialStatus(JsonObject data) const {
     data["deviceName"] = "M5Paper Ink Clock";
     data["protocolVersion"] = 1;
+    data["firmwareVersion"] = FIRMWARE_VERSION;
+    data["firmwareBuildSha"] = FIRMWARE_GIT_SHA;
+    data["firmwareBuildTime"] = FIRMWARE_BUILD_TIME;
     data["page"] = currentPageName();
     data["clockStyle"] = clockStyleName();
     data["savedSsid"] = settings_.ssid;
