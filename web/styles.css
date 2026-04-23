@@ -415,6 +415,13 @@ button:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.action-help {
+  margin: -2px 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .hint-list {
   margin-top: 16px;
   display: grid;
@@ -434,10 +441,6 @@ button:focus {
   gap: 16px;
   align-items: start;
   margin-top: 16px;
-}
-
-.market-panel {
-  min-height: 100%;
 }
 
 .market-current {
@@ -484,6 +487,24 @@ button:focus {
   margin-top: 20px;
 }
 
+.market-hot-list {
+  display: grid;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.market-hot-group + .market-hot-group {
+  margin-top: 0;
+}
+
+.market-hot-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .market-subheading {
   display: flex;
   justify-content: space-between;
@@ -498,16 +519,17 @@ button:focus {
 }
 
 .market-chip-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .market-chip {
   display: grid;
   gap: 2px;
-  min-width: 130px;
+  min-width: 0;
+  min-height: 72px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -520,6 +542,7 @@ button:focus {
 .market-result-name {
   font-size: 15px;
   line-height: 1.35;
+  word-break: keep-all;
 }
 
 .market-chip span,
@@ -537,15 +560,25 @@ button:focus {
 
 .market-chip:disabled,
 .market-result:disabled {
-  opacity: 0.55;
+  opacity: 1;
+  color: var(--text);
   cursor: not-allowed;
+}
+
+.market-chip:disabled span,
+.market-result:disabled .market-result-meta,
+.market-result:disabled .market-kind {
+  color: var(--muted);
 }
 
 .market-results {
   margin-top: 12px;
   display: grid;
   gap: 10px;
-  min-height: 220px;
+  max-height: 620px;
+  overflow: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
 }
 
 .market-result {
@@ -588,7 +621,7 @@ button:focus {
 }
 
 .log-output {
-  min-height: 180px;
+  height: 260px;
   margin: 16px 0 0;
   padding: 16px;
   border: 1px solid var(--border);
@@ -601,6 +634,8 @@ button:focus {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 @media (max-width: 960px) {
@@ -626,6 +661,10 @@ button:focus {
 
   .status-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .log-output {
+    height: 220px;
   }
 }
 

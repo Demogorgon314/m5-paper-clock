@@ -79,6 +79,11 @@ const DEFAULT_MARKETS = [
   },
 ];
 
+const MARKET_GROUP_LABELS = Object.freeze({
+  index: "指数",
+  stock: "股票",
+});
+
 const elements = {
   connectButton: document.querySelector("#connect-button"),
   reconnectButton: document.querySelector("#reconnect-button"),
@@ -399,21 +404,40 @@ function renderMarketHotList() {
   const markets = withCurrentFlag(DEFAULT_MARKETS);
   elements.marketHotList.innerHTML = "";
 
-  for (const market of markets) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "market-chip";
-    button.disabled = !state.connected || state.busyCount > 0;
-    if (market.current) {
-      button.classList.add("current");
+  for (const kind of ["index", "stock"]) {
+    const groupMarkets = markets.filter((market) => market.kind === kind);
+    if (!groupMarkets.length) {
+      continue;
     }
-    button.innerHTML = `<strong>${escapeHtml(market.displayName)}</strong><span>${escapeHtml(
-      market.code,
-    )} · ${marketKindLabel(market.kind)}</span>`;
-    button.addEventListener("click", () => {
-      void selectMarket(market).catch(handleActionError);
-    });
-    elements.marketHotList.appendChild(button);
+
+    const group = document.createElement("div");
+    group.className = "market-hot-group";
+
+    const title = document.createElement("p");
+    title.className = "market-hot-title";
+    title.textContent = `热门${MARKET_GROUP_LABELS[kind]}`;
+    group.appendChild(title);
+
+    const list = document.createElement("div");
+    list.className = "market-chip-list";
+    for (const market of groupMarkets) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "market-chip";
+      button.disabled = !state.connected || state.busyCount > 0;
+      if (market.current) {
+        button.classList.add("current");
+      }
+      button.innerHTML = `<strong>${escapeHtml(market.displayName)}</strong><span>${escapeHtml(
+        market.code,
+      )} · ${marketKindLabel(market.kind)}</span>`;
+      button.addEventListener("click", () => {
+        void selectMarket(market).catch(handleActionError);
+      });
+      list.appendChild(button);
+    }
+    group.appendChild(list);
+    elements.marketHotList.appendChild(group);
   }
 }
 
@@ -766,6 +790,26 @@ async function reconnectAuthorizedPort() {
   await openPort(ports[0]);
 }
 
+async function autoConnectAuthorizedPort() {
+  const ports = await navigator.serial.getPorts();
+  if (!ports.length) {
+    setMessage("请先点“连接设备”授权串口。");
+    return;
+  }
+
+  appendLog(`发现 ${ports.length} 个已授权设备，正在自动连接`);
+  setMessage("发现已授权设备，正在自动连接。");
+
+  try {
+    await withBusyWork(async () => {
+      await openPort(ports[0]);
+    });
+  } catch (error) {
+    appendLog(`自动连接失败: ${error.message}`, "error");
+    setMessage("自动连接失败，请点“恢复已授权设备”重试。", true);
+  }
+}
+
 function startPolling() {
   stopPolling();
   state.pollTimer = window.setInterval(() => {
@@ -910,7 +954,7 @@ async function saveSettings({ connectNow, syncTime }) {
   }
 
   setMessage(
-    connectNow ? "正在保存并连接设备。" : "正在保存设置。",
+    connectNow ? "正在保存并连接 Wi-Fi。" : "正在保存设置。",
   );
 
   const payload = {
@@ -939,7 +983,7 @@ async function saveSettings({ connectNow, syncTime }) {
   elements.togglePasswordButton.textContent = "显示";
   setMessage(
     connectNow
-      ? "设置已保存，设备已经尝试连接并同步时间。"
+      ? "设置已保存，设备正在尝试连接 Wi-Fi 并同步时间。"
       : "设置已保存。",
   );
 }
@@ -1094,13 +1138,7 @@ async function initialize() {
   appendLog("页面已就绪");
 
   try {
-    const ports = await navigator.serial.getPorts();
-    if (ports.length) {
-      appendLog(`发现 ${ports.length} 个已授权设备`);
-      setMessage("已发现授权过的设备，点“恢复已授权设备”即可连接。");
-    } else {
-      setMessage("请先点“连接设备”授权串口。");
-    }
+    await autoConnectAuthorizedPort();
   } catch (error) {
     handleActionError(error);
   }

@@ -18,7 +18,7 @@
           <ol class="steps">
             <li>连接设备</li>
             <li>扫描并选择 Wi-Fi</li>
-            <li>保存并连接</li>
+            <li>保存并连接 Wi-Fi</li>
             <li>同步时间并回到时钟页</li>
           </ol>
           <div class="connection-row">
@@ -112,7 +112,7 @@
             <div class="panel-heading">
               <div>
                 <h2>Wi-Fi</h2>
-                <p class="helper-text">先扫描，再选网络，最后保存并连接。</p>
+                <p class="helper-text">先扫描，再选网络，最后保存到设备或立即连接 Wi-Fi。</p>
               </div>
               <button id="scan-button" class="action-button" disabled>
                 扫描
@@ -235,12 +235,15 @@
             <div class="config-actions">
               <div class="action-row action-row-pair">
                 <button id="save-button" class="action-button" disabled>
-                  只保存
+                  仅保存配置
                 </button>
                 <button id="apply-button" class="action-button primary" disabled>
-                  保存并连接
+                  保存并连接 Wi-Fi
                 </button>
               </div>
+              <p class="action-help">
+                仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。
+              </p>
 
               <div class="action-row action-row-triple">
                 <button id="sync-button" class="action-button subtle" disabled>
@@ -256,7 +259,7 @@
             </div>
 
             <div class="hint-list">
-              <p>Chrome 会记住你授权过的串口，点“恢复已授权设备”就能直接连回去。</p>
+              <p>Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。</p>
               <p>设备重启后，串口可能会短暂断开，再点一次恢复即可。</p>
             </div>
           </div>
@@ -302,7 +305,7 @@
               <div class="market-subheading">
                 <h3>热门标的</h3>
               </div>
-              <div id="market-hot-list" class="market-chip-list"></div>
+              <div id="market-hot-list" class="market-hot-list"></div>
             </div>
           </div>
 
