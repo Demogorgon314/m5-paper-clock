@@ -432,6 +432,17 @@ button:focus {
   line-height: 1.5;
 }
 
+.update-warning {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #ead1cb;
+  border-left: 4px solid var(--danger);
+  border-radius: 8px;
+  background: #fff5f2;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
 .web-flash-control {
   display: block;
   margin-top: 12px;
