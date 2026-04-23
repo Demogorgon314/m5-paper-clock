@@ -6,6 +6,7 @@
 
 #include <array>
 #include <initializer_list>
+#include <string>
 #include <vector>
 
 #include "ConnectivityService.h"
@@ -14,14 +15,22 @@
 #include "SensorService.h"
 #include "SettingsStore.h"
 
+class BLECharacteristic;
+class BleConfigRxCallbacks;
+class BleConfigServerCallbacks;
+
 class ClockApp {
 public:
     void begin();
     void loop();
 
 private:
+    friend class BleConfigRxCallbacks;
+    friend class BleConfigServerCallbacks;
+
     enum class PageId { Settings, WifiScan, Password, Clock };
     enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
+    enum class ConfigTransport : uint8_t { Serial = 0, Bluetooth = 1 };
     enum class BackgroundConnectivityTask : uint8_t {
         Idle = 0,
         ReconnectScheduled,
@@ -148,7 +157,10 @@ private:
     void handleHardwareButtons();
     void handleTouch();
     void handleSerialConfig();
-    void processSerialConfigLine(const String& line);
+    void handleBleConfig();
+    void beginBleConfig();
+    void enqueueBleConfigChunk(const std::string& chunk);
+    void processConfigLine(const String& line, ConfigTransport transport);
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
@@ -165,7 +177,8 @@ private:
     bool trySyncTime(bool allow_connect);
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
-    void sendSerialConfigDoc(const JsonDocument& doc) const;
+    void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
+    void sendConfigLine(const String& line, ConfigTransport transport) const;
     const char* currentPageName() const;
     const char* clockStyleName() const;
     String currentIpAddress() const;
@@ -223,6 +236,12 @@ private:
     int wifi_page_index_ = 0;
     int pressed_button_id_ = -1;
     String serial_config_rx_buffer_;
+    String ble_config_rx_buffer_;
+    String ble_config_pending_chunks_;
+    portMUX_TYPE ble_config_rx_mux_ = portMUX_INITIALIZER_UNLOCKED;
+    BLECharacteristic* ble_config_tx_characteristic_ = nullptr;
+    bool ble_config_ready_ = false;
+    bool ble_config_client_connected_ = false;
 
     String selected_ssid_;
     String password_input_;

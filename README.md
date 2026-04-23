@@ -43,10 +43,10 @@ flashing a fresh device you should upload the filesystem once:
 /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire -t uploadfs
 ```
 
-## USB Web Config
+## Web Config
 
-After flashing the firmware, you can configure the clock from Chrome over USB
-without entering the on-device settings flow.
+After flashing the firmware, you can configure the clock from Chrome over USB or
+Bluetooth without entering the on-device settings flow.
 
 Start a local web server:
 
@@ -60,8 +60,9 @@ Then open:
 http://localhost:4173
 ```
 
-Use Chrome or Edge, plug the device in over USB, click `连接设备`, and allow the
-serial port. The page can:
+Use Chrome or Edge. For USB, plug the device in and click `连接 USB` once to
+allow the serial port; the page will reconnect to authorized USB devices on
+load. For Bluetooth, click `连接蓝牙` and choose `M5Paper Clock`. The page can:
 
 - read device status
 - scan nearby Wi-Fi networks
@@ -70,8 +71,9 @@ serial port. The page can:
 - connect Wi-Fi and sync time
 - trigger a full refresh or reboot
 
-Only lines prefixed with `@cfg:` are treated as protocol messages, so normal
-device logs can continue to print on the same serial port.
+USB and Bluetooth share the same JSON command protocol. Only lines prefixed with
+`@cfg:` are treated as protocol messages, so normal device logs can continue to
+print on the USB serial port.
 
 ## Update Holiday Assets
 

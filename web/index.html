@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>M5Paper Ink Clock USB 配置</title>
+    <title>M5Paper Ink Clock 配置</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -11,22 +11,25 @@
       <header class="band intro-band">
         <div class="intro-copy">
           <p class="eyebrow">M5Paper Ink Clock</p>
-          <h1>USB 配置</h1>
+          <h1>设备配置</h1>
           <p class="lead">
-            插上 USB 后，在 Chrome 中授权串口，保存 Wi-Fi、时区和时钟样式。
+            通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和时钟样式。
           </p>
           <ol class="steps">
-            <li>连接设备</li>
+            <li>连接 USB 或蓝牙</li>
             <li>扫描并选择 Wi-Fi</li>
             <li>保存并连接 Wi-Fi</li>
             <li>同步时间并回到时钟页</li>
           </ol>
           <div class="connection-row">
             <button id="connect-button" class="action-button primary">
-              连接设备
+              连接 USB
+            </button>
+            <button id="bluetooth-button" class="action-button">
+              连接蓝牙
             </button>
             <button id="reconnect-button" class="action-button">
-              恢复已授权设备
+              恢复 USB
             </button>
             <button id="disconnect-button" class="action-button subtle" disabled>
               断开
@@ -260,7 +263,7 @@
 
             <div class="hint-list">
               <p>Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。</p>
-              <p>设备重启后，串口可能会短暂断开，再点一次恢复即可。</p>
+              <p>蓝牙连接需要先在设备附近点“连接蓝牙”并选择 M5Paper Clock。</p>
             </div>
           </div>
         </div>

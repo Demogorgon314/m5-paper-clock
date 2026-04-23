@@ -1,5 +1,10 @@
 const CFG_PREFIX = "@cfg:";
 const DEFAULT_BAUD_RATE = 115200;
+const BLE_DEVICE_NAME_PREFIX = "M5Paper";
+const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_RX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_TX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_WRITE_CHUNK_SIZE = 20;
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
@@ -86,6 +91,7 @@ const MARKET_GROUP_LABELS = Object.freeze({
 
 const elements = {
   connectButton: document.querySelector("#connect-button"),
+  bluetoothButton: document.querySelector("#bluetooth-button"),
   reconnectButton: document.querySelector("#reconnect-button"),
   disconnectButton: document.querySelector("#disconnect-button"),
   statusButton: document.querySelector("#status-button"),
@@ -131,9 +137,14 @@ const elements = {
 };
 
 const state = {
+  connectionType: null,
   port: null,
   reader: null,
   writer: null,
+  bluetoothDevice: null,
+  bluetoothServer: null,
+  bluetoothRxCharacteristic: null,
+  bluetoothTxCharacteristic: null,
   decoder: new TextDecoder(),
   encoder: new TextEncoder(),
   readBuffer: "",
@@ -144,6 +155,8 @@ const state = {
   connected: false,
   pollTimer: null,
   busyCount: 0,
+  supportsSerial: false,
+  supportsBluetooth: false,
   lastStatus: null,
   marketResults: [],
 };
@@ -333,10 +346,19 @@ function setMessage(message, isError = false) {
 
 function setConnected(connected) {
   state.connected = connected;
-  elements.connectionState.textContent = connected ? "已连接" : "未连接";
+  const connectionLabel =
+    state.connectionType === "bluetooth" ? "蓝牙" : "USB";
+  elements.connectionState.textContent = connected
+    ? `已连接 ${connectionLabel}`
+    : "未连接";
   elements.connectionState.classList.toggle("offline", !connected);
 
   const allowDeviceActions = connected && state.busyCount === 0;
+  elements.connectButton.disabled = !state.supportsSerial || state.busyCount > 0;
+  elements.bluetoothButton.disabled =
+    !state.supportsBluetooth || state.busyCount > 0;
+  elements.reconnectButton.disabled =
+    !state.supportsSerial || state.busyCount > 0;
   elements.disconnectButton.disabled = !connected;
   elements.statusButton.disabled = !allowDeviceActions;
   elements.scanButton.disabled = !allowDeviceActions;
@@ -575,11 +597,30 @@ function updateStatus(status) {
 }
 
 async function writeJson(payload) {
-  if (!state.writer) {
-    throw new Error("串口未连接");
-  }
   const line = `${JSON.stringify(payload)}\n`;
-  await state.writer.write(state.encoder.encode(line));
+  const bytes = state.encoder.encode(line);
+
+  if (state.connectionType === "serial") {
+    if (!state.writer) {
+      throw new Error("USB 串口未连接");
+    }
+    await state.writer.write(bytes);
+  } else if (state.connectionType === "bluetooth") {
+    if (!state.bluetoothRxCharacteristic) {
+      throw new Error("蓝牙未连接");
+    }
+    for (let offset = 0; offset < bytes.length; offset += BLE_WRITE_CHUNK_SIZE) {
+      const chunk = bytes.slice(offset, offset + BLE_WRITE_CHUNK_SIZE);
+      if (state.bluetoothRxCharacteristic.writeValueWithResponse) {
+        await state.bluetoothRxCharacteristic.writeValueWithResponse(chunk);
+      } else {
+        await state.bluetoothRxCharacteristic.writeValue(chunk);
+      }
+    }
+  } else {
+    throw new Error("设备尚未连接");
+  }
+
   appendLog(`发送 ${line.trim()}`);
 }
 
@@ -665,6 +706,17 @@ function rejectPending(error) {
   state.pendingRequests.clear();
 }
 
+function processIncomingText(text) {
+  state.readBuffer += text;
+  let newlineIndex = state.readBuffer.indexOf("\n");
+  while (newlineIndex >= 0) {
+    const rawLine = state.readBuffer.slice(0, newlineIndex);
+    state.readBuffer = state.readBuffer.slice(newlineIndex + 1);
+    handleLine(rawLine.replace(/\r$/, "").trim());
+    newlineIndex = state.readBuffer.indexOf("\n");
+  }
+}
+
 async function readLoop() {
   while (state.port?.readable) {
     state.reader = state.port.readable.getReader();
@@ -677,14 +729,7 @@ async function readLoop() {
         if (!value) {
           continue;
         }
-        state.readBuffer += state.decoder.decode(value, { stream: true });
-        let newlineIndex = state.readBuffer.indexOf("\n");
-        while (newlineIndex >= 0) {
-          const rawLine = state.readBuffer.slice(0, newlineIndex);
-          state.readBuffer = state.readBuffer.slice(newlineIndex + 1);
-          handleLine(rawLine.replace(/\r$/, "").trim());
-          newlineIndex = state.readBuffer.indexOf("\n");
-        }
+        processIncomingText(state.decoder.decode(value, { stream: true }));
       }
     } finally {
       state.reader.releaseLock();
@@ -738,11 +783,42 @@ async function closePort() {
     appendLog(`关闭串口时出现提示: ${error.message}`, "error");
   }
 
+  try {
+    if (state.bluetoothTxCharacteristic) {
+      state.bluetoothTxCharacteristic.removeEventListener(
+        "characteristicvaluechanged",
+        handleBluetoothNotification,
+      );
+      await state.bluetoothTxCharacteristic.stopNotifications();
+    }
+  } catch (error) {
+    appendLog(`停止蓝牙通知时出现提示: ${error.message}`, "error");
+  }
+
+  try {
+    if (state.bluetoothDevice) {
+      state.bluetoothDevice.removeEventListener(
+        "gattserverdisconnected",
+        handleBluetoothDisconnected,
+      );
+    }
+    if (state.bluetoothDevice?.gatt?.connected) {
+      state.bluetoothDevice.gatt.disconnect();
+    }
+  } catch (error) {
+    appendLog(`断开蓝牙时出现提示: ${error.message}`, "error");
+  }
+
   state.port = null;
+  state.bluetoothDevice = null;
+  state.bluetoothServer = null;
+  state.bluetoothRxCharacteristic = null;
+  state.bluetoothTxCharacteristic = null;
+  state.connectionType = null;
   state.readBuffer = "";
   setConnected(false);
   stopPolling();
-  rejectPending(new Error("串口已断开"));
+  rejectPending(new Error("设备已断开"));
   renderMarketHotList();
   renderMarketResults();
 }
@@ -764,9 +840,10 @@ async function openPort(port) {
   state.writer = state.port.writable.getWriter();
   state.decoder = new TextDecoder();
   state.readBuffer = "";
+  state.connectionType = "serial";
   setConnected(true);
   appendLog("串口已连接");
-  setMessage("设备已连接，正在读取状态。");
+  setMessage("USB 已连接，正在读取状态。");
   void readLoop().catch((error) => {
     appendLog(`读取串口失败: ${error.message}`, "error");
     setMessage(`读取串口失败：${error.message}`, true);
@@ -793,7 +870,7 @@ async function reconnectAuthorizedPort() {
 async function autoConnectAuthorizedPort() {
   const ports = await navigator.serial.getPorts();
   if (!ports.length) {
-    setMessage("请先点“连接设备”授权串口。");
+    setMessage("请先点“连接 USB”授权串口，或点“连接蓝牙”。");
     return;
   }
 
@@ -808,6 +885,88 @@ async function autoConnectAuthorizedPort() {
     appendLog(`自动连接失败: ${error.message}`, "error");
     setMessage("自动连接失败，请点“恢复已授权设备”重试。", true);
   }
+}
+
+function handleBluetoothNotification(event) {
+  const value = event.target?.value;
+  if (!value) {
+    return;
+  }
+  processIncomingText(state.decoder.decode(value, { stream: true }));
+}
+
+async function openBluetoothDevice(device) {
+  if (!device?.gatt) {
+    throw new Error("没有可用的蓝牙设备");
+  }
+
+  await closePort();
+  state.bluetoothDevice = device;
+  state.bluetoothDevice.addEventListener(
+    "gattserverdisconnected",
+    handleBluetoothDisconnected,
+  );
+
+  setMessage("正在连接蓝牙设备。");
+  const server = await state.bluetoothDevice.gatt.connect();
+  const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+  const rxCharacteristic = await service.getCharacteristic(
+    BLE_RX_CHARACTERISTIC_UUID,
+  );
+  const txCharacteristic = await service.getCharacteristic(
+    BLE_TX_CHARACTERISTIC_UUID,
+  );
+  await txCharacteristic.startNotifications();
+  txCharacteristic.addEventListener(
+    "characteristicvaluechanged",
+    handleBluetoothNotification,
+  );
+
+  state.bluetoothServer = server;
+  state.bluetoothRxCharacteristic = rxCharacteristic;
+  state.bluetoothTxCharacteristic = txCharacteristic;
+  state.decoder = new TextDecoder();
+  state.readBuffer = "";
+  state.connectionType = "bluetooth";
+  setConnected(true);
+  appendLog(`蓝牙已连接 ${device.name || BLE_DEVICE_NAME_PREFIX}`);
+  setMessage("蓝牙已连接，正在读取状态。");
+  startPolling();
+  await refreshStatus();
+  await searchMarkets("", { silent: true });
+}
+
+async function requestBluetoothAndConnect() {
+  if (!("bluetooth" in navigator)) {
+    throw new Error("当前浏览器不支持 Web Bluetooth");
+  }
+
+  const device = await navigator.bluetooth.requestDevice({
+    filters: [
+      { services: [BLE_SERVICE_UUID] },
+      { namePrefix: BLE_DEVICE_NAME_PREFIX },
+    ],
+    optionalServices: [BLE_SERVICE_UUID],
+  });
+  await openBluetoothDevice(device);
+}
+
+async function handleBluetoothDisconnected(event) {
+  if (event.target !== state.bluetoothDevice) {
+    return;
+  }
+
+  appendLog("蓝牙已断开", "error");
+  setMessage("设备蓝牙已断开。", true);
+  state.bluetoothDevice = null;
+  state.bluetoothServer = null;
+  state.bluetoothRxCharacteristic = null;
+  state.bluetoothTxCharacteristic = null;
+  state.connectionType = null;
+  state.readBuffer = "";
+  setConnected(false);
+  stopPolling();
+  rejectPending(new Error("蓝牙已断开"));
 }
 
 function startPolling() {
@@ -1025,6 +1184,12 @@ function installEventHandlers() {
     }).catch(handleActionError),
   );
 
+  elements.bluetoothButton.addEventListener("click", () =>
+    withBusyWork(async () => {
+      await requestBluetoothAndConnect();
+    }).catch(handleActionError),
+  );
+
   elements.reconnectButton.addEventListener("click", () =>
     withBusyWork(async () => {
       await reconnectAuthorizedPort();
@@ -1034,7 +1199,7 @@ function installEventHandlers() {
   elements.disconnectButton.addEventListener("click", () =>
     withBusyWork(async () => {
       await closePort();
-      setMessage("串口已断开。");
+      setMessage("设备已断开。");
     }).catch(handleActionError),
   );
 
@@ -1117,28 +1282,44 @@ async function initialize() {
   installEventHandlers();
   setConnected(false);
 
-  if (!("serial" in navigator)) {
-    elements.browserNote.textContent =
-      "当前浏览器不支持 Web Serial，请使用 Chrome 或 Edge。";
-    setMessage("当前浏览器不支持 Web Serial。", true);
-    elements.connectButton.disabled = true;
-    elements.reconnectButton.disabled = true;
-    return;
-  }
-
   if (!window.isSecureContext) {
     elements.browserNote.textContent =
       "请通过 localhost 或 HTTPS 打开这个页面。";
-    setMessage("当前不是安全上下文，Web Serial 无法使用。", true);
+    setMessage("当前不是安全上下文，无法使用 USB 或蓝牙连接。", true);
     elements.connectButton.disabled = true;
     elements.reconnectButton.disabled = true;
+    elements.bluetoothButton.disabled = true;
     return;
+  }
+
+  const supportsSerial = "serial" in navigator;
+  const supportsBluetooth = "bluetooth" in navigator;
+  state.supportsSerial = supportsSerial;
+  state.supportsBluetooth = supportsBluetooth;
+  setConnected(false);
+
+  if (!supportsSerial && !supportsBluetooth) {
+    elements.browserNote.textContent =
+      "当前浏览器不支持 Web Serial 或 Web Bluetooth，请使用 Chrome 或 Edge。";
+    setMessage("当前浏览器不支持 USB 或蓝牙连接。", true);
+    return;
+  }
+
+  if (!supportsSerial) {
+    appendLog("当前浏览器不支持 Web Serial");
+  }
+  if (!supportsBluetooth) {
+    appendLog("当前浏览器不支持 Web Bluetooth");
   }
 
   appendLog("页面已就绪");
 
   try {
-    await autoConnectAuthorizedPort();
+    if (supportsSerial) {
+      await autoConnectAuthorizedPort();
+    } else {
+      setMessage("请点“连接蓝牙”选择 M5Paper Clock。");
+    }
   } catch (error) {
     handleActionError(error);
   }

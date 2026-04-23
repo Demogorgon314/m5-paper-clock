@@ -1,6 +1,10 @@
 #include "ClockApp.h"
 
 #include <algorithm>
+#include <BLE2902.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
 
@@ -35,6 +39,14 @@ constexpr uint32_t kCenterButtonLongPressMs = 1500;
 constexpr uint32_t kBackgroundReconnectStartDelayMs = 1800;
 constexpr uint32_t kBackgroundReconnectTimeoutMs = 4000;
 constexpr uint32_t kBackgroundTimeSyncTimeoutMs = 3000;
+constexpr size_t kBleNotifyChunkSize = 20;
+constexpr const char* kBleDeviceName = "M5Paper Clock";
+constexpr const char* kBleServiceUuid =
+    "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+constexpr const char* kBleRxCharacteristicUuid =
+    "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+constexpr const char* kBleTxCharacteristicUuid =
+    "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 constexpr uint16_t kHeaderHeight = 60;
 constexpr int16_t kPasswordFieldX = 28;
 constexpr int16_t kPasswordFieldY = 156;
@@ -760,9 +772,53 @@ m5epd_update_mode_t nextPartialMode(uint8_t& count) {
 
 }  // namespace
 
+class BleConfigServerCallbacks : public BLEServerCallbacks {
+public:
+    explicit BleConfigServerCallbacks(ClockApp* app) : app_(app) {
+    }
+
+    void onConnect(BLEServer*) override {
+        if (!app_) {
+            return;
+        }
+        app_->ble_config_client_connected_ = true;
+        Serial.println("[ble] config client connected");
+    }
+
+    void onDisconnect(BLEServer*) override {
+        if (!app_) {
+            return;
+        }
+        app_->ble_config_client_connected_ = false;
+        Serial.println("[ble] config client disconnected");
+        BLEDevice::startAdvertising();
+    }
+
+private:
+    ClockApp* app_;
+};
+
+class BleConfigRxCallbacks : public BLECharacteristicCallbacks {
+public:
+    explicit BleConfigRxCallbacks(ClockApp* app) : app_(app) {
+    }
+
+    void onWrite(BLECharacteristic* characteristic) override {
+        if (!app_ || !characteristic) {
+            return;
+        }
+        app_->enqueueBleConfigChunk(characteristic->getValue());
+    }
+
+private:
+    ClockApp* app_;
+};
+
 void ClockApp::begin() {
     Serial.println("[boot] begin: initializeHardware");
     initializeHardware();
+    Serial.println("[boot] begin: beginBleConfig");
+    beginBleConfig();
     Serial.println("[boot] begin: createCanvases");
     createCanvases();
     Serial.println("[boot] begin: initializeTypography");
@@ -872,6 +928,7 @@ bool ClockApp::ensureCjkCanvas(M5EPD_Canvas& canvas, int16_t width,
 void ClockApp::loop() {
     M5.update();
     handleSerialConfig();
+    handleBleConfig();
     handleHardwareButtons();
     handleTouch();
     handleBackgroundConnectivity();
@@ -2184,7 +2241,7 @@ void ClockApp::handleSerialConfig() {
             serial_config_rx_buffer_.clear();
             line.trim();
             if (!line.isEmpty()) {
-                processSerialConfigLine(line);
+                processConfigLine(line, ConfigTransport::Serial);
             }
             continue;
         }
@@ -2195,7 +2252,91 @@ void ClockApp::handleSerialConfig() {
     }
 }
 
-void ClockApp::processSerialConfigLine(const String& line) {
+void ClockApp::beginBleConfig() {
+    if (ble_config_ready_) {
+        return;
+    }
+
+    BLEDevice::init(kBleDeviceName);
+    BLEServer* server = BLEDevice::createServer();
+    server->setCallbacks(new BleConfigServerCallbacks(this));
+
+    BLEService* service = server->createService(kBleServiceUuid);
+    ble_config_tx_characteristic_ = service->createCharacteristic(
+        kBleTxCharacteristicUuid,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+    ble_config_tx_characteristic_->addDescriptor(new BLE2902());
+
+    BLECharacteristic* rx_characteristic = service->createCharacteristic(
+        kBleRxCharacteristicUuid,
+        BLECharacteristic::PROPERTY_WRITE |
+            BLECharacteristic::PROPERTY_WRITE_NR);
+    rx_characteristic->setCallbacks(new BleConfigRxCallbacks(this));
+
+    service->start();
+    BLEAdvertising* advertising = BLEDevice::getAdvertising();
+    advertising->addServiceUUID(kBleServiceUuid);
+    advertising->setScanResponse(true);
+    advertising->setMinPreferred(0x06);
+    advertising->setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
+
+    ble_config_ready_ = true;
+    Serial.println("[ble] config service ready");
+}
+
+void ClockApp::enqueueBleConfigChunk(const std::string& chunk) {
+    if (chunk.empty()) {
+        return;
+    }
+
+    portENTER_CRITICAL(&ble_config_rx_mux_);
+    if (ble_config_pending_chunks_.length() + chunk.size() > 2048) {
+        ble_config_pending_chunks_.clear();
+        ble_config_rx_buffer_.clear();
+        portEXIT_CRITICAL(&ble_config_rx_mux_);
+        Serial.println("[ble] config RX overflow");
+        return;
+    }
+
+    for (char ch : chunk) {
+        ble_config_pending_chunks_ += ch;
+    }
+    portEXIT_CRITICAL(&ble_config_rx_mux_);
+}
+
+void ClockApp::handleBleConfig() {
+    if (ble_config_pending_chunks_.isEmpty()) {
+        return;
+    }
+
+    portENTER_CRITICAL(&ble_config_rx_mux_);
+    const String pending = ble_config_pending_chunks_;
+    ble_config_pending_chunks_.clear();
+    portEXIT_CRITICAL(&ble_config_rx_mux_);
+
+    for (uint32_t index = 0; index < pending.length(); ++index) {
+        const char ch = pending.charAt(index);
+        if (ch == '\r') {
+            continue;
+        }
+        if (ch == '\n') {
+            String line = ble_config_rx_buffer_;
+            ble_config_rx_buffer_.clear();
+            line.trim();
+            if (!line.isEmpty()) {
+                processConfigLine(line, ConfigTransport::Bluetooth);
+            }
+            continue;
+        }
+
+        if (ble_config_rx_buffer_.length() < 1024) {
+            ble_config_rx_buffer_ += ch;
+        }
+    }
+}
+
+void ClockApp::processConfigLine(const String& line, ConfigTransport transport) {
     if (!line.startsWith("{")) {
         return;
     }
@@ -2210,7 +2351,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
     if (parse_error) {
         response_doc["ok"] = false;
         response_doc["error"] = "Invalid JSON request";
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2219,7 +2360,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         response_doc["ok"] = true;
         JsonObject data = response_doc.createNestedObject("data");
         populateSerialStatus(data);
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2240,7 +2381,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         }
         data["count"] = wifi_networks_.size();
         populateSerialStatus(data.createNestedObject("status"));
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2249,7 +2390,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         if (data.isNull()) {
             response_doc["ok"] = false;
             response_doc["error"] = "Missing settings payload";
-            sendSerialConfigDoc(response_doc);
+            sendConfigDoc(response_doc, transport);
             return;
         }
 
@@ -2379,7 +2520,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         }
         JsonObject data_out = response_doc.createNestedObject("data");
         populateSerialStatus(data_out);
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2420,7 +2561,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
             entry["current"] = result.request_symbol == settings_.market_symbol;
         }
         populateSerialStatus(data_out.createNestedObject("status"));
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2431,7 +2572,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         if (request_symbol.isEmpty()) {
             response_doc["ok"] = false;
             response_doc["error"] = "Missing requestSymbol";
-            sendSerialConfigDoc(response_doc);
+            sendConfigDoc(response_doc, transport);
             return;
         }
 
@@ -2464,7 +2605,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         response_doc["ok"] = true;
         JsonObject data_out = response_doc.createNestedObject("data");
         populateSerialStatus(data_out);
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2483,7 +2624,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         }
         JsonObject data = response_doc.createNestedObject("data");
         populateSerialStatus(data);
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2492,7 +2633,7 @@ void ClockApp::processSerialConfigLine(const String& line) {
         response_doc["ok"] = true;
         JsonObject data = response_doc.createNestedObject("data");
         populateSerialStatus(data);
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
@@ -2501,13 +2642,13 @@ void ClockApp::processSerialConfigLine(const String& line) {
         pending_serial_reboot_at_ms_ = millis() + 250;
         response_doc["ok"] = true;
         response_doc["data"]["message"] = "Reboot scheduled";
-        sendSerialConfigDoc(response_doc);
+        sendConfigDoc(response_doc, transport);
         return;
     }
 
     response_doc["ok"] = false;
     response_doc["error"] = "Unknown command";
-    sendSerialConfigDoc(response_doc);
+    sendConfigDoc(response_doc, transport);
 }
 
 void ClockApp::handleTouch() {
@@ -3074,10 +3215,36 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["statusError"] = status_error_;
 }
 
-void ClockApp::sendSerialConfigDoc(const JsonDocument& doc) const {
-    Serial.print("@cfg:");
-    serializeJson(doc, Serial);
-    Serial.println();
+void ClockApp::sendConfigDoc(const JsonDocument& doc,
+                             ConfigTransport transport) const {
+    String line = "@cfg:";
+    serializeJson(doc, line);
+    line += "\n";
+    sendConfigLine(line, transport);
+}
+
+void ClockApp::sendConfigLine(const String& line,
+                              ConfigTransport transport) const {
+    if (transport == ConfigTransport::Serial) {
+        Serial.print(line);
+        return;
+    }
+
+    if (!ble_config_client_connected_ || !ble_config_tx_characteristic_) {
+        return;
+    }
+
+    for (uint32_t offset = 0; offset < line.length();
+         offset += kBleNotifyChunkSize) {
+        const String chunk = line.substring(
+            offset,
+            std::min<uint32_t>(offset + kBleNotifyChunkSize, line.length()));
+        std::vector<uint8_t> chunk_bytes(chunk.begin(), chunk.end());
+        ble_config_tx_characteristic_->setValue(chunk_bytes.data(),
+                                                chunk_bytes.size());
+        ble_config_tx_characteristic_->notify();
+        delay(4);
+    }
 }
 
 const char* ClockApp::currentPageName() const {
