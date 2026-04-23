@@ -7,6 +7,7 @@
 #include <BLEUtils.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
+#include <esp_system.h>
 
 #include "logic/ComfortLogic.h"
 #include "logic/HolidayLogic.h"
@@ -40,6 +41,8 @@ constexpr uint32_t kBackgroundReconnectStartDelayMs = 1800;
 constexpr uint32_t kBackgroundReconnectTimeoutMs = 4000;
 constexpr uint32_t kBackgroundTimeSyncTimeoutMs = 3000;
 constexpr uint32_t kSerialConfigActiveMs = 60000;
+constexpr uint32_t kBlePairingCodeTtlMs = 60000;
+constexpr uint8_t kBlePairingMaxAttempts = 5;
 constexpr size_t kBleNotifyChunkSize = 20;
 constexpr const char* kBleDeviceName = "M5Paper Clock";
 constexpr const char* kBleServiceUuid =
@@ -314,6 +317,36 @@ String formatHolidayDisplaySignature(const logic::HolidayDisplay& display) {
     return String(buf);
 }
 
+String formatHolidayDisplayText(const logic::HolidayDisplay& display,
+                                bool show_progress) {
+    if (!display.valid() || display.id == logic::HolidayId::None) {
+        return String("");
+    }
+
+    switch (display.state) {
+        case logic::HolidayDisplayState::Countdown:
+            return String(u8"距 ") + String(logic::HolidayNameZh(display.id)) +
+                   String(u8" 还有 ") + String(display.days_remaining) +
+                   String(u8" 天");
+        case logic::HolidayDisplayState::InHoliday: {
+            String text = String(logic::HolidayNameZh(display.id)) +
+                          String(u8"假期中");
+            if (show_progress && display.holiday_day_index > 0 &&
+                display.holiday_total_days > 0) {
+                text += " " + String(display.holiday_day_index) + "/" +
+                        String(display.holiday_total_days);
+            }
+            return text;
+        }
+        case logic::HolidayDisplayState::LastDay:
+            return String(logic::HolidayNameZh(display.id)) +
+                   String(u8"最后一天");
+        case logic::HolidayDisplayState::None:
+        default:
+            return String("");
+    }
+}
+
 String weekdayLabel(uint8_t week) {
     switch (week % 7) {
         case 0:
@@ -502,35 +535,9 @@ void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
     canvas.setTextDatum(CL_DATUM);
     canvas.setTextColor(kText);
     setCanvasTextSize(canvas, true, kDateCjkTextSize);
-    switch (display.state) {
-        case logic::HolidayDisplayState::Countdown:
-            drawFauxBoldString(
-                canvas,
-                String(u8"距 ") + String(logic::HolidayNameZh(display.id)) +
-                    String(u8" 还有 ") + String(display.days_remaining) +
-                    String(u8" 天"),
-                start_x, kDateH / 2);
-            break;
-        case logic::HolidayDisplayState::InHoliday: {
-            String text = String(logic::HolidayNameZh(display.id)) +
-                          String(u8"假期中");
-            if (show_progress && display.holiday_day_index > 0 &&
-                display.holiday_total_days > 0) {
-                text += " " + String(display.holiday_day_index) + "/" +
-                        String(display.holiday_total_days);
-            }
-            drawFauxBoldString(canvas, text, start_x, kDateH / 2);
-            break;
-        }
-        case logic::HolidayDisplayState::LastDay:
-            drawFauxBoldString(canvas,
-                               String(logic::HolidayNameZh(display.id)) +
-                                   String(u8"最后一天"),
-                               start_x, kDateH / 2);
-            break;
-        case logic::HolidayDisplayState::None:
-        default:
-            break;
+    const String text = formatHolidayDisplayText(display, show_progress);
+    if (!text.isEmpty()) {
+        drawFauxBoldString(canvas, text, start_x, kDateH / 2);
     }
 }
 
@@ -825,9 +832,25 @@ public:
         if (!app_) {
             return;
         }
+        app_->ble_config_conn_id_ = app_->ble_config_server_
+                                        ? app_->ble_config_server_->getConnId()
+                                        : 0;
         app_->ble_config_client_connected_ = true;
+        app_->ble_config_session_authorized_ = false;
         app_->battery_status_dirty_ = true;
         Serial.println("[ble] config client connected");
+    }
+
+    void onConnect(BLEServer*, esp_ble_gatts_cb_param_t* param) override {
+        if (!app_) {
+            return;
+        }
+        app_->ble_config_conn_id_ = param ? param->connect.conn_id : 0;
+        app_->ble_config_client_connected_ = true;
+        app_->ble_config_session_authorized_ = false;
+        app_->battery_status_dirty_ = true;
+        Serial.printf("[ble] config client connected conn=%u\n",
+                      app_->ble_config_conn_id_);
     }
 
     void onDisconnect(BLEServer*) override {
@@ -835,6 +858,9 @@ public:
             return;
         }
         app_->ble_config_client_connected_ = false;
+        app_->ble_config_session_authorized_ = false;
+        app_->ble_config_conn_id_ = 0;
+        app_->clearBlePairingPrompt();
         app_->battery_status_dirty_ = true;
         Serial.println("[ble] config client disconnected");
         BLEDevice::startAdvertising();
@@ -988,6 +1014,10 @@ void ClockApp::loop() {
 
     if (current_page_ == PageId::Settings) {
         autoConnectIfNeeded();
+    }
+
+    if (ble_pairing_prompt_visible_ && !blePairingCodeActive()) {
+        clearBlePairingPrompt();
     }
 
     if (current_page_ == PageId::Clock) {
@@ -1541,11 +1571,13 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     const uint8_t week = calculateWeekday(current_date);
     const logic::HolidayDisplay holiday_display = logic::HolidayDisplayForDate(
         current_date.year, current_date.mon, current_date.day);
-    const String holiday_signature =
-        formatHolidayDisplaySignature(holiday_display);
+    const String holiday_signature = formatHolidayDisplaySignature(holiday_display);
+    const String pairing_signature =
+        blePairingCodeActive() ? "ble:" + ble_pairing_code_ : "";
     if (date_text == last_date_text_rendered_ &&
         week == last_weekday_rendered_ &&
-        holiday_signature == last_holiday_display_rendered_) {
+        holiday_signature + "|" + pairing_signature ==
+            last_holiday_display_rendered_) {
         return;
     }
 
@@ -1574,11 +1606,17 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
             drawFauxBoldString(active_date_canvas, weekday_text,
                                kDateCjkWeekdayX, kDateH / 2);
         }
+        int16_t pairing_x = 520;
         if (holiday_display.valid()) {
             bool show_progress =
                 holiday_display.state == logic::HolidayDisplayState::InHoliday;
             drawHolidayDisplay(active_date_canvas, kDateCjkHolidayX,
                                holiday_display, show_progress);
+        }
+        if (blePairingCodeActive()) {
+            drawFauxBoldString(active_date_canvas,
+                               "蓝牙配对码 " + ble_pairing_code_,
+                               pairing_x, kDateH / 2);
         }
     } else {
         setCanvasTextSize(active_date_canvas, false, 3);
@@ -1598,7 +1636,8 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         last_weekday_rendered_ = 255;
     } else {
         last_date_text_rendered_ = date_text;
-        last_holiday_display_rendered_ = holiday_signature;
+        last_holiday_display_rendered_ =
+            holiday_signature + "|" + pairing_signature;
         last_weekday_rendered_ = week;
     }
 }
@@ -2323,6 +2362,7 @@ void ClockApp::beginBleConfig() {
 
     BLEDevice::init(kBleDeviceName);
     BLEServer* server = BLEDevice::createServer();
+    ble_config_server_ = server;
     server->setCallbacks(new BleConfigServerCallbacks(this));
 
     BLEService* service = server->createService(kBleServiceUuid);
@@ -2400,6 +2440,121 @@ void ClockApp::handleBleConfig() {
     }
 }
 
+bool ClockApp::authorizeBleRequest(const JsonDocument& request_doc) {
+    if (settings_.ble_pairing_token.isEmpty()) {
+        return false;
+    }
+
+    const char* auth_value = request_doc["auth"] | "";
+    if (!auth_value || settings_.ble_pairing_token != String(auth_value)) {
+        return false;
+    }
+
+    ble_config_session_authorized_ = true;
+    return true;
+}
+
+bool ClockApp::bleCommandRequiresAuth(const String& command) const {
+    return command != "pair_begin" && command != "pair_verify";
+}
+
+bool ClockApp::blePairingCodeActive() const {
+    return ble_pairing_prompt_visible_ && !ble_pairing_code_.isEmpty() &&
+           millis() < ble_pairing_expires_at_ms_;
+}
+
+String ClockApp::generateBlePairingCode() const {
+    char code[5];
+    snprintf(code, sizeof(code), "%04u",
+             static_cast<unsigned>(esp_random() % 10000));
+    return String(code);
+}
+
+String ClockApp::generateBlePairingToken() const {
+    char token[33];
+    const char* hex = "0123456789abcdef";
+    for (uint8_t index = 0; index < 16; ++index) {
+        const uint8_t value = static_cast<uint8_t>(esp_random() & 0xff);
+        token[index * 2] = hex[value >> 4];
+        token[index * 2 + 1] = hex[value & 0x0f];
+    }
+    token[32] = '\0';
+    return String(token);
+}
+
+void ClockApp::beginBlePairing(DynamicJsonDocument& response_doc) {
+    ble_pairing_code_ = generateBlePairingCode();
+    ble_pairing_attempts_ = 0;
+    ble_pairing_expires_at_ms_ = millis() + kBlePairingCodeTtlMs;
+    ble_pairing_prompt_visible_ = true;
+    status_message_ = "Bluetooth pairing code " + ble_pairing_code_;
+    status_error_ = false;
+
+    if (current_page_ == PageId::Clock) {
+        last_holiday_display_rendered_ = "";
+        updateDateCanvas(false);
+    } else {
+        refreshCurrentPage();
+    }
+
+    response_doc["ok"] = true;
+    JsonObject data = response_doc.createNestedObject("data");
+    data["ttlMs"] = kBlePairingCodeTtlMs;
+    data["message"] = "Enter the 4-digit code shown on the device";
+    populateSerialStatus(data.createNestedObject("status"));
+}
+
+void ClockApp::verifyBlePairing(const JsonDocument& request_doc,
+                                DynamicJsonDocument& response_doc) {
+    const JsonObjectConst data = request_doc["data"].as<JsonObjectConst>();
+    const String code = String(data["code"] | "");
+    if (!blePairingCodeActive()) {
+        response_doc["ok"] = false;
+        response_doc["error"] = "Bluetooth pairing code expired";
+        return;
+    }
+
+    if (code != ble_pairing_code_) {
+        ++ble_pairing_attempts_;
+        if (ble_pairing_attempts_ >= kBlePairingMaxAttempts) {
+            clearBlePairingPrompt();
+            response_doc["error"] = "Bluetooth pairing locked";
+        } else {
+            response_doc["error"] = "Invalid Bluetooth pairing code";
+        }
+        response_doc["ok"] = false;
+        return;
+    }
+
+    settings_.ble_pairing_token = generateBlePairingToken();
+    store_.saveBlePairingToken(settings_.ble_pairing_token);
+    ble_config_session_authorized_ = true;
+    clearBlePairingPrompt();
+    status_message_ = "Bluetooth paired";
+    status_error_ = false;
+    if (current_page_ != PageId::Clock) {
+        refreshCurrentPage();
+    }
+
+    response_doc["ok"] = true;
+    JsonObject data_out = response_doc.createNestedObject("data");
+    data_out["token"] = settings_.ble_pairing_token;
+    data_out["message"] = "Bluetooth paired";
+    populateSerialStatus(data_out.createNestedObject("status"));
+}
+
+void ClockApp::clearBlePairingPrompt() {
+    const bool was_visible = ble_pairing_prompt_visible_;
+    ble_pairing_prompt_visible_ = false;
+    ble_pairing_code_.clear();
+    ble_pairing_attempts_ = 0;
+    ble_pairing_expires_at_ms_ = 0;
+    if (was_visible && current_page_ == PageId::Clock) {
+        last_holiday_display_rendered_ = "";
+        pending_dashboard_date_cjk_render_ = true;
+    }
+}
+
 void ClockApp::processConfigLine(const String& line, ConfigTransport transport) {
     if (!line.startsWith("{")) {
         return;
@@ -2429,6 +2584,45 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
     }
 
     const String command = request_doc["cmd"] | "";
+    if (transport == ConfigTransport::Bluetooth) {
+        if (!ble_config_session_authorized_) {
+            authorizeBleRequest(request_doc);
+        }
+        if (bleCommandRequiresAuth(command) &&
+            !ble_config_session_authorized_) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Bluetooth pairing required";
+            sendConfigDoc(response_doc, transport);
+            delay(20);
+            if (ble_config_server_ && ble_config_conn_id_ != 0) {
+                ble_config_server_->disconnect(ble_config_conn_id_);
+            }
+            return;
+        }
+    }
+
+    if (command == "pair_begin") {
+        if (transport != ConfigTransport::Bluetooth) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Bluetooth transport required";
+        } else {
+            beginBlePairing(response_doc);
+        }
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "pair_verify") {
+        if (transport != ConfigTransport::Bluetooth) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Bluetooth transport required";
+        } else {
+            verifyBlePairing(request_doc, response_doc);
+        }
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
     if (command == "get_status") {
         response_doc["ok"] = true;
         JsonObject data = response_doc.createNestedObject("data");
@@ -3297,6 +3491,9 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["comfortTemperatureMax"] = settings_.comfort_settings.max_temperature;
     data["comfortHumidityMin"] = settings_.comfort_settings.min_humidity;
     data["comfortHumidityMax"] = settings_.comfort_settings.max_humidity;
+    data["bluetoothPaired"] = !settings_.ble_pairing_token.isEmpty();
+    data["bluetoothAuthorized"] = ble_config_session_authorized_;
+    data["bluetoothPairingActive"] = blePairingCodeActive();
     data["statusMessage"] = status_message_;
     data["statusError"] = status_error_;
 }

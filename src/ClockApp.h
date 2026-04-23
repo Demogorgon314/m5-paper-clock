@@ -16,6 +16,7 @@
 #include "SettingsStore.h"
 
 class BLECharacteristic;
+class BLEServer;
 class BleConfigRxCallbacks;
 class BleConfigServerCallbacks;
 
@@ -166,6 +167,15 @@ private:
     void beginBleConfig();
     void enqueueBleConfigChunk(const std::string& chunk);
     void processConfigLine(const String& line, ConfigTransport transport);
+    bool authorizeBleRequest(const JsonDocument& request_doc);
+    bool bleCommandRequiresAuth(const String& command) const;
+    bool blePairingCodeActive() const;
+    void beginBlePairing(DynamicJsonDocument& response_doc);
+    void verifyBlePairing(const JsonDocument& request_doc,
+                          DynamicJsonDocument& response_doc);
+    void clearBlePairingPrompt();
+    String generateBlePairingCode() const;
+    String generateBlePairingToken() const;
     ConfigConnectionIcon activeConfigConnectionIcon() const;
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
@@ -248,6 +258,13 @@ private:
     BLECharacteristic* ble_config_tx_characteristic_ = nullptr;
     bool ble_config_ready_ = false;
     bool ble_config_client_connected_ = false;
+    bool ble_config_session_authorized_ = false;
+    BLEServer* ble_config_server_ = nullptr;
+    uint16_t ble_config_conn_id_ = 0;
+    bool ble_pairing_prompt_visible_ = false;
+    String ble_pairing_code_;
+    uint8_t ble_pairing_attempts_ = 0;
+    uint32_t ble_pairing_expires_at_ms_ = 0;
 
     String selected_ssid_;
     String password_input_;

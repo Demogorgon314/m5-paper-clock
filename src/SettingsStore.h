@@ -13,6 +13,7 @@ struct AppSettings {
     uint8_t clock_style = 0;
     String market_symbol = "sh000001";
     String market_name = "上证指数";
+    String ble_pairing_token;
     logic::ComfortSettings comfort_settings;
 };
 
@@ -27,6 +28,7 @@ public:
     void saveClockStyle(uint8_t clock_style);
     void saveMarket(const String& market_symbol, const String& market_name);
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
+    void saveBlePairingToken(const String& token);
 
 private:
     static constexpr const char* kNamespace = "paper-clock";

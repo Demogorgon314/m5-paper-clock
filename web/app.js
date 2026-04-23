@@ -5,6 +5,7 @@ const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_TX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_WRITE_CHUNK_SIZE = 20;
+const BLE_AUTH_STORAGE_KEY = "m5-paper-clock.bleAuthToken";
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
@@ -159,6 +160,7 @@ const state = {
   busyCount: 0,
   supportsSerial: false,
   supportsBluetooth: false,
+  bleAuthToken: window.localStorage.getItem(BLE_AUTH_STORAGE_KEY) || "",
   lastStatus: null,
   marketResults: [],
 };
@@ -636,6 +638,9 @@ async function sendCommand(cmd, data = undefined, timeoutMs = REQUEST_TIMEOUT_MS
 
   const id = state.requestId++;
   const payload = { id, cmd };
+  if (state.connectionType === "bluetooth" && state.bleAuthToken) {
+    payload.auth = state.bleAuthToken;
+  }
   if (data !== undefined) {
     payload.data = data;
   }
@@ -696,6 +701,10 @@ function handleResponse(packet) {
 
   if (!packet.ok) {
     const error = new Error(packet.error || "设备返回失败");
+    if (packet.error === "Bluetooth pairing required") {
+      window.localStorage.removeItem(BLE_AUTH_STORAGE_KEY);
+      state.bleAuthToken = "";
+    }
     setMessage(error.message, true);
     pending?.reject(error);
     return;
@@ -935,10 +944,16 @@ async function openBluetoothDevice(device) {
   state.connectionType = "bluetooth";
   setConnected(true);
   appendLog(`蓝牙已连接 ${device.name || BLE_DEVICE_NAME_PREFIX}`);
-  setMessage("蓝牙已连接，正在读取状态。");
-  startPolling();
-  await refreshStatus();
-  await searchMarkets("", { silent: true });
+  setMessage("蓝牙已连接，正在校验配对。");
+  try {
+    await ensureBluetoothPaired();
+    startPolling();
+    await refreshStatus({ silent: true });
+    await searchMarkets("", { silent: true });
+  } catch (error) {
+    await closePort();
+    throw error;
+  }
 }
 
 async function requestBluetoothAndConnect() {
@@ -1007,6 +1022,50 @@ async function refreshStatus(options = {}) {
   }
   const data = await sendCommand("get_status");
   updateStatus(data);
+}
+
+async function ensureBluetoothPaired() {
+  if (state.connectionType !== "bluetooth") {
+    return;
+  }
+
+  if (state.bleAuthToken) {
+    try {
+      await refreshStatus({ silent: true });
+      if (state.lastStatus?.bluetoothAuthorized) {
+        return;
+      }
+    } catch (error) {
+      appendLog(`蓝牙授权校验失败: ${error.message}`, "error");
+    }
+    window.localStorage.removeItem(BLE_AUTH_STORAGE_KEY);
+    state.bleAuthToken = "";
+    appendLog("本地蓝牙授权已失效，重新配对", "error");
+  }
+
+  setMessage("请查看 M5Paper 顶栏显示的 4 位蓝牙配对码。");
+  await sendCommand("pair_begin", undefined, 8000);
+  const code = window.prompt("请输入 M5Paper 屏幕上显示的 4 位蓝牙配对码");
+  if (code === null) {
+    throw new Error("已取消蓝牙配对");
+  }
+
+  const normalizedCode = String(code).replace(/\D/g, "").slice(0, 4);
+  if (normalizedCode.length !== 4) {
+    throw new Error("请输入 4 位数字配对码");
+  }
+
+  const data = await sendCommand("pair_verify", { code: normalizedCode }, 15000);
+  if (!data.token) {
+    throw new Error("设备没有返回蓝牙授权 token");
+  }
+
+  state.bleAuthToken = String(data.token);
+  window.localStorage.setItem(BLE_AUTH_STORAGE_KEY, state.bleAuthToken);
+  if (data.status) {
+    updateStatus(data.status);
+  }
+  setMessage("蓝牙配对成功。");
 }
 
 async function scanWifi() {
