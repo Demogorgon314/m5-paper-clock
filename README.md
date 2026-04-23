@@ -33,14 +33,20 @@ Builds use the checked-in holiday data directly, so day-to-day compilation works
 offline without any pre-build network step.
 
 ```bash
-/Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire
+platformio run -e m5stack-fire
 ```
 
-The bundled `data/cjk.ttf` font lives on SPIFFS, so after changing the font or
-flashing a fresh device you should upload the filesystem once:
+The bundled `data/cjk.ttf` font lives on SPIFFS. You can build a complete flash
+image that includes bootloader, partitions, firmware, and SPIFFS in one file:
 
 ```bash
-/Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire -t uploadfs
+./tools/build_merged_image.sh
+```
+
+This produces:
+
+```text
+.pio/build/m5stack-fire/m5-paper-clock-complete.bin
 ```
 
 ## Web Config
@@ -86,32 +92,51 @@ node tools/update_holiday_data.mjs 2026 2027
 ## Test
 
 ```bash
-/Users/wangkai/.platformio/penv/bin/platformio test -e native
+platformio test -e native
 ```
 
 ## Upload
 
 Replace the upload port with the one shown by `platformio device list`.
 
-One command for both the SPIFFS font and the firmware:
+Two flashing modes are supported:
+
+1. Full image
+   Use this for first flash, factory reset, recovery, or when the SPIFFS
+   contents changed.
 
 ```bash
 ./tools/flash_all.sh /dev/cu.usbserial-02120D19
 ```
 
-If you omit the port, the script will try to auto-detect a common USB serial
-device.
+This builds `m5-paper-clock-complete.bin` and writes it once at `0x0`.
+
+2. Firmware only
+   Use this for day-to-day development and to stay aligned with future OTA
+   update packages.
 
 ```bash
-env PLATFORMIO_CORE_DIR=/Users/wangkai/Developer/github/m5-paper-clock/.pio-core \
-  /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire -t upload \
-  --upload-port /dev/cu.usbserial-02120D19
+./tools/flash_firmware.sh /dev/cu.usbserial-02120D19
 ```
 
-If the device has not received the bundled font yet, upload SPIFFS first:
+This updates only the app image and keeps the existing SPIFFS/font partition in
+place.
+
+If you omit the port, both scripts will try to auto-detect a common USB serial
+device.
+
+For manual full-image flashing:
 
 ```bash
-env PLATFORMIO_CORE_DIR=/Users/wangkai/Developer/github/m5-paper-clock/.pio-core \
-  /Users/wangkai/.platformio/penv/bin/platformio run -e m5stack-fire -t uploadfs \
+python3 -m esptool \
+  --chip esp32 --port /dev/cu.usbserial-02120D19 --baud 1500000 \
+  write_flash --flash_mode dio --flash_freq 40m --flash_size 16MB \
+  0x0 .pio/build/m5stack-fire/m5-paper-clock-complete.bin
+```
+
+For manual firmware-only flashing:
+
+```bash
+platformio run -e m5stack-fire -t upload \
   --upload-port /dev/cu.usbserial-02120D19
 ```

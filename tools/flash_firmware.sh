@@ -4,7 +4,6 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-BUILD_SCRIPT="$SCRIPT_DIR/build_merged_image.sh"
 PLATFORMIO_HOME=${PLATFORMIO_HOME:-$HOME/.platformio}
 
 if [ -n "${PLATFORMIO_BIN:-}" ]; then
@@ -18,26 +17,8 @@ else
   exit 1
 fi
 
-if [ -n "${PYTHON_BIN:-}" ]; then
-  PYTHON_BIN="$PYTHON_BIN"
-elif [ -x "$PLATFORMIO_HOME/penv/bin/python" ]; then
-  PYTHON_BIN="$PLATFORMIO_HOME/penv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN=$(command -v python3)
-else
-  echo "python3 not found." >&2
-  exit 1
-fi
-
-ESPPY=${ESPTOOL_PY:-$PLATFORMIO_HOME/packages/tool-esptoolpy/esptool.py}
-if [ ! -f "$ESPPY" ]; then
-  echo "esptool.py not found: $ESPPY" >&2
-  exit 1
-fi
-
 ENV_NAME=${PLATFORMIO_ENV:-m5stack-fire}
 REQUESTED_PORT=${1:-${PORT:-}}
-MERGED_BIN=${MERGED_BIN:-"$PROJECT_DIR/.pio/build/$ENV_NAME/m5-paper-clock-complete.bin"}
 
 port_exists() {
   [ -n "${1:-}" ] && [ -e "$1" ]
@@ -66,32 +47,23 @@ resolve_port() {
   find_port || true
 }
 
-PORT=$(resolve_port)
-if [ -z "$PORT" ]; then
-  echo "No serial port found. Pass one explicitly: tools/flash_all.sh /dev/cu.usbserial-XXXX" >&2
-  exit 1
-fi
-
-flash_image() {
-  image_path=$1
+upload_firmware() {
   attempt=1
   while [ "$attempt" -le 3 ]; do
     PORT=$(resolve_port)
     if [ -z "$PORT" ]; then
-      echo "No serial port available for image '$image_path'." >&2
+      echo "No serial port available for firmware upload." >&2
       if [ "$attempt" -ge 3 ]; then
         return 1
       fi
-      echo "Waiting for serial reconnect before flashing..." >&2
+      echo "Waiting for serial reconnect before firmware upload..." >&2
       attempt=$((attempt + 1))
       sleep 2
       continue
     fi
 
     echo "Port: $PORT"
-    if "$PYTHON_BIN" "$ESPPY" --chip esp32 --port "$PORT" --baud 1500000 \
-      write_flash --flash_mode dio --flash_freq 40m --flash_size 16MB \
-      0x0 "$image_path"; then
+    if "$PIO_BIN" run -e "$ENV_NAME" -t upload --upload-port "$PORT"; then
       return 0
     fi
 
@@ -99,26 +71,26 @@ flash_image() {
       return 1
     fi
 
-    echo "Retrying flash after serial reconnect..." >&2
+    echo "Retrying firmware upload after serial reconnect..." >&2
     attempt=$((attempt + 1))
     sleep 3
   done
 }
 
+PORT=$(resolve_port)
+if [ -z "$PORT" ]; then
+  echo "No serial port found. Pass one explicitly: tools/flash_firmware.sh /dev/cu.usbserial-XXXX" >&2
+  exit 1
+fi
+
 echo "Project: $PROJECT_DIR"
 echo "PlatformIO: $PIO_BIN"
-echo "Python: $PYTHON_BIN"
-echo "esptool.py: $ESPPY"
 echo "Environment: $ENV_NAME"
 echo "Port: $PORT"
-echo "Merged image: $MERGED_BIN"
 
 cd "$PROJECT_DIR"
 
-echo "==> 1/2 Building merged image..."
-"$BUILD_SCRIPT" "$MERGED_BIN"
-
-echo "==> 2/2 Flashing merged image..."
-flash_image "$MERGED_BIN"
+echo "==> Uploading firmware only..."
+upload_firmware
 
 echo "Done."
