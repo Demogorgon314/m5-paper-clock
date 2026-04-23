@@ -29,18 +29,10 @@ else
 fi
 
 ESPPY=${ESPTOOL_PY:-$PLATFORMIO_HOME/packages/tool-esptoolpy/esptool.py}
-if [ ! -f "$ESPPY" ]; then
-  echo "esptool.py not found: $ESPPY" >&2
-  exit 1
-fi
 
 FRAMEWORK_DIR=${ARDUINO_ESP32_DIR:-$PLATFORMIO_HOME/packages/framework-arduinoespressif32@3.20004.0}
 if [ ! -d "$FRAMEWORK_DIR" ] && [ -d "$PLATFORMIO_HOME/packages/framework-arduinoespressif32" ]; then
   FRAMEWORK_DIR="$PLATFORMIO_HOME/packages/framework-arduinoespressif32"
-fi
-if [ ! -d "$FRAMEWORK_DIR" ]; then
-  echo "framework-arduinoespressif32 not found: $FRAMEWORK_DIR" >&2
-  exit 1
 fi
 
 ENV_NAME=${PLATFORMIO_ENV:-m5stack-fire}
@@ -52,15 +44,6 @@ BOOT_APP0_BIN="$FRAMEWORK_DIR/tools/partitions/boot_app0.bin"
 PARTITIONS_BIN="$BUILD_DIR/partitions.bin"
 FIRMWARE_BIN="$BUILD_DIR/firmware.bin"
 SPIFFS_BIN="$BUILD_DIR/spiffs.bin"
-
-for required in \
-  "$BOOTLOADER_BIN" \
-  "$BOOT_APP0_BIN"; do
-  if [ ! -f "$required" ]; then
-    echo "Required file not found: $required" >&2
-    exit 1
-  fi
-done
 
 cd "$PROJECT_DIR"
 
@@ -75,6 +58,25 @@ echo "==> 1/3 Building firmware..."
 
 echo "==> 2/3 Building SPIFFS image..."
 "$PIO_BIN" run -e "$ENV_NAME" -t buildfs
+
+if [ ! -f "$ESPPY" ]; then
+  echo "esptool.py not found: $ESPPY" >&2
+  exit 1
+fi
+
+if [ ! -d "$FRAMEWORK_DIR" ]; then
+  echo "framework-arduinoespressif32 not found: $FRAMEWORK_DIR" >&2
+  exit 1
+fi
+
+for required in \
+  "$BOOTLOADER_BIN" \
+  "$BOOT_APP0_BIN"; do
+  if [ ! -f "$required" ]; then
+    echo "Required file not found: $required" >&2
+    exit 1
+  fi
+done
 
 for required in \
   "$PARTITIONS_BIN" \
