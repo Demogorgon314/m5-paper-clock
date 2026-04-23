@@ -56,7 +56,14 @@
       <section class="band status-band">
         <div class="band-heading">
           <h2>设备状态</h2>
-          <p id="connection-state" class="status-pill offline">未连接</p>
+          <p id="connection-state" class="status-pill offline">
+            <span
+              id="transport-icon"
+              class="transport-icon"
+              aria-hidden="true"
+            ></span>
+            <span id="connection-state-label">未连接</span>
+          </p>
         </div>
 
         <div class="status-grid">
@@ -69,14 +76,7 @@
             <strong id="page-name">-</strong>
           </div>
           <div class="status-tile">
-            <span class="status-label transport-label">
-              <span
-                id="transport-icon"
-                class="transport-icon"
-                aria-hidden="true"
-              ></span>
-              Wi-Fi
-            </span>
+            <span class="status-label">Wi-Fi</span>
             <strong id="wifi-name">-</strong>
           </div>
           <div class="status-tile">

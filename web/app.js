@@ -104,6 +104,7 @@ const elements = {
   togglePasswordButton: document.querySelector("#toggle-password-button"),
   clearLogButton: document.querySelector("#clear-log-button"),
   connectionState: document.querySelector("#connection-state"),
+  connectionStateLabel: document.querySelector("#connection-state-label"),
   browserNote: document.querySelector("#browser-note"),
   deviceName: document.querySelector("#device-name"),
   pageName: document.querySelector("#page-name"),
@@ -352,7 +353,7 @@ function setConnected(connected) {
   elements.transportIcon.className = connected
     ? `transport-icon ${state.connectionType === "bluetooth" ? "bluetooth" : "serial"}`
     : "transport-icon";
-  elements.connectionState.textContent = connected
+  elements.connectionStateLabel.textContent = connected
     ? `已连接 ${connectionLabel}`
     : "未连接";
   elements.connectionState.classList.toggle("offline", !connected);

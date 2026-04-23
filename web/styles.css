@@ -149,6 +149,9 @@ code {
   color: var(--accent-strong);
   font-weight: 700;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .status-pill.offline {
@@ -184,12 +187,6 @@ code {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
-}
-
-.transport-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .transport-icon {
