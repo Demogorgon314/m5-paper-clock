@@ -177,6 +177,7 @@ const state = {
   lastStatus: null,
   otaManifest: null,
   otaManifestUrl: "",
+  otaUpdateAvailable: false,
   marketResults: [],
 };
 
@@ -188,6 +189,25 @@ function normalizeMarketQuery(value) {
 
 function currentMarketSymbol() {
   return normalizeMarketQuery(state.lastStatus?.marketSymbol || "");
+}
+
+function normalizeVersion(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^v/i, "")
+    .toLowerCase();
+}
+
+function isOtaUpdateAvailable(manifest) {
+  const currentVersion = normalizeVersion(state.lastStatus?.firmwareVersion);
+  const availableVersion = normalizeVersion(manifest?.version);
+  if (!manifest?.ota?.url) {
+    return false;
+  }
+  if (!currentVersion || !availableVersion) {
+    return true;
+  }
+  return currentVersion !== availableVersion;
 }
 
 function withCurrentFlag(items) {
@@ -391,7 +411,9 @@ function setConnected(connected) {
   elements.rebootButton.disabled = !allowDeviceActions;
   elements.checkUpdateButton.disabled = state.busyCount > 0;
   elements.otaUpdateButton.disabled =
-    !allowDeviceActions || !state.otaManifest?.ota?.url;
+    !allowDeviceActions ||
+    !state.otaManifest?.ota?.url ||
+    !state.otaUpdateAvailable;
   elements.marketSearchButton.disabled = state.busyCount > 0;
   renderMarketHotList();
   renderMarketResults();
@@ -1319,9 +1341,17 @@ function renderOtaSummary(manifest) {
   const sizeMb = manifest.ota.size
     ? (Number(manifest.ota.size) / 1024 / 1024).toFixed(2)
     : "-";
+  const availableVersion = manifest.version || "-";
+  const sizeText = `固件 ${sizeMb} MB。`;
+  if (!isOtaUpdateAvailable(manifest)) {
+    elements.otaSummary.textContent =
+      `当前 ${currentVersion}，可用 ${availableVersion}，已是最新版本，` +
+      sizeText;
+    return;
+  }
+
   elements.otaSummary.textContent =
-    `当前 ${currentVersion}，可用 ${manifest.version || "-"}，` +
-    `固件 ${sizeMb} MB。`;
+    `当前 ${currentVersion}，可用 ${availableVersion}，` + sizeText;
 }
 
 function syncWebFlashManifest() {
@@ -1348,14 +1378,20 @@ async function checkForUpdate() {
       url: resolveReleaseAssetUrl(manifest.ota.url, manifestUrl),
     },
   };
+  state.otaUpdateAvailable = isOtaUpdateAvailable(state.otaManifest);
   renderOtaSummary(state.otaManifest);
   setConnected(state.connected);
-  setMessage("OTA 信息已读取。");
+  setMessage(
+    state.otaUpdateAvailable ? "OTA 信息已读取。" : "当前已是最新版本。",
+  );
 }
 
 async function startOtaUpdate() {
   if (!state.otaManifest?.ota?.url) {
     await checkForUpdate();
+  }
+  if (!state.otaUpdateAvailable) {
+    throw new Error("当前已是最新版本，无需 OTA 更新");
   }
   const ota = state.otaManifest?.ota;
   if (!ota?.url || !ota?.sha256) {
