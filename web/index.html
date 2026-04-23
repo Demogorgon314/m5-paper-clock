@@ -290,32 +290,50 @@
           </div>
         </div>
 
-        <div class="workspace-panel update-panel">
-          <label class="field">
-            <span>OTA 信息地址</span>
-            <input id="ota-manifest-input" type="url" />
-          </label>
+        <div class="update-grid">
+          <div class="workspace-panel update-panel update-card">
+            <div class="update-card-heading">
+              <div>
+                <h3>OTA 更新</h3>
+                <p class="helper-text">保留配置，只替换应用固件。</p>
+              </div>
+              <span class="update-badge">推荐</span>
+            </div>
 
-          <div class="action-row action-row-pair update-actions">
-            <button id="check-update-button" class="action-button" type="button">
-              检查更新
-            </button>
-            <button id="ota-update-button" class="action-button primary" type="button" disabled>
-              OTA 更新
-            </button>
+            <label class="field update-field">
+              <span>OTA 信息地址</span>
+              <input id="ota-manifest-input" type="url" />
+            </label>
+
+            <div class="action-row action-row-pair update-actions">
+              <button id="check-update-button" class="action-button" type="button">
+                检查更新
+              </button>
+              <button id="ota-update-button" class="action-button primary" type="button" disabled>
+                OTA 更新
+              </button>
+            </div>
+
+            <p id="ota-summary" class="update-summary">
+              读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
+            </p>
           </div>
 
-          <p id="ota-summary" class="empty-state">
-            读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
-          </p>
+          <div class="workspace-panel update-panel update-card update-card-secondary">
+            <div class="update-card-heading">
+              <div>
+                <h3>完整刷写</h3>
+                <p class="helper-text">用于首次安装、字体或分区变化。</p>
+              </div>
+              <span class="update-badge muted">高级</span>
+            </div>
 
-          <div class="config-subsection">
-            <label class="field">
+            <label class="field update-field">
               <span>完整刷写 Manifest 地址</span>
               <input id="web-flash-manifest-input" type="url" />
             </label>
 
-            <esp-web-install-button id="web-flash-button">
+            <esp-web-install-button id="web-flash-button" class="web-flash-control">
               <button slot="activate" class="action-button" type="button">
                 完整刷写
               </button>

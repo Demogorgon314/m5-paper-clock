@@ -364,6 +364,87 @@ button:focus {
   background: var(--surface-alt);
 }
 
+.update-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.update-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.update-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.update-card-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.update-card-heading .helper-text {
+  margin-top: 6px;
+}
+
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #d6f0e8;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.update-badge.muted {
+  background: var(--surface-alt);
+  color: var(--muted);
+}
+
+.update-field {
+  margin-top: 18px;
+}
+
+.update-actions {
+  margin-top: 12px;
+}
+
+.update-summary {
+  margin: 12px 0 0;
+  padding: 14px;
+  border: 1px solid #c8ded7;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: #eef7f4;
+  color: var(--accent-strong);
+  line-height: 1.5;
+}
+
+.web-flash-control {
+  display: block;
+  margin-top: 12px;
+}
+
+.web-flash-control .action-button {
+  width: 100%;
+}
+
+.update-card-secondary {
+  background: #fbfaf7;
+}
+
 .password-row {
   flex-wrap: nowrap;
   align-items: stretch;
@@ -680,6 +761,7 @@ button:focus {
   .intro-band,
   .workspace-grid,
   .market-picker-grid,
+  .update-grid,
   .field-grid,
   .steps,
   .action-row-pair,
