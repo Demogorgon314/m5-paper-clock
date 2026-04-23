@@ -178,6 +178,7 @@ const state = {
   otaManifest: null,
   otaManifestUrl: "",
   otaUpdateAvailable: false,
+  marketResultsVisible: false,
   marketResults: [],
 };
 
@@ -512,6 +513,15 @@ function renderMarketHotList() {
 
 function renderMarketResults() {
   elements.marketResults.innerHTML = "";
+  if (!state.marketResultsVisible) {
+    elements.marketResultCount.textContent = "待搜索";
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "输入代码后在这里显示搜索结果。";
+    elements.marketResults.appendChild(empty);
+    return;
+  }
+
   const results = withCurrentFlag(state.marketResults);
   elements.marketResultCount.textContent = `${results.length} 个结果`;
 
@@ -1132,18 +1142,20 @@ async function searchMarkets(queryOverride, options = {}) {
   );
 
   if (!query) {
-    state.marketResults = dedupeMarkets(localMatches);
+    state.marketResults = [];
+    state.marketResultsVisible = false;
     renderMarketResults();
     if (!silent) {
       setMessage(
         state.connected
-          ? "已加载热门标的。"
-          : "已加载热门标的。连接设备后即可直接切换首页行情。",
+          ? "可从左侧热门标的直接切换，或输入代码搜索。"
+          : "可查看左侧热门标的，连接设备后即可切换首页行情。",
       );
     }
     return;
   }
 
+  state.marketResultsVisible = true;
   if (!silent) {
     setMessage("正在搜索行情标的。");
   }
@@ -1556,7 +1568,8 @@ async function initialize() {
   elements.webFlashManifestInput.value = DEFAULT_WEB_FLASH_MANIFEST_URL;
   syncWebFlashManifest();
   renderNetworks();
-  state.marketResults = withCurrentFlag(DEFAULT_MARKETS);
+  state.marketResults = [];
+  state.marketResultsVisible = false;
   renderMarketHotList();
   renderMarketResults();
   installEventHandlers();

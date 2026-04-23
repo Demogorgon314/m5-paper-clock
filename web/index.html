@@ -68,32 +68,12 @@
 
         <div class="status-grid">
           <div class="status-tile">
-            <span class="status-label">设备</span>
-            <strong id="device-name">-</strong>
-          </div>
-          <div class="status-tile">
             <span class="status-label">固件</span>
             <strong id="firmware-version">-</strong>
           </div>
           <div class="status-tile">
-            <span class="status-label">页面</span>
-            <strong id="page-name">-</strong>
-          </div>
-          <div class="status-tile">
             <span class="status-label">Wi-Fi</span>
             <strong id="wifi-name">-</strong>
-          </div>
-          <div class="status-tile">
-            <span class="status-label">IP</span>
-            <strong id="ip-address">-</strong>
-          </div>
-          <div class="status-tile">
-            <span class="status-label">时区</span>
-            <strong id="timezone-label">-</strong>
-          </div>
-          <div class="status-tile">
-            <span class="status-label">样式</span>
-            <strong id="clock-style-label">-</strong>
           </div>
           <div class="status-tile">
             <span class="status-label">行情</span>
@@ -107,11 +87,37 @@
             <span class="status-label">时间同步</span>
             <strong id="sync-state">-</strong>
           </div>
-          <div class="status-tile">
-            <span class="status-label">RTC</span>
-            <strong id="rtc-label">-</strong>
-          </div>
         </div>
+
+        <details class="status-details">
+          <summary>详细状态</summary>
+          <div class="status-grid status-grid-detail">
+            <div class="status-tile">
+              <span class="status-label">设备</span>
+              <strong id="device-name">-</strong>
+            </div>
+            <div class="status-tile">
+              <span class="status-label">页面</span>
+              <strong id="page-name">-</strong>
+            </div>
+            <div class="status-tile">
+              <span class="status-label">IP</span>
+              <strong id="ip-address">-</strong>
+            </div>
+            <div class="status-tile">
+              <span class="status-label">时区</span>
+              <strong id="timezone-label">-</strong>
+            </div>
+            <div class="status-tile">
+              <span class="status-label">样式</span>
+              <strong id="clock-style-label">-</strong>
+            </div>
+            <div class="status-tile">
+              <span class="status-label">RTC</span>
+              <strong id="rtc-label">-</strong>
+            </div>
+          </div>
+        </details>
 
         <div class="message-row">
           <p id="device-message" class="device-message">
@@ -247,28 +253,40 @@
             </div>
 
             <div class="config-actions">
-              <div class="action-row action-row-pair">
-                <button id="save-button" class="action-button" disabled>
-                  仅保存配置
-                </button>
-                <button id="apply-button" class="action-button primary" disabled>
-                  保存并连接 Wi-Fi
-                </button>
+              <div class="config-action-section">
+                <p class="config-action-title">配置保存</p>
+                <div class="action-row action-row-pair">
+                  <button id="save-button" class="action-button" disabled>
+                    仅保存配置
+                  </button>
+                  <button id="apply-button" class="action-button primary" disabled>
+                    保存并连接 Wi-Fi
+                  </button>
+                </div>
+                <p class="action-help">
+                  仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。
+                </p>
               </div>
-              <p class="action-help">
-                仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。
-              </p>
 
-              <div class="action-row action-row-triple">
-                <button id="sync-button" class="action-button subtle" disabled>
-                  同步时间
-                </button>
-                <button id="refresh-button" class="action-button subtle" disabled>
-                  全量刷新
-                </button>
-                <button id="reboot-button" class="action-button subtle" disabled>
-                  重启设备
-                </button>
+              <div class="config-action-section">
+                <p class="config-action-title">设备操作</p>
+                <div class="action-row action-row-pair">
+                  <button id="sync-button" class="action-button subtle" disabled>
+                    同步时间
+                  </button>
+                  <button id="refresh-button" class="action-button subtle" disabled>
+                    全量刷新
+                  </button>
+                </div>
+              </div>
+
+              <div class="config-action-section">
+                <p class="config-action-title danger">危险操作</p>
+                <div class="action-row">
+                  <button id="reboot-button" class="action-button danger" disabled>
+                    重启设备
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -384,7 +402,7 @@
             </div>
 
             <p class="helper-text market-helper">
-              空搜索会显示热门标的。支持代码前缀搜索，例如 600 / 000001 / sh600519。
+              热门标的在下方；输入代码后右侧显示搜索结果。
             </p>
 
             <div class="market-quick">

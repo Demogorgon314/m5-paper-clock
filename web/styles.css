@@ -166,6 +166,31 @@ code {
   margin-top: 16px;
 }
 
+.status-details {
+  margin-top: 12px;
+}
+
+.status-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.status-details summary:hover {
+  color: var(--accent-strong);
+}
+
+.status-grid-detail {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.status-grid-detail .status-tile {
+  background: #fbfaf7;
+}
+
 .status-tile,
 .workspace-panel,
 .network-item {
@@ -508,6 +533,18 @@ button:focus {
   background: var(--accent-strong);
 }
 
+.action-button.danger {
+  border-color: #ead1cb;
+  background: #fff5f2;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.action-button.danger:hover:enabled {
+  border-color: var(--danger);
+  background: #fbeae7;
+}
+
 .action-button.subtle {
   background: var(--surface-alt);
 }
@@ -520,7 +557,24 @@ button:focus {
 .config-actions {
   margin-top: 16px;
   display: grid;
-  gap: 10px;
+  gap: 14px;
+}
+
+.config-action-section {
+  display: grid;
+  gap: 8px;
+}
+
+.config-action-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.config-action-title.danger {
+  color: var(--danger);
 }
 
 .action-row {
@@ -541,7 +595,7 @@ button:focus {
 }
 
 .action-help {
-  margin: -2px 0 2px;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
@@ -569,10 +623,19 @@ button:focus {
 }
 
 .market-current {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #c8ded7;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: #eef7f4;
+}
+
+.market-current .status-label {
+  grid-column: 1 / -1;
 }
 
 .market-current strong {
@@ -789,6 +852,10 @@ button:focus {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .status-grid-detail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .log-output {
     height: 220px;
   }
@@ -809,6 +876,10 @@ button:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .status-grid-detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .band {
     padding: 20px 0;
   }
@@ -825,6 +896,10 @@ button:focus {
 
 @media (max-width: 480px) {
   .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-grid-detail {
     grid-template-columns: 1fr;
   }
 }
