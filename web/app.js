@@ -13,6 +13,8 @@ const DEFAULT_OTA_MANIFEST_URL =
   "https://github.com/Demogorgon314/m5-paper-clock/releases/latest/download/ota.json";
 const DEFAULT_WEB_FLASH_MANIFEST_URL =
   "https://github.com/Demogorgon314/m5-paper-clock/releases/latest/download/web-flash-manifest.json";
+const GITHUB_RELEASE_DOWNLOAD_RE =
+  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/(?:latest\/download|download\/([^/]+))\/[^?#]+/;
 const DEFAULT_COMFORT_SETTINGS = Object.freeze({
   comfortTemperatureMin: 19,
   comfortTemperatureMax: 27,
@@ -1247,6 +1249,66 @@ function resolveReleaseAssetUrl(value, baseUrl) {
   return new URL(String(value), baseUrl).toString();
 }
 
+function githubReleaseApiUrlFromDownloadUrl(value) {
+  const match = String(value || "").match(GITHUB_RELEASE_DOWNLOAD_RE);
+  if (!match) {
+    return "";
+  }
+
+  const [, owner, repo, tag] = match;
+  const base = `https://api.github.com/repos/${owner}/${repo}/releases`;
+  return tag ? `${base}/tags/${tag}` : `${base}/latest`;
+}
+
+function sha256FromGithubAsset(asset) {
+  const digest = String(asset?.digest || "");
+  return digest.startsWith("sha256:") ? digest.slice("sha256:".length) : "";
+}
+
+async function fetchGithubReleaseOtaManifest(apiUrl) {
+  const response = await fetch(apiUrl, {
+    cache: "no-store",
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub Release 信息读取失败（HTTP ${response.status}）`);
+  }
+
+  const release = await response.json();
+  const firmwareAsset = release.assets?.find(
+    (asset) => asset.name === "firmware.bin",
+  );
+  const sha256 = sha256FromGithubAsset(firmwareAsset);
+  if (!firmwareAsset?.browser_download_url || !sha256) {
+    throw new Error("GitHub Release 缺少 firmware.bin 或 sha256 digest");
+  }
+
+  return {
+    version: release.tag_name || "",
+    buildSha: release.target_commitish || "",
+    buildTime: release.published_at || release.created_at || "",
+    ota: {
+      name: firmwareAsset.name,
+      url: firmwareAsset.browser_download_url,
+      sha256,
+      size: firmwareAsset.size || 0,
+    },
+  };
+}
+
+async function fetchOtaManifest(manifestUrl) {
+  const githubApiUrl = githubReleaseApiUrlFromDownloadUrl(manifestUrl);
+  if (githubApiUrl) {
+    return fetchGithubReleaseOtaManifest(githubApiUrl);
+  }
+
+  const response = await fetch(manifestUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`OTA 信息读取失败（HTTP ${response.status}）`);
+  }
+  return response.json();
+}
+
 function renderOtaSummary(manifest) {
   if (!manifest?.ota) {
     elements.otaSummary.textContent = "没有可用的 OTA 固件信息。";
@@ -1273,12 +1335,7 @@ async function checkForUpdate() {
   const manifestUrl =
     elements.otaManifestInput.value.trim() || DEFAULT_OTA_MANIFEST_URL;
   setMessage("正在读取 OTA 信息。");
-  const response = await fetch(manifestUrl, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`OTA 信息读取失败（HTTP ${response.status}）`);
-  }
-
-  const manifest = await response.json();
+  const manifest = await fetchOtaManifest(manifestUrl);
   if (!manifest?.ota?.url || !manifest?.ota?.sha256) {
     throw new Error("OTA 信息缺少 firmware URL 或 sha256");
   }
