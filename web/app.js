@@ -107,6 +107,7 @@ const elements = {
   browserNote: document.querySelector("#browser-note"),
   deviceName: document.querySelector("#device-name"),
   pageName: document.querySelector("#page-name"),
+  transportIcon: document.querySelector("#transport-icon"),
   wifiName: document.querySelector("#wifi-name"),
   ipAddress: document.querySelector("#ip-address"),
   timezoneLabel: document.querySelector("#timezone-label"),
@@ -348,6 +349,9 @@ function setConnected(connected) {
   state.connected = connected;
   const connectionLabel =
     state.connectionType === "bluetooth" ? "蓝牙" : "USB";
+  elements.transportIcon.className = connected
+    ? `transport-icon ${state.connectionType === "bluetooth" ? "bluetooth" : "serial"}`
+    : "transport-icon";
   elements.connectionState.textContent = connected
     ? `已连接 ${connectionLabel}`
     : "未连接";

@@ -31,6 +31,11 @@ private:
     enum class PageId { Settings, WifiScan, Password, Clock };
     enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
     enum class ConfigTransport : uint8_t { Serial = 0, Bluetooth = 1 };
+    enum class ConfigConnectionIcon : uint8_t {
+        None = 0,
+        Serial = 1,
+        Bluetooth = 2,
+    };
     enum class BackgroundConnectivityTask : uint8_t {
         Idle = 0,
         ReconnectScheduled,
@@ -161,6 +166,7 @@ private:
     void beginBleConfig();
     void enqueueBleConfigChunk(const std::string& chunk);
     void processConfigLine(const String& line, ConfigTransport transport);
+    ConfigConnectionIcon activeConfigConnectionIcon() const;
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
@@ -273,8 +279,10 @@ private:
     uint32_t partial_refresh_count_ = 0;
     bool pending_market_refresh_ = false;
     bool pending_serial_reboot_ = false;
+    bool battery_status_dirty_ = false;
     uint32_t pending_serial_reboot_at_ms_ = 0;
     uint32_t background_connectivity_due_ms_ = 0;
+    uint32_t last_serial_config_at_ms_ = 0;
 
     String last_time_text_rendered_;
     String last_humidity_text_rendered_;
@@ -287,6 +295,8 @@ private:
     uint8_t last_battery_percentage_ = 255;
     bool last_wifi_connected_ = false;
     uint8_t last_wifi_signal_level_ = 255;
+    ConfigConnectionIcon last_config_connection_icon_ =
+        ConfigConnectionIcon::None;
     std::array<uint8_t, 4> time_digit_partial_counts_ {};
     std::array<uint8_t, 3> humidity_digit_partial_counts_ {};
     std::array<uint8_t, 3> temperature_digit_partial_counts_ {};

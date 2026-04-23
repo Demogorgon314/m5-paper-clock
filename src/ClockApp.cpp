@@ -39,6 +39,7 @@ constexpr uint32_t kCenterButtonLongPressMs = 1500;
 constexpr uint32_t kBackgroundReconnectStartDelayMs = 1800;
 constexpr uint32_t kBackgroundReconnectTimeoutMs = 4000;
 constexpr uint32_t kBackgroundTimeSyncTimeoutMs = 3000;
+constexpr uint32_t kSerialConfigActiveMs = 60000;
 constexpr size_t kBleNotifyChunkSize = 20;
 constexpr const char* kBleDeviceName = "M5Paper Clock";
 constexpr const char* kBleServiceUuid =
@@ -70,9 +71,9 @@ constexpr uint8_t kDateCjkTextSize = 7;
 constexpr int16_t kDateCjkDateX = 0;
 constexpr int16_t kDateCjkWeekdayX = 142;
 constexpr int16_t kDateCjkHolidayX = 222;
-constexpr int16_t kBatteryX = 792;
+constexpr int16_t kBatteryX = 768;
 constexpr int16_t kBatteryY = 20;
-constexpr int16_t kBatteryW = 152;
+constexpr int16_t kBatteryW = 176;
 constexpr int16_t kBatteryH = 44;
 constexpr int16_t kTimeCanvasW = 760;
 constexpr int16_t kTimeCanvasH = 300;
@@ -762,6 +763,49 @@ void drawWifiStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x, int16_t origin_y
                     kText);
 }
 
+void drawThickLine(M5EPD_Canvas& canvas, int16_t x0, int16_t y0, int16_t x1,
+                   int16_t y1, uint8_t color) {
+    canvas.drawLine(x0, y0, x1, y1, color);
+    canvas.drawLine(x0 + 1, y0, x1 + 1, y1, color);
+}
+
+void drawUsbStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x, int16_t origin_y) {
+    const int16_t cx = origin_x + 9;
+    canvas.fillTriangle(cx, origin_y + 1, origin_x + 6, origin_y + 7,
+                        origin_x + 12, origin_y + 7, kText);
+    canvas.fillRect(cx, origin_y + 7, 2, 11, kText);
+
+    canvas.drawLine(cx, origin_y + 16, origin_x + 5, origin_y + 13, kText);
+    canvas.drawLine(origin_x + 5, origin_y + 13, origin_x + 5,
+                    origin_y + 11, kText);
+    canvas.fillCircle(origin_x + 5, origin_y + 9, 2, kText);
+
+    canvas.drawLine(cx + 1, origin_y + 14, origin_x + 15, origin_y + 10,
+                    kText);
+    canvas.drawLine(origin_x + 15, origin_y + 10, origin_x + 15,
+                    origin_y + 8, kText);
+    canvas.fillRect(origin_x + 13, origin_y + 5, 4, 4, kText);
+
+    canvas.fillCircle(cx + 1, origin_y + 20, 2, kText);
+}
+
+void drawBluetoothStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x,
+                             int16_t origin_y) {
+    const int16_t spine_x = origin_x + 8;
+    const int16_t top_y = origin_y + 2;
+    const int16_t mid_y = origin_y + 12;
+    const int16_t bottom_y = origin_y + 22;
+    const int16_t arm_x = origin_x + 16;
+
+    drawThickLine(canvas, spine_x, top_y, spine_x, bottom_y, kText);
+    drawThickLine(canvas, spine_x, top_y, arm_x, origin_y + 8, kText);
+    drawThickLine(canvas, arm_x, origin_y + 8, spine_x, mid_y, kText);
+    drawThickLine(canvas, spine_x, mid_y, arm_x, origin_y + 16, kText);
+    drawThickLine(canvas, arm_x, origin_y + 16, spine_x, bottom_y, kText);
+    drawThickLine(canvas, origin_x + 3, origin_y + 6, spine_x, mid_y, kText);
+    drawThickLine(canvas, origin_x + 3, origin_y + 18, spine_x, mid_y, kText);
+}
+
 m5epd_update_mode_t nextPartialMode(uint8_t& count) {
     if (++count >= kPartialCleanInterval) {
         count = 0;
@@ -782,6 +826,7 @@ public:
             return;
         }
         app_->ble_config_client_connected_ = true;
+        app_->battery_status_dirty_ = true;
         Serial.println("[ble] config client connected");
     }
 
@@ -790,6 +835,7 @@ public:
             return;
         }
         app_->ble_config_client_connected_ = false;
+        app_->battery_status_dirty_ = true;
         Serial.println("[ble] config client disconnected");
         BLEDevice::startAdvertising();
     }
@@ -961,6 +1007,9 @@ void ClockApp::loop() {
                 refreshMarketQuote(true);
                 updateDashboardSummaryCanvas(false, false);
             }
+        }
+        if (battery_status_dirty_) {
+            updateBatteryCanvas(false);
         }
         updateClockPage();
     }
@@ -1561,11 +1610,16 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
                                           ? wifiBitmapLevel(
                                                 wifiSignalLevelFromRssi(WiFi.RSSI()))
                                           : 1;
-    if (!full_refresh && battery == last_battery_percentage_ &&
+    const ConfigConnectionIcon config_connection_icon =
+        activeConfigConnectionIcon();
+    if (!full_refresh && !battery_status_dirty_ &&
+        battery == last_battery_percentage_ &&
         wifi_connected == last_wifi_connected_ &&
-        wifi_signal_level == last_wifi_signal_level_) {
+        wifi_signal_level == last_wifi_signal_level_ &&
+        config_connection_icon == last_config_connection_icon_) {
         return;
     }
+    battery_status_dirty_ = false;
     char battery_label[8];
     snprintf(battery_label, sizeof(battery_label), "%3u%%", battery);
 
@@ -1594,8 +1648,17 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const int16_t wifi_size = 32;
     const int16_t wifi_x = label_right - label_width - wifi_gap - wifi_size;
     const int16_t wifi_y = 6;
+    const int16_t transport_gap = 10;
+    const int16_t transport_size = 18;
+    const int16_t transport_x = wifi_x - transport_gap - transport_size;
+    const int16_t transport_y = 10;
     battery_canvas_.drawString(String(battery_label), label_right,
                                kBatteryH / 2);
+    if (config_connection_icon == ConfigConnectionIcon::Serial) {
+        drawUsbStatusIcon(battery_canvas_, transport_x, transport_y);
+    } else if (config_connection_icon == ConfigConnectionIcon::Bluetooth) {
+        drawBluetoothStatusIcon(battery_canvas_, transport_x, transport_y);
+    }
     drawWifiStatusIcon(battery_canvas_, wifi_x, wifi_y, wifi_connected,
                        wifi_signal_level);
     battery_canvas_.drawRoundRect(body_x, body_y, body_w, body_h, 3, kText);
@@ -1616,6 +1679,7 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     last_battery_percentage_ = battery;
     last_wifi_connected_ = wifi_connected;
     last_wifi_signal_level_ = wifi_signal_level;
+    last_config_connection_icon_ = config_connection_icon;
 }
 
 void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
@@ -2341,6 +2405,15 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         return;
     }
 
+    const ConfigConnectionIcon previous_connection_icon =
+        activeConfigConnectionIcon();
+    if (transport == ConfigTransport::Serial) {
+        last_serial_config_at_ms_ = millis();
+    }
+    if (activeConfigConnectionIcon() != previous_connection_icon) {
+        battery_status_dirty_ = true;
+    }
+
     StaticJsonDocument<1024> request_doc;
     DeserializationError parse_error =
         deserializeJson(request_doc, line.c_str());
@@ -2649,6 +2722,19 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
     response_doc["ok"] = false;
     response_doc["error"] = "Unknown command";
     sendConfigDoc(response_doc, transport);
+}
+
+ClockApp::ConfigConnectionIcon ClockApp::activeConfigConnectionIcon() const {
+    if (ble_config_client_connected_) {
+        return ConfigConnectionIcon::Bluetooth;
+    }
+
+    if (last_serial_config_at_ms_ != 0 &&
+        millis() - last_serial_config_at_ms_ <= kSerialConfigActiveMs) {
+        return ConfigConnectionIcon::Serial;
+    }
+
+    return ConfigConnectionIcon::None;
 }
 
 void ClockApp::handleTouch() {
