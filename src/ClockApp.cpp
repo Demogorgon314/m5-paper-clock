@@ -145,7 +145,6 @@ constexpr int16_t kTemperatureUnitY = 72;
 constexpr int16_t kTimeDigitXs[] = {7, 181, 429, 603};
 constexpr int16_t kHumidityDigitXs[] = {40, 102, 164};
 constexpr int16_t kTemperatureDigitXs[] = {280, 342, 422};
-constexpr uint8_t kPartialCleanInterval = 4;
 constexpr int16_t kTimePartialCanvasW = alignUpTo4(kTimeDigitWidth + 3);
 constexpr int16_t kTimePartialCanvasH = alignUpTo4(kTimeDigitHeight + 3);
 constexpr int16_t kTimeMinuteCanvasX = alignDownTo4(kTimeX + kTimeColonX);
@@ -1014,8 +1013,10 @@ void drawBluetoothStatusIcon(M5EPD_Canvas& canvas, int16_t origin_x,
     drawThickLine(canvas, origin_x + 3, origin_y + 18, spine_x, mid_y, kText);
 }
 
-m5epd_update_mode_t nextPartialMode(uint8_t& count) {
-    if (++count >= kPartialCleanInterval) {
+m5epd_update_mode_t nextPartialMode(uint8_t& count, uint8_t clean_interval) {
+    const uint8_t interval = static_cast<uint8_t>(
+        logic::ClampPartialCleanInterval(clean_interval));
+    if (++count >= interval) {
         count = 0;
         return UPDATE_MODE_GC16;
     }
@@ -1681,7 +1682,8 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
     if (can_refresh_minutes_only) {
         drawMinuteTime(renderer_, minute_canvas_, time_digits, kText, kTimeEdgeText);
         const m5epd_update_mode_t mode =
-            nextPartialMode(classic_time_partial_count_);
+            nextPartialMode(classic_time_partial_count_,
+                            settings_.partial_clean_interval);
         pushAndRefreshCanvas(minute_canvas_, kTimeMinuteCanvasX,
                              kTimeMinuteCanvasY, mode);
         ++partial_refresh_count_;
@@ -1703,7 +1705,8 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
         classic_time_partial_count_ = 0;
     } else {
         const m5epd_update_mode_t mode =
-            nextPartialMode(classic_time_partial_count_);
+            nextPartialMode(classic_time_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kTimeX, kTimeY, time_canvas_.width(),
                           time_canvas_.height(), mode);
         ++partial_refresh_count_;
@@ -1768,7 +1771,8 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         humidity_canvas_.pushCanvas(kHumidityCanvasX, kHumidityCanvasY,
                                     UPDATE_MODE_NONE);
         const m5epd_update_mode_t mode =
-            nextPartialMode(classic_humidity_partial_count_);
+            nextPartialMode(classic_humidity_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kHumidityCanvasX, kHumidityCanvasY,
                           humidity_canvas_.width(), humidity_canvas_.height(),
                           mode);
@@ -1782,7 +1786,8 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         temperature_canvas_.pushCanvas(kTemperatureCanvasX, kTemperatureCanvasY,
                                        UPDATE_MODE_NONE);
         const m5epd_update_mode_t mode =
-            nextPartialMode(classic_temperature_partial_count_);
+            nextPartialMode(classic_temperature_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kTemperatureCanvasX, kTemperatureCanvasY,
                           temperature_canvas_.width(),
                           temperature_canvas_.height(), mode);
@@ -1794,7 +1799,8 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         comfort_canvas_.pushCanvas(kComfortCanvasX, kComfortCanvasY,
                                    UPDATE_MODE_NONE);
         const m5epd_update_mode_t mode =
-            nextPartialMode(classic_comfort_partial_count_);
+            nextPartialMode(classic_comfort_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kComfortCanvasX, kComfortCanvasY,
                           comfort_canvas_.width(), comfort_canvas_.height(),
                           mode);
@@ -1874,7 +1880,8 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     active_date_canvas.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
     if (!full_refresh) {
-        const m5epd_update_mode_t mode = nextPartialMode(date_partial_count_);
+        const m5epd_update_mode_t mode =
+            nextPartialMode(date_partial_count_, settings_.partial_clean_interval);
         if (use_date_cjk) {
             DirtyRect dirty;
             if (date_changed) {
@@ -2035,7 +2042,9 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
             dirty.h = kBatteryH;
             dirty.valid = true;
         }
-        const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
+        const m5epd_update_mode_t mode =
+            nextPartialMode(battery_partial_count_,
+                            settings_.partial_clean_interval);
         if (dirty.valid) {
             updateAlignedArea(kBatteryX + dirty.x, kBatteryY + dirty.y,
                               dirty.w, dirty.h, mode);
@@ -2135,7 +2144,8 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
             last_date_.day >= 1 &&
             last_date_.day != current_date.day;
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_calendar_partial_count_);
+            nextPartialMode(dashboard_calendar_partial_count_,
+                            settings_.partial_clean_interval);
         if (can_refresh_changed_cells) {
             DirtyRect dirty;
             includeDirtyRect(dirty, dashboardCalendarCellRect(last_date_));
@@ -2170,7 +2180,8 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
         drawDashboardMinuteTime(renderer_, dashboard_minute_canvas_, time_digits,
                                 kText, kTimeEdgeText);
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_time_partial_count_);
+            nextPartialMode(dashboard_time_partial_count_,
+                            settings_.partial_clean_interval);
         pushAndRefreshCanvas(dashboard_minute_canvas_, kDashboardMinuteCanvasX,
                              kDashboardMinuteCanvasY, mode);
         ++partial_refresh_count_;
@@ -2192,7 +2203,8 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
         dashboard_time_partial_count_ = 0;
     } else {
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_time_partial_count_);
+            nextPartialMode(dashboard_time_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
                           kDashboardTimeH, mode);
         ++partial_refresh_count_;
@@ -2375,7 +2387,8 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
             }
         }
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_summary_partial_count_);
+            nextPartialMode(dashboard_summary_partial_count_,
+                            settings_.partial_clean_interval);
         if (dirty.valid) {
             updateAlignedArea(kDashboardSummaryX + dirty.x,
                               kDashboardSummaryY + dirty.y, dirty.w,
@@ -2474,7 +2487,8 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
         }
 
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_climate_partial_count_);
+            nextPartialMode(dashboard_climate_partial_count_,
+                            settings_.partial_clean_interval);
         updateAlignedArea(kDashboardClimateX + dirty_left, kDashboardClimateY,
                           dirty_right - dirty_left, kDashboardClimateH, mode);
         ++partial_refresh_count_;
@@ -3148,6 +3162,13 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
             settings_.clock_style =
                 clock_style_ == ClockStyle::Dashboard ? 1 : 0;
             store_.saveClockStyle(settings_.clock_style);
+            settings_changed = true;
+        }
+        if (data.containsKey("partialCleanInterval")) {
+            settings_.partial_clean_interval = static_cast<uint8_t>(
+                logic::ClampPartialCleanInterval(
+                    data["partialCleanInterval"].as<int>()));
+            store_.savePartialCleanInterval(settings_.partial_clean_interval);
             settings_changed = true;
         }
         logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
@@ -4578,6 +4599,7 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["marketDisplayName"] = currentMarketDisplayName();
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
+    data["partialCleanInterval"] = settings_.partial_clean_interval;
     data["comfortTemperatureMin"] = settings_.comfort_settings.min_temperature;
     data["comfortTemperatureMax"] = settings_.comfort_settings.max_temperature;
     data["comfortHumidityMin"] = settings_.comfort_settings.min_humidity;

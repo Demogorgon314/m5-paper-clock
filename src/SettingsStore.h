@@ -4,6 +4,7 @@
 #include <Preferences.h>
 
 #include "logic/ComfortLogic.h"
+#include "logic/UiLogic.h"
 
 struct AppSettings {
     String ssid;
@@ -15,6 +16,7 @@ struct AppSettings {
     String market_name = "上证指数";
     String ble_pairing_token;
     logic::ComfortSettings comfort_settings;
+    uint8_t partial_clean_interval = logic::kDefaultPartialCleanInterval;
 };
 
 class SettingsStore {
@@ -28,6 +30,7 @@ public:
     void saveClockStyle(uint8_t clock_style);
     void saveMarket(const String& market_symbol, const String& market_name);
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
+    void savePartialCleanInterval(uint8_t partial_clean_interval);
     void saveBlePairingToken(const String& token);
 
 private:

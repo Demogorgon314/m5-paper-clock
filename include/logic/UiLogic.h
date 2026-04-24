@@ -2,8 +2,20 @@
 
 namespace logic {
 
+static constexpr int kDefaultPartialCleanInterval = 4;
+static constexpr int kMinPartialCleanInterval = 1;
+static constexpr int kMaxPartialCleanInterval = 30;
+
 inline int ClampTimeZone(int value) {
     return value < -11 ? -11 : (value > 12 ? 12 : value);
+}
+
+inline int ClampPartialCleanInterval(int value) {
+    return value < kMinPartialCleanInterval
+               ? kMinPartialCleanInterval
+               : (value > kMaxPartialCleanInterval
+                      ? kMaxPartialCleanInterval
+                      : value);
 }
 
 inline int PageCount(int total_items, int page_size) {

@@ -31,11 +31,18 @@ const DEFAULT_COMFORT_SETTINGS = Object.freeze({
   comfortHumidityMin: 20,
   comfortHumidityMax: 85,
 });
+const DEFAULT_REFRESH_SETTINGS = Object.freeze({
+  partialCleanInterval: 4,
+});
 const COMFORT_LIMITS = Object.freeze({
   temperatureMin: -20,
   temperatureMax: 60,
   humidityMin: 0,
   humidityMax: 100,
+});
+const REFRESH_LIMITS = Object.freeze({
+  partialCleanIntervalMin: 1,
+  partialCleanIntervalMax: 30,
 });
 
 const DEFAULT_LOCALE = "zh-CN";
@@ -86,6 +93,7 @@ const I18N = Object.freeze({
     "settings.helper": "保存后会写入设备存储，重启后继续生效。",
     "settings.timezone": "时区",
     "settings.clockStyle": "时钟样式",
+    "settings.partialCleanInterval": "墨水屏清晰度校准频率",
     "settings.saveSection": "配置保存",
     "settings.saveHelp": "仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。",
     "settings.deviceSection": "设备操作",
@@ -217,6 +225,7 @@ const I18N = Object.freeze({
     "settings.helper": "Settings are saved on the device and persist after reboot.",
     "settings.timezone": "Timezone",
     "settings.clockStyle": "Clock style",
+    "settings.partialCleanInterval": "Screen clarity refresh frequency",
     "settings.saveSection": "Save Settings",
     "settings.saveHelp": "Save only does not connect; save and connect stores settings, connects Wi-Fi, and syncs time.",
     "settings.deviceSection": "Device Actions",
@@ -420,6 +429,9 @@ const elements = {
   passwordInput: document.querySelector("#password-input"),
   timezoneSelect: document.querySelector("#timezone-select"),
   clockStyleSelect: document.querySelector("#clock-style-select"),
+  partialCleanIntervalInput: document.querySelector(
+    "#partial-clean-interval-input",
+  ),
   comfortTempMinInput: document.querySelector("#comfort-temp-min-input"),
   comfortTempMaxInput: document.querySelector("#comfort-temp-max-input"),
   comfortHumidityMinInput: document.querySelector("#comfort-humidity-min-input"),
@@ -646,6 +658,13 @@ function applyComfortInputs(settings = DEFAULT_COMFORT_SETTINGS) {
   );
 }
 
+function applyRefreshInputs(settings = DEFAULT_REFRESH_SETTINGS) {
+  elements.partialCleanIntervalInput.value = formatConfigNumber(
+    settings.partialCleanInterval,
+    0,
+  );
+}
+
 function readNumberField(element, label, min, max) {
   const rawValue = String(element.value || "").trim();
   const value = Number(rawValue);
@@ -659,6 +678,16 @@ function readNumberField(element, label, min, max) {
       state.locale === "en"
         ? `${label} must be between ${min} and ${max}`
         : `${label}需要在 ${min} 到 ${max} 之间`,
+    );
+  }
+  return value;
+}
+
+function readIntegerField(element, label, min, max) {
+  const value = readNumberField(element, label, min, max);
+  if (!Number.isInteger(value)) {
+    throw new Error(
+      state.locale === "en" ? `${label} must be an integer` : `${label}需要是整数`,
     );
   }
   return value;
@@ -710,6 +739,17 @@ function readComfortSettingsFromInputs() {
     comfortTemperatureMax,
     comfortHumidityMin,
     comfortHumidityMax,
+  };
+}
+
+function readRefreshSettingsFromInputs() {
+  return {
+    partialCleanInterval: readIntegerField(
+      elements.partialCleanIntervalInput,
+      t("settings.partialCleanInterval"),
+      REFRESH_LIMITS.partialCleanIntervalMin,
+      REFRESH_LIMITS.partialCleanIntervalMax,
+    ),
   };
 }
 
@@ -1072,6 +1112,11 @@ function updateStatus(status) {
   if (status.clockStyle) {
     elements.clockStyleSelect.value = status.clockStyle;
   }
+  applyRefreshInputs({
+    partialCleanInterval:
+      status.partialCleanInterval ??
+      DEFAULT_REFRESH_SETTINGS.partialCleanInterval,
+  });
   applyComfortInputs({
     comfortTemperatureMin:
       status.comfortTemperatureMin ?? DEFAULT_COMFORT_SETTINGS.comfortTemperatureMin,
@@ -1768,6 +1813,7 @@ async function saveSettings({ connectNow, syncTime }) {
   const timezone = Number(elements.timezoneSelect.value);
   const clockStyle = elements.clockStyleSelect.value;
   const comfortSettings = readComfortSettingsFromInputs();
+  const refreshSettings = readRefreshSettingsFromInputs();
 
   if (!ssid) {
     throw new Error(localized("请先输入或选择 Wi-Fi 名称", "Enter or choose a Wi-Fi network name first"));
@@ -1784,6 +1830,7 @@ async function saveSettings({ connectNow, syncTime }) {
     clockStyle,
     connectNow,
     syncTime,
+    ...refreshSettings,
     ...comfortSettings,
   };
 

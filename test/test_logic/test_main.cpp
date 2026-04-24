@@ -14,6 +14,12 @@ void test_timezone_clamp() {
     TEST_ASSERT_EQUAL(8, logic::ClampTimeZone(8));
 }
 
+void test_partial_clean_interval_clamp() {
+    TEST_ASSERT_EQUAL(1, logic::ClampPartialCleanInterval(0));
+    TEST_ASSERT_EQUAL(4, logic::ClampPartialCleanInterval(4));
+    TEST_ASSERT_EQUAL(30, logic::ClampPartialCleanInterval(99));
+}
+
 void test_wifi_pagination() {
     TEST_ASSERT_EQUAL(3, logic::PageCount(13, 6));
     TEST_ASSERT_EQUAL(6, logic::VisibleItemCount(13, 0, 6));
@@ -281,6 +287,7 @@ void test_next_holiday_falls_back_to_next_new_year() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_timezone_clamp);
+    RUN_TEST(test_partial_clean_interval_clamp);
     RUN_TEST(test_wifi_pagination);
     RUN_TEST(test_segment_masks);
     RUN_TEST(test_parse_tencent_quote);

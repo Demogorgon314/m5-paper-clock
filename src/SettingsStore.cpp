@@ -23,6 +23,9 @@ AppSettings SettingsStore::load() const {
     settings.market_name =
         preferences_.getString("market_name", settings.market_name);
     settings.ble_pairing_token = preferences_.getString("ble_token", "");
+    settings.partial_clean_interval = static_cast<uint8_t>(
+        logic::ClampPartialCleanInterval(preferences_.getUChar(
+            "partial_gc16", settings.partial_clean_interval)));
     settings.comfort_settings.min_temperature =
         preferences_.getFloat("comfort_t_min",
                               settings.comfort_settings.min_temperature);
@@ -58,6 +61,10 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("market_symbol", settings.market_symbol);
     preferences_.putString("market_name", settings.market_name);
     preferences_.putString("ble_token", settings.ble_pairing_token);
+    preferences_.putUChar(
+        "partial_gc16",
+        static_cast<uint8_t>(
+            logic::ClampPartialCleanInterval(settings.partial_clean_interval)));
     preferences_.putFloat("comfort_t_min",
                           settings.comfort_settings.min_temperature);
     preferences_.putFloat("comfort_t_max",
@@ -117,6 +124,16 @@ void SettingsStore::saveComfortSettings(
     preferences_.putFloat("comfort_t_max", normalized.max_temperature);
     preferences_.putFloat("comfort_h_min", normalized.min_humidity);
     preferences_.putFloat("comfort_h_max", normalized.max_humidity);
+}
+
+void SettingsStore::savePartialCleanInterval(uint8_t partial_clean_interval) {
+    if (!started_) {
+        return;
+    }
+    preferences_.putUChar(
+        "partial_gc16",
+        static_cast<uint8_t>(
+            logic::ClampPartialCleanInterval(partial_clean_interval)));
 }
 
 void SettingsStore::saveBlePairingToken(const String& token) {
