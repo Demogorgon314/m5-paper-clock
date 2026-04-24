@@ -192,6 +192,11 @@ private:
     void scanWiFi();
     std::vector<WiFiNetwork> scanWiFiNetworks(bool update_status);
     bool trySyncTime(bool allow_connect);
+    void logOtaHeap(const char* phase) const;
+    void prepareForOtaUpdate();
+    void restoreAfterFailedOtaUpdate();
+    void prepareBleConfigForOta();
+    void releaseTypographyForOta();
     bool performOtaUpdate(const String& url, const String& expected_sha256,
                           String& error_message);
     bool beginLocalOtaUpdate(size_t size, const String& expected_sha256,

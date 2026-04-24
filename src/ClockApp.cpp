@@ -10,6 +10,7 @@
 #include <Update.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha256.h>
@@ -3622,6 +3623,64 @@ bool ClockApp::trySyncTime(bool allow_connect) {
     return !status_error_;
 }
 
+void ClockApp::logOtaHeap(const char* phase) const {
+    Serial.printf(
+        "[ota] heap %s free=%u largest=%u internal=%u internal_largest=%u "
+        "psram=%u psram_largest=%u\n",
+        phase, ESP.getFreeHeap(),
+        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL |
+                                         MALLOC_CAP_8BIT),
+        heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM |
+                                         MALLOC_CAP_8BIT));
+}
+
+void ClockApp::releaseTypographyForOta() {
+    if (date_cjk_font_ready_) {
+        date_cjk_canvas_.unloadFont();
+        date_cjk_font_ready_ = false;
+    }
+
+    cjk_font_ready_ = false;
+
+    if (littlefs_ready_) {
+        SPIFFS.end();
+        littlefs_ready_ = false;
+    }
+}
+
+void ClockApp::prepareBleConfigForOta() {
+    if (!ble_config_ready_) {
+        return;
+    }
+
+    // BLEDevice::deinit(true) can crash while the Arduino BLE stack has live
+    // callbacks. Keep the service alive; the CJK font/render caches are the
+    // memory we need to reclaim before the TLS handshake.
+    Serial.println("[ota] BLE config service kept active");
+    ble_config_rx_buffer_.clear();
+    ble_config_pending_chunks_.clear();
+}
+
+void ClockApp::prepareForOtaUpdate() {
+    logOtaHeap("before prepare");
+    prepareBleConfigForOta();
+    releaseTypographyForOta();
+    logOtaHeap("after prepare");
+}
+
+void ClockApp::restoreAfterFailedOtaUpdate() {
+    if (!littlefs_ready_) {
+        littlefs_ready_ = SPIFFS.begin(false);
+    }
+    if (littlefs_ready_ && !date_cjk_font_ready_) {
+        date_cjk_font_ready_ = loadCjkFont(date_cjk_canvas_, {2, 3, 7});
+    }
+    renderPage(UPDATE_MODE_GC16, true);
+}
+
 bool ClockApp::performOtaUpdate(const String& url,
                                 const String& expected_sha256,
                                 String& error_message) {
@@ -3642,12 +3701,20 @@ bool ClockApp::performOtaUpdate(const String& url,
         }
     }
 
+    status_message_ = "OTA updating";
+    status_error_ = false;
+    prepareForOtaUpdate();
+    auto fail_after_prepare = [&]() {
+        restoreAfterFailedOtaUpdate();
+        return false;
+    };
+
     std::unique_ptr<WiFiClient> plain_client;
     std::unique_ptr<WiFiClientSecure> secure_client;
     std::unique_ptr<HTTPClient> http(new HTTPClient());
     if (!http) {
         error_message = "OTA HTTP allocation failed";
-        return false;
+        return fail_after_prepare();
     }
 
     const bool use_https = url.startsWith("https://");
@@ -3655,22 +3722,22 @@ bool ClockApp::performOtaUpdate(const String& url,
         secure_client.reset(new WiFiClientSecure());
         if (!secure_client) {
             error_message = "OTA HTTPS allocation failed";
-            return false;
+            return fail_after_prepare();
         }
         secure_client->setInsecure();
         if (!http->begin(*secure_client, url)) {
             error_message = "OTA HTTPS begin failed";
-            return false;
+            return fail_after_prepare();
         }
     } else {
         plain_client.reset(new WiFiClient());
         if (!plain_client) {
             error_message = "OTA HTTP client allocation failed";
-            return false;
+            return fail_after_prepare();
         }
         if (!http->begin(*plain_client, url)) {
             error_message = "OTA HTTP begin failed";
-            return false;
+            return fail_after_prepare();
         }
     }
 
@@ -3679,24 +3746,25 @@ bool ClockApp::performOtaUpdate(const String& url,
     http->addHeader("User-Agent", "M5PaperClock/" FIRMWARE_VERSION);
 
     const int http_code = http->GET();
+    logOtaHeap("after GET");
     if (http_code != HTTP_CODE_OK) {
         error_message = http_code > 0 ? "OTA HTTP " + String(http_code)
                                       : "OTA connect failed";
         http->end();
-        return false;
+        return fail_after_prepare();
     }
 
     const int content_length = http->getSize();
     if (content_length <= 0) {
         error_message = "OTA missing content length";
         http->end();
-        return false;
+        return fail_after_prepare();
     }
 
     if (!Update.begin(static_cast<size_t>(content_length), U_FLASH)) {
         error_message = String("OTA begin failed: ") + Update.errorString();
         http->end();
-        return false;
+        return fail_after_prepare();
     }
 
     WiFiClient* stream = http->getStreamPtr();
@@ -3711,7 +3779,7 @@ bool ClockApp::performOtaUpdate(const String& url,
         mbedtls_sha256_free(&sha_context);
         http->end();
         Update.abort();
-        return false;
+        return fail_after_prepare();
     }
 
     size_t written = 0;
@@ -3772,16 +3840,16 @@ bool ClockApp::performOtaUpdate(const String& url,
 
     if (!ok) {
         Update.abort();
-        return false;
+        return fail_after_prepare();
     }
 
     if (!Update.end(true)) {
         error_message = String("OTA end failed: ") + Update.errorString();
-        return false;
+        return fail_after_prepare();
     }
     if (!Update.isFinished()) {
         error_message = "OTA not finished";
-        return false;
+        return fail_after_prepare();
     }
     return true;
 }
