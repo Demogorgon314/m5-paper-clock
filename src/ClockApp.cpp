@@ -1080,7 +1080,7 @@ void ClockApp::loop() {
 }
 
 void ClockApp::initializeHardware() {
-    Serial.begin(115200);
+    Serial.begin(1500000);
     delay(50);
 
     pinMode(M5EPD_MAIN_PWR_PIN, OUTPUT);

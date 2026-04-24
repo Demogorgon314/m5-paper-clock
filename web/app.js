@@ -1,5 +1,7 @@
 const CFG_PREFIX = "@cfg:";
-const DEFAULT_BAUD_RATE = 115200;
+const DEFAULT_BAUD_RATE = 1500000;
+const FALLBACK_BAUD_RATE = 115200;
+const SERIAL_BAUD_RATES = Object.freeze([DEFAULT_BAUD_RATE, FALLBACK_BAUD_RATE]);
 const LOCAL_OTA_CHUNK_SIZE = 512;
 const BLE_DEVICE_NAME_PREFIX = "M5Paper";
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -159,6 +161,7 @@ const elements = {
 
 const state = {
   connectionType: null,
+  serialBaudRate: null,
   port: null,
   reader: null,
   writer: null,
@@ -419,7 +422,11 @@ function setMessage(message, isError = false) {
 function setConnected(connected) {
   state.connected = connected;
   const connectionLabel =
-    state.connectionType === "bluetooth" ? "蓝牙" : "USB";
+    state.connectionType === "bluetooth"
+      ? "蓝牙"
+      : state.serialBaudRate
+        ? `USB ${state.serialBaudRate}`
+        : "USB";
   elements.transportIcon.className = connected
     ? `transport-icon ${state.connectionType === "bluetooth" ? "bluetooth" : "serial"}`
     : "transport-icon";
@@ -940,6 +947,7 @@ async function closePort() {
   state.bluetoothRxCharacteristic = null;
   state.bluetoothTxCharacteristic = null;
   state.connectionType = null;
+  state.serialBaudRate = null;
   state.readBuffer = "";
   setConnected(false);
   stopPolling();
@@ -948,7 +956,7 @@ async function closePort() {
   renderMarketResults();
 }
 
-async function openPort(port) {
+async function openPortAtBaud(port, baudRate) {
   if (!port) {
     throw new Error("没有可用的串口");
   }
@@ -956,7 +964,7 @@ async function openPort(port) {
   await closePort();
   state.port = port;
   await state.port.open({
-    baudRate: DEFAULT_BAUD_RATE,
+    baudRate,
     dataBits: 8,
     stopBits: 1,
     parity: "none",
@@ -966,17 +974,34 @@ async function openPort(port) {
   state.decoder = new TextDecoder();
   state.readBuffer = "";
   state.connectionType = "serial";
+  state.serialBaudRate = baudRate;
   setConnected(true);
-  appendLog("串口已连接");
-  setMessage("USB 已连接，正在读取状态。");
+  appendLog(`串口已连接 ${baudRate}`);
+  setMessage(`USB 已连接 ${baudRate}，正在读取状态。`);
   void readLoop().catch((error) => {
     appendLog(`读取串口失败: ${error.message}`, "error");
     setMessage(`读取串口失败：${error.message}`, true);
     void closePort();
   });
+  const data = await sendCommand("get_status", undefined, 3500);
+  updateStatus(data);
   startPolling();
-  await refreshStatus();
   await searchMarkets("", { silent: true });
+}
+
+async function openPort(port) {
+  let lastError = null;
+  for (const baudRate of SERIAL_BAUD_RATES) {
+    try {
+      await openPortAtBaud(port, baudRate);
+      return;
+    } catch (error) {
+      lastError = error;
+      appendLog(`串口 ${baudRate} 握手失败: ${error.message}`, "error");
+      await closePort();
+    }
+  }
+  throw lastError || new Error("串口连接失败");
 }
 
 async function requestPortAndConnect() {
@@ -1094,6 +1119,7 @@ async function handleBluetoothDisconnected(event) {
   state.bluetoothRxCharacteristic = null;
   state.bluetoothTxCharacteristic = null;
   state.connectionType = null;
+  state.serialBaudRate = null;
   state.readBuffer = "";
   setConnected(false);
   stopPolling();
