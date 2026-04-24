@@ -1047,7 +1047,8 @@ void ClockApp::loop() {
         ESP.restart();
     }
 
-    if (current_page_ == PageId::Settings) {
+    if (current_page_ == PageId::Settings && !local_ota_active_ &&
+        activeConfigConnectionIcon() == ConfigConnectionIcon::None) {
         autoConnectIfNeeded();
     }
 
@@ -1081,6 +1082,7 @@ void ClockApp::loop() {
 }
 
 void ClockApp::initializeHardware() {
+    Serial.setRxBufferSize(16384);
     Serial.begin(1500000);
     delay(50);
 
@@ -2389,7 +2391,7 @@ void ClockApp::handleSerialConfig() {
             continue;
         }
 
-        if (serial_config_rx_buffer_.length() < 1536) {
+        if (serial_config_rx_buffer_.length() < 8192) {
             serial_config_rx_buffer_ += ch;
         }
     }
@@ -2609,7 +2611,7 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         battery_status_dirty_ = true;
     }
 
-    StaticJsonDocument<2048> request_doc;
+    DynamicJsonDocument request_doc(12288);
     DeserializationError parse_error =
         deserializeJson(request_doc, line.c_str());
     DynamicJsonDocument response_doc(12288);
@@ -3461,14 +3463,14 @@ bool ClockApp::usesDashboardClockStyle() const {
 }
 
 void ClockApp::autoConnectIfNeeded() {
-    const uint32_t started_ms = millis();
-    Serial.printf("[perf] autoConnectIfNeeded start attempted=%d ssid=%d at=%lu\n",
-                  auto_connect_attempted_ ? 1 : 0,
-                  settings_.ssid.isEmpty() ? 0 : 1, started_ms);
     if (auto_connect_attempted_ || settings_.ssid.isEmpty()) {
         return;
     }
 
+    const uint32_t started_ms = millis();
+    Serial.printf("[perf] autoConnectIfNeeded start attempted=%d ssid=%d at=%lu\n",
+                  auto_connect_attempted_ ? 1 : 0,
+                  settings_.ssid.isEmpty() ? 0 : 1, started_ms);
     auto_connect_attempted_ = true;
     status_message_ = "Connecting to " + settings_.ssid + "...";
     status_error_ = false;
@@ -3837,10 +3839,11 @@ bool ClockApp::writeLocalOtaChunk(size_t offset,
         return false;
     }
 
-    uint8_t buffer[544];
+    const size_t max_decoded_len = (base64_data.length() / 4) * 3;
+    std::vector<uint8_t> buffer(max_decoded_len);
     size_t decoded_len = 0;
     const int decode_result = mbedtls_base64_decode(
-        buffer, sizeof(buffer), &decoded_len,
+        buffer.data(), buffer.size(), &decoded_len,
         reinterpret_cast<const unsigned char*>(base64_data.c_str()),
         base64_data.length());
     if (decode_result != 0 || decoded_len == 0) {
@@ -3854,7 +3857,8 @@ bool ClockApp::writeLocalOtaChunk(size_t offset,
         return false;
     }
 
-    return writeLocalOtaBytes(buffer, decoded_len, written, error_message);
+    return writeLocalOtaBytes(buffer.data(), decoded_len, written,
+                              error_message);
 }
 
 bool ClockApp::writeLocalOtaBytes(uint8_t* data,

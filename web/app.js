@@ -3,7 +3,7 @@ const DEFAULT_BAUD_RATE = 1500000;
 const FALLBACK_BAUD_RATE = 115200;
 const SERIAL_BAUD_RATES = Object.freeze([DEFAULT_BAUD_RATE, FALLBACK_BAUD_RATE]);
 const SERIAL_HANDSHAKE_TIMEOUT_MS = 6000;
-const LOCAL_OTA_CHUNK_SIZE = 512;
+const LOCAL_OTA_CHUNK_SIZE = 3072;
 const LOCAL_OTA_BINARY_CHUNK_SIZE = 512;
 const LOCAL_OTA_BINARY_CHUNK_DELAY_MS = 2;
 const LOCAL_OTA_CHUNK_RETRIES = 4;
@@ -1638,6 +1638,7 @@ async function uploadLocalOtaBinary(firmware) {
       offset + LOCAL_OTA_BINARY_CHUNK_SIZE,
       firmware.byteLength,
     );
+
     await state.writer.write(firmware.subarray(offset, nextOffset));
     renderLocalOtaSummary({
       written: nextOffset,
@@ -1688,7 +1689,7 @@ async function startLocalOtaUpload() {
     {
       size: firmware.byteLength,
       sha256,
-      mode: "binary",
+      mode: "json",
     },
     30000,
   );
