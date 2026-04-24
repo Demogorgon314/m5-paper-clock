@@ -335,6 +335,24 @@
             <p id="ota-summary" class="update-summary">
               读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
             </p>
+
+            <div class="local-ota-box">
+              <label class="field update-field">
+                <span>本地 OTA 固件</span>
+                <input id="local-ota-file-input" type="file" accept=".bin" />
+              </label>
+              <button
+                id="local-ota-upload-button"
+                class="action-button"
+                type="button"
+                disabled
+              >
+                USB 上传并更新
+              </button>
+              <p id="local-ota-summary" class="helper-text">
+                仅支持 USB 串口上传应用固件 bin，保留设备配置。
+              </p>
+            </div>
           </div>
 
           <div class="workspace-panel update-panel update-card update-card-secondary">

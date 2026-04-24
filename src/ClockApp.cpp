@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_system.h>
+#include <mbedtls/base64.h>
 #include <mbedtls/sha256.h>
 
 #include "logic/ComfortLogic.h"
@@ -2382,7 +2383,7 @@ void ClockApp::handleSerialConfig() {
             continue;
         }
 
-        if (serial_config_rx_buffer_.length() < 1024) {
+        if (serial_config_rx_buffer_.length() < 1536) {
             serial_config_rx_buffer_ += ch;
         }
     }
@@ -2602,7 +2603,7 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         battery_status_dirty_ = true;
     }
 
-    StaticJsonDocument<1024> request_doc;
+    StaticJsonDocument<2048> request_doc;
     DeserializationError parse_error =
         deserializeJson(request_doc, line.c_str());
     DynamicJsonDocument response_doc(12288);
@@ -2954,6 +2955,99 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
                                   ? response_doc["data"].as<JsonObject>()
                                   : response_doc.createNestedObject("data");
         populateSerialStatus(data_out.createNestedObject("status"));
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "local_ota_begin") {
+        if (transport != ConfigTransport::Serial) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Local OTA upload requires USB";
+            sendConfigDoc(response_doc, transport);
+            return;
+        }
+
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        const size_t size = static_cast<size_t>(data["size"] | 0);
+        const String sha256 = String(data["sha256"] | "");
+
+        String error_message;
+        const bool ok = beginLocalOtaUpdate(size, sha256, error_message);
+        response_doc["ok"] = ok;
+        if (ok) {
+            response_doc["data"]["message"] = "Local OTA upload ready";
+            response_doc["data"]["size"] = local_ota_expected_size_;
+            response_doc["data"]["written"] = local_ota_written_;
+        } else {
+            response_doc["error"] = error_message;
+        }
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "local_ota_chunk") {
+        if (transport != ConfigTransport::Serial) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Local OTA upload requires USB";
+            sendConfigDoc(response_doc, transport);
+            return;
+        }
+
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        const size_t offset = static_cast<size_t>(data["offset"] | 0);
+        const String base64_data = String(data["data"] | "");
+
+        String error_message;
+        size_t written = local_ota_written_;
+        const bool ok =
+            writeLocalOtaChunk(offset, base64_data, written, error_message);
+        response_doc["ok"] = ok;
+        if (ok) {
+            response_doc["data"]["written"] = written;
+            response_doc["data"]["size"] = local_ota_expected_size_;
+        } else {
+            response_doc["error"] = error_message;
+        }
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "local_ota_end") {
+        if (transport != ConfigTransport::Serial) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Local OTA upload requires USB";
+            sendConfigDoc(response_doc, transport);
+            return;
+        }
+
+        String error_message;
+        const bool ok = finishLocalOtaUpdate(error_message);
+        response_doc["ok"] = ok;
+        if (ok) {
+            status_message_ = "Local OTA installed";
+            status_error_ = false;
+            pending_serial_reboot_ = true;
+            pending_serial_reboot_at_ms_ = millis() + 750;
+            response_doc["data"]["message"] =
+                "Local OTA installed, reboot scheduled";
+        } else {
+            status_message_ = error_message.isEmpty() ? "Local OTA failed"
+                                                      : error_message;
+            status_error_ = true;
+            response_doc["error"] = status_message_;
+        }
+        JsonObject data_out = response_doc["data"].is<JsonObject>()
+                                  ? response_doc["data"].as<JsonObject>()
+                                  : response_doc.createNestedObject("data");
+        populateSerialStatus(data_out.createNestedObject("status"));
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "local_ota_abort") {
+        abortLocalOtaUpdate();
+        response_doc["ok"] = true;
+        response_doc["data"]["message"] = "Local OTA upload aborted";
         sendConfigDoc(response_doc, transport);
         return;
     }
@@ -3636,6 +3730,148 @@ bool ClockApp::performOtaUpdate(const String& url,
         return false;
     }
     return true;
+}
+
+bool ClockApp::beginLocalOtaUpdate(size_t size,
+                                   const String& expected_sha256,
+                                   String& error_message) {
+    const String expected = normalizedSha256(expected_sha256);
+    if (size == 0) {
+        error_message = "Missing local OTA size";
+        return false;
+    }
+    if (expected.length() != 64) {
+        error_message = "Missing local OTA sha256";
+        return false;
+    }
+
+    abortLocalOtaUpdate();
+    if (!Update.begin(size, U_FLASH)) {
+        error_message =
+            String("Local OTA begin failed: ") + Update.errorString();
+        return false;
+    }
+
+    mbedtls_sha256_init(&local_ota_sha_context_);
+    mbedtls_sha256_starts_ret(&local_ota_sha_context_, 0);
+    local_ota_active_ = true;
+    local_ota_expected_size_ = size;
+    local_ota_written_ = 0;
+    local_ota_expected_sha256_ = expected;
+    status_message_ = "Local OTA upload ready";
+    status_error_ = false;
+    return true;
+}
+
+bool ClockApp::writeLocalOtaChunk(size_t offset,
+                                  const String& base64_data,
+                                  size_t& written,
+                                  String& error_message) {
+    if (!local_ota_active_) {
+        error_message = "Local OTA not started";
+        return false;
+    }
+    if (offset != local_ota_written_) {
+        error_message = "Local OTA offset mismatch";
+        abortLocalOtaUpdate();
+        return false;
+    }
+    if (base64_data.isEmpty()) {
+        error_message = "Empty local OTA chunk";
+        abortLocalOtaUpdate();
+        return false;
+    }
+
+    uint8_t buffer[544];
+    size_t decoded_len = 0;
+    const int decode_result = mbedtls_base64_decode(
+        buffer, sizeof(buffer), &decoded_len,
+        reinterpret_cast<const unsigned char*>(base64_data.c_str()),
+        base64_data.length());
+    if (decode_result != 0 || decoded_len == 0) {
+        error_message = "Invalid local OTA chunk";
+        abortLocalOtaUpdate();
+        return false;
+    }
+    if (local_ota_written_ + decoded_len > local_ota_expected_size_) {
+        error_message = "Local OTA chunk exceeds size";
+        abortLocalOtaUpdate();
+        return false;
+    }
+
+    const size_t update_written = Update.write(buffer, decoded_len);
+    if (update_written != decoded_len) {
+        error_message =
+            String("Local OTA write failed: ") + Update.errorString();
+        abortLocalOtaUpdate();
+        return false;
+    }
+
+    mbedtls_sha256_update_ret(&local_ota_sha_context_, buffer, decoded_len);
+    local_ota_written_ += decoded_len;
+    written = local_ota_written_;
+    status_message_ = "Local OTA uploading";
+    status_error_ = false;
+    M5.update();
+    return true;
+}
+
+bool ClockApp::finishLocalOtaUpdate(String& error_message) {
+    if (!local_ota_active_) {
+        error_message = "Local OTA not started";
+        return false;
+    }
+
+    bool ok = true;
+    uint8_t digest[32];
+    mbedtls_sha256_finish_ret(&local_ota_sha_context_, digest);
+    mbedtls_sha256_free(&local_ota_sha_context_);
+
+    if (local_ota_written_ != local_ota_expected_size_) {
+        error_message = "Local OTA incomplete upload";
+        ok = false;
+    }
+
+    if (ok) {
+        const String actual = bytesToHex(digest, sizeof(digest));
+        if (local_ota_expected_sha256_ != actual) {
+            error_message = "Local OTA sha256 mismatch";
+            ok = false;
+        }
+    }
+
+    local_ota_active_ = false;
+    local_ota_expected_size_ = 0;
+    local_ota_written_ = 0;
+    local_ota_expected_sha256_.clear();
+
+    if (!ok) {
+        Update.abort();
+        return false;
+    }
+
+    if (!Update.end(true)) {
+        error_message =
+            String("Local OTA end failed: ") + Update.errorString();
+        return false;
+    }
+    if (!Update.isFinished()) {
+        error_message = "Local OTA not finished";
+        return false;
+    }
+    return true;
+}
+
+void ClockApp::abortLocalOtaUpdate() {
+    if (!local_ota_active_) {
+        return;
+    }
+    mbedtls_sha256_free(&local_ota_sha_context_);
+    Update.abort();
+    local_ota_active_ = false;
+    local_ota_expected_size_ = 0;
+    local_ota_written_ = 0;
+    local_ota_expected_sha256_.clear();
 }
 
 void ClockApp::connectSelectedNetwork() {

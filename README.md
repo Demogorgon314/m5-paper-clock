@@ -76,10 +76,16 @@ load. For Bluetooth, click `连接蓝牙` and choose `M5Paper Clock`. The page c
 - save timezone and clock style
 - connect Wi-Fi and sync time
 - trigger a full refresh or reboot
+- upload a local OTA `firmware.bin` over USB serial
 
 USB and Bluetooth share the same JSON command protocol. Only lines prefixed with
 `@cfg:` are treated as protocol messages, so normal device logs can continue to
 print on the USB serial port.
+
+Local OTA upload is USB-only and updates only the app firmware partition, so
+Wi-Fi, timezone, market symbol, and other saved settings stay in place. The
+device must already be running firmware that supports the local OTA protocol; use
+full flashing or firmware-only flashing once if upgrading from an older build.
 
 ## Update Holiday Assets
 

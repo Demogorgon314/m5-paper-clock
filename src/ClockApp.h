@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <M5EPD.h>
+#include <mbedtls/sha256.h>
 
 #include <array>
 #include <initializer_list>
@@ -193,6 +194,12 @@ private:
     bool trySyncTime(bool allow_connect);
     bool performOtaUpdate(const String& url, const String& expected_sha256,
                           String& error_message);
+    bool beginLocalOtaUpdate(size_t size, const String& expected_sha256,
+                             String& error_message);
+    bool writeLocalOtaChunk(size_t offset, const String& base64_data,
+                            size_t& written, String& error_message);
+    bool finishLocalOtaUpdate(String& error_message);
+    void abortLocalOtaUpdate();
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
@@ -218,6 +225,12 @@ private:
     ConnectivityService connectivity_;
     MarketService market_;
     SensorService sensor_;
+
+    bool local_ota_active_ = false;
+    size_t local_ota_expected_size_ = 0;
+    size_t local_ota_written_ = 0;
+    String local_ota_expected_sha256_;
+    mbedtls_sha256_context local_ota_sha_context_;
     SegmentRenderer renderer_;
 
     AppSettings settings_;

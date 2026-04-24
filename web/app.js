@@ -1,5 +1,6 @@
 const CFG_PREFIX = "@cfg:";
 const DEFAULT_BAUD_RATE = 115200;
+const LOCAL_OTA_CHUNK_SIZE = 512;
 const BLE_DEVICE_NAME_PREFIX = "M5Paper";
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -110,6 +111,8 @@ const elements = {
   rebootButton: document.querySelector("#reboot-button"),
   checkUpdateButton: document.querySelector("#check-update-button"),
   otaUpdateButton: document.querySelector("#ota-update-button"),
+  localOtaFileInput: document.querySelector("#local-ota-file-input"),
+  localOtaUploadButton: document.querySelector("#local-ota-upload-button"),
   togglePasswordButton: document.querySelector("#toggle-password-button"),
   clearLogButton: document.querySelector("#clear-log-button"),
   connectionState: document.querySelector("#connection-state"),
@@ -141,6 +144,7 @@ const elements = {
   webFlashManifestInput: document.querySelector("#web-flash-manifest-input"),
   webFlashButton: document.querySelector("#web-flash-button"),
   otaSummary: document.querySelector("#ota-summary"),
+  localOtaSummary: document.querySelector("#local-ota-summary"),
   marketCurrentName: document.querySelector("#market-current-name"),
   marketCurrentCode: document.querySelector("#market-current-code"),
   marketSearchInput: document.querySelector("#market-search-input"),
@@ -178,6 +182,8 @@ const state = {
   otaManifest: null,
   otaManifestUrl: "",
   otaUpdateAvailable: false,
+  localOtaFile: null,
+  localOtaLoggedWritten: 0,
   marketResultsVisible: false,
   marketResults: [],
 };
@@ -209,6 +215,31 @@ function isOtaUpdateAvailable(manifest) {
     return true;
   }
   return currentVersion !== availableVersion;
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) {
+    return `${(value / 1024 / 1024).toFixed(2)} MB`;
+  }
+  if (value >= 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${value} B`;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return window.btoa(binary);
 }
 
 function withCurrentFlag(items) {
@@ -415,9 +446,14 @@ function setConnected(connected) {
     !allowDeviceActions ||
     !state.otaManifest?.ota?.url ||
     !state.otaUpdateAvailable;
+  elements.localOtaUploadButton.disabled =
+    !allowDeviceActions ||
+    state.connectionType !== "serial" ||
+    !state.localOtaFile;
   elements.marketSearchButton.disabled = state.busyCount > 0;
   renderMarketHotList();
   renderMarketResults();
+  renderLocalOtaSummary();
 }
 
 function setBusy(active) {
@@ -684,7 +720,9 @@ async function writeJson(payload) {
     throw new Error("设备尚未连接");
   }
 
-  appendLog(`发送 ${line.trim()}`);
+  if (payload.cmd !== "local_ota_chunk") {
+    appendLog(`发送 ${line.trim()}`);
+  }
 }
 
 async function sendCommand(cmd, data = undefined, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -729,7 +767,23 @@ async function sendCommand(cmd, data = undefined, timeoutMs = REQUEST_TIMEOUT_MS
 }
 
 function handleResponse(packet) {
-  appendLog(`接收 ${JSON.stringify(packet)}`, "device");
+  if (
+    packet.data &&
+    Object.prototype.hasOwnProperty.call(packet.data, "written") &&
+    Object.prototype.hasOwnProperty.call(packet.data, "size")
+  ) {
+    const written = Number(packet.data.written || 0);
+    const size = Number(packet.data.size || 0);
+    if (
+      written >= size ||
+      written - state.localOtaLoggedWritten >= LOCAL_OTA_CHUNK_SIZE * 20
+    ) {
+      state.localOtaLoggedWritten = written;
+      appendLog(`接收 local_ota_chunk ${written}/${size}`, "device");
+    }
+  } else {
+    appendLog(`接收 ${JSON.stringify(packet)}`, "device");
+  }
   const pending = state.pendingRequests.get(packet.id);
   if (pending) {
     state.pendingRequests.delete(packet.id);
@@ -1366,6 +1420,30 @@ function renderOtaSummary(manifest) {
     `当前 ${currentVersion}，可用 ${availableVersion}，` + sizeText;
 }
 
+function renderLocalOtaSummary(progress = null) {
+  const file = state.localOtaFile;
+  if (!file) {
+    elements.localOtaSummary.textContent =
+      "仅支持 USB 串口上传应用固件 bin，保留设备配置。";
+    return;
+  }
+
+  const fileText = `${file.name} · ${formatBytes(file.size)}`;
+  if (progress && progress.total > 0) {
+    const percent = Math.floor((progress.written / progress.total) * 100);
+    elements.localOtaSummary.textContent =
+      `${fileText}，正在上传 ${percent}% (${formatBytes(
+        progress.written,
+      )} / ${formatBytes(progress.total)})。`;
+    return;
+  }
+
+  elements.localOtaSummary.textContent =
+    state.connectionType === "serial"
+      ? `${fileText}，可通过 USB 上传并更新。`
+      : `${fileText}，请先连接 USB 串口后再上传。`;
+}
+
 function syncWebFlashManifest() {
   const manifestUrl =
     elements.webFlashManifestInput.value.trim() ||
@@ -1424,6 +1502,91 @@ async function startOtaUpdate() {
   }
   setMessage("OTA 已安装，设备即将重启。");
   await closePort();
+}
+
+async function startLocalOtaUpload() {
+  if (state.connectionType !== "serial") {
+    throw new Error("本地 OTA 上传仅支持 USB 串口");
+  }
+  if (!state.localOtaFile) {
+    throw new Error("请选择本地 OTA 固件 bin");
+  }
+
+  const file = state.localOtaFile;
+  if (!file.name.toLowerCase().endsWith(".bin")) {
+    throw new Error("请选择 .bin 固件文件");
+  }
+  if (!file.size) {
+    throw new Error("固件文件为空");
+  }
+
+  setMessage("正在计算本地固件 SHA256。");
+  renderLocalOtaSummary({ written: 0, total: file.size });
+  const fileBuffer = await file.arrayBuffer();
+  const digest = await window.crypto.subtle.digest("SHA-256", fileBuffer);
+  const sha256 = bytesToHex(new Uint8Array(digest));
+  const firmware = new Uint8Array(fileBuffer);
+
+  setMessage("正在准备设备接收本地 OTA 固件。");
+  state.localOtaLoggedWritten = 0;
+  await sendCommand(
+    "local_ota_begin",
+    {
+      size: firmware.byteLength,
+      sha256,
+    },
+    30000,
+  );
+
+  let offset = 0;
+  try {
+    while (offset < firmware.byteLength) {
+      const nextOffset = Math.min(
+        offset + LOCAL_OTA_CHUNK_SIZE,
+        firmware.byteLength,
+      );
+      const chunk = firmware.subarray(offset, nextOffset);
+      const data = await sendCommand(
+        "local_ota_chunk",
+        {
+          offset,
+          data: bytesToBase64(chunk),
+        },
+        30000,
+      );
+      offset = Number(data.written || nextOffset);
+      renderLocalOtaSummary({ written: offset, total: firmware.byteLength });
+      if (
+        offset % (LOCAL_OTA_CHUNK_SIZE * 20) === 0 ||
+        offset >= firmware.byteLength
+      ) {
+        setMessage(
+          `本地 OTA 上传 ${Math.floor(
+            (offset / firmware.byteLength) * 100,
+          )}%。`,
+        );
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    const data = await sendCommand("local_ota_end", undefined, 30000);
+    renderLocalOtaSummary({
+      written: firmware.byteLength,
+      total: firmware.byteLength,
+    });
+    if (data.status) {
+      updateStatus(data.status);
+    }
+    setMessage("本地 OTA 已安装，设备即将重启。");
+    await closePort();
+  } catch (error) {
+    try {
+      await sendCommand("local_ota_abort", undefined, 5000);
+    } catch (abortError) {
+      appendLog(`本地 OTA 中止失败: ${abortError.message}`, "error");
+    }
+    throw error;
+  }
 }
 
 async function refreshScreen() {
@@ -1509,6 +1672,16 @@ function installEventHandlers() {
 
   elements.otaUpdateButton.addEventListener("click", () =>
     withBusyWork(startOtaUpdate).catch(handleActionError),
+  );
+
+  elements.localOtaFileInput.addEventListener("change", () => {
+    state.localOtaFile = elements.localOtaFileInput.files?.[0] || null;
+    renderLocalOtaSummary();
+    setConnected(state.connected);
+  });
+
+  elements.localOtaUploadButton.addEventListener("click", () =>
+    withBusyWork(startLocalOtaUpload).catch(handleActionError),
   );
 
   elements.webFlashManifestInput.addEventListener(

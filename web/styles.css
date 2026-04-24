@@ -457,6 +457,21 @@ button:focus {
   line-height: 1.5;
 }
 
+.local-ota-box {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.local-ota-box .update-field {
+  margin-top: 0;
+}
+
+.local-ota-box .action-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
 .update-warning {
   margin: 14px 0 0;
   padding: 12px 14px;
