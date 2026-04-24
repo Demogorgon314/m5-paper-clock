@@ -181,6 +181,13 @@ constexpr int16_t kDashboardCalendarX = 72;
 constexpr int16_t kDashboardCalendarY = 106;
 constexpr int16_t kDashboardCalendarW = 304;
 constexpr int16_t kDashboardCalendarH = 232;
+constexpr int16_t kDashboardCalendarCellW = 42;
+constexpr int16_t kDashboardCalendarCellH = 24;
+constexpr int16_t kDashboardCalendarGridW = kDashboardCalendarCellW * 7;
+constexpr int16_t kDashboardCalendarStartX =
+    (kDashboardCalendarW - kDashboardCalendarGridW) / 2;
+constexpr int16_t kDashboardCalendarHeaderY = 54;
+constexpr int16_t kDashboardCalendarGridY = 86;
 constexpr int16_t kDashboardTimeX = 412;
 constexpr int16_t kDashboardTimeY = 104;
 constexpr int16_t kDashboardTimeW = 472;
@@ -249,6 +256,14 @@ struct PartialRegion {
     int16_t draw_y = 0;
     int16_t update_w = 0;
     int16_t update_h = 0;
+};
+
+struct DirtyRect {
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t w = 0;
+    int16_t h = 0;
+    bool valid = false;
 };
 
 inline uint16_t uiTextPixelSize(uint8_t legacy_size) {
@@ -504,6 +519,29 @@ uint8_t daysInMonth(int year, int month) {
     return kMonthDays[month - 1];
 }
 
+DirtyRect dashboardCalendarCellRect(const rtc_date_t& date) {
+    const uint8_t month_days = daysInMonth(date.year, date.mon);
+    if (date.day < 1 || date.day > month_days) {
+        return {};
+    }
+
+    rtc_date_t first_day = date;
+    first_day.day = 1;
+    const uint8_t first_weekday = calculateWeekday(first_day);
+    const int index = first_weekday + date.day - 1;
+    const int row = index / 7;
+    const int col = index % 7;
+    DirtyRect rect;
+    rect.x = static_cast<int16_t>(kDashboardCalendarStartX +
+                                  col * kDashboardCalendarCellW);
+    rect.y = static_cast<int16_t>(kDashboardCalendarGridY +
+                                  row * kDashboardCalendarCellH);
+    rect.w = kDashboardCalendarCellW - 2;
+    rect.h = kDashboardCalendarCellH - 2;
+    rect.valid = true;
+    return rect;
+}
+
 String formatDashboardMonth(const rtc_date_t& date) {
     return formatTwoDigits(date.mon);
 }
@@ -646,6 +684,30 @@ void updateAlignedArea(int16_t x, int16_t y, int16_t w, int16_t h,
     const PartialRegion region = makePartialRegion(x, y, w, h);
     M5.EPD.UpdateArea(region.update_x, region.update_y, region.update_w,
                       region.update_h, mode);
+}
+
+void includeDirtyRect(DirtyRect& dirty, const DirtyRect& rect) {
+    if (!rect.valid) {
+        return;
+    }
+    if (!dirty.valid) {
+        dirty = rect;
+        return;
+    }
+
+    const int16_t left = min<int16_t>(dirty.x, rect.x);
+    const int16_t top = min<int16_t>(dirty.y, rect.y);
+    const int16_t right =
+        max<int16_t>(static_cast<int16_t>(dirty.x + dirty.w),
+                     static_cast<int16_t>(rect.x + rect.w));
+    const int16_t bottom =
+        max<int16_t>(static_cast<int16_t>(dirty.y + dirty.h),
+                     static_cast<int16_t>(rect.y + rect.h));
+    dirty.x = left;
+    dirty.y = top;
+    dirty.w = right - left;
+    dirty.h = bottom - top;
+    dirty.valid = true;
 }
 
 void pushAndRefreshCanvas(M5EPD_Canvas& canvas, int16_t x, int16_t y,
@@ -1404,6 +1466,11 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
+    classic_time_partial_count_ = 0;
+    classic_humidity_partial_count_ = 0;
+    classic_temperature_partial_count_ = 0;
+    classic_comfort_partial_count_ = 0;
+    dashboard_calendar_partial_count_ = 0;
     dashboard_time_partial_count_ = 0;
     dashboard_climate_partial_count_ = 0;
 
@@ -1456,6 +1523,11 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
+    classic_time_partial_count_ = 0;
+    classic_humidity_partial_count_ = 0;
+    classic_temperature_partial_count_ = 0;
+    classic_comfort_partial_count_ = 0;
+    dashboard_calendar_partial_count_ = 0;
     dashboard_time_partial_count_ = 0;
     dashboard_climate_partial_count_ = 0;
     const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
@@ -1575,11 +1647,10 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
 
     if (can_refresh_minutes_only) {
         drawMinuteTime(renderer_, minute_canvas_, time_digits, kText, kTimeEdgeText);
-        minute_canvas_.pushCanvas(kTimeMinuteCanvasX, kTimeMinuteCanvasY,
-                                  UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kTimeMinuteCanvasX, kTimeMinuteCanvasY,
-                          minute_canvas_.width(), minute_canvas_.height(),
-                          UPDATE_MODE_GC16);
+        const m5epd_update_mode_t mode =
+            nextPartialMode(classic_time_partial_count_);
+        pushAndRefreshCanvas(minute_canvas_, kTimeMinuteCanvasX,
+                             kTimeMinuteCanvasY, mode);
         ++partial_refresh_count_;
         last_time_text_rendered_ = time_digits;
         return;
@@ -1596,9 +1667,12 @@ void ClockApp::updateTimeCanvas(bool full_refresh) {
     if (full_refresh) {
         partial_refresh_count_ = 0;
         time_digit_partial_counts_.fill(0);
+        classic_time_partial_count_ = 0;
     } else {
-        M5.EPD.UpdateArea(kTimeX, kTimeY, time_canvas_.width(),
-                          time_canvas_.height(), UPDATE_MODE_GC16);
+        const m5epd_update_mode_t mode =
+            nextPartialMode(classic_time_partial_count_);
+        updateAlignedArea(kTimeX, kTimeY, time_canvas_.width(),
+                          time_canvas_.height(), mode);
         ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
@@ -1645,6 +1719,9 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         last_comfort_face_rendered_ = comfort_face;
         humidity_digit_partial_counts_.fill(0);
         temperature_digit_partial_counts_.fill(0);
+        classic_humidity_partial_count_ = 0;
+        classic_temperature_partial_count_ = 0;
+        classic_comfort_partial_count_ = 0;
         return;
     }
 
@@ -1657,9 +1734,11 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                          kMutedText, cjk_font_ready_);
         humidity_canvas_.pushCanvas(kHumidityCanvasX, kHumidityCanvasY,
                                     UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kHumidityCanvasX, kHumidityCanvasY,
+        const m5epd_update_mode_t mode =
+            nextPartialMode(classic_humidity_partial_count_);
+        updateAlignedArea(kHumidityCanvasX, kHumidityCanvasY,
                           humidity_canvas_.width(), humidity_canvas_.height(),
-                          UPDATE_MODE_GC16);
+                          mode);
         ++partial_refresh_count_;
         humidity_digit_partial_counts_.fill(0);
     }
@@ -1669,9 +1748,11 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
                             kMutedText, cjk_font_ready_);
         temperature_canvas_.pushCanvas(kTemperatureCanvasX, kTemperatureCanvasY,
                                        UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kTemperatureCanvasX, kTemperatureCanvasY,
+        const m5epd_update_mode_t mode =
+            nextPartialMode(classic_temperature_partial_count_);
+        updateAlignedArea(kTemperatureCanvasX, kTemperatureCanvasY,
                           temperature_canvas_.width(),
-                          temperature_canvas_.height(), UPDATE_MODE_GC16);
+                          temperature_canvas_.height(), mode);
         ++partial_refresh_count_;
         temperature_digit_partial_counts_.fill(0);
     }
@@ -1679,9 +1760,11 @@ void ClockApp::updateInfoCanvas(bool full_refresh) {
         drawComfortInfo(comfort_canvas_, comfort_face, kText, cjk_font_ready_);
         comfort_canvas_.pushCanvas(kComfortCanvasX, kComfortCanvasY,
                                    UPDATE_MODE_NONE);
-        M5.EPD.UpdateArea(kComfortCanvasX, kComfortCanvasY,
+        const m5epd_update_mode_t mode =
+            nextPartialMode(classic_comfort_partial_count_);
+        updateAlignedArea(kComfortCanvasX, kComfortCanvasY,
                           comfort_canvas_.width(), comfort_canvas_.height(),
-                          UPDATE_MODE_GC16);
+                          mode);
         ++partial_refresh_count_;
     }
     last_humidity_text_rendered_ = humidity_text;
@@ -1857,22 +1940,17 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
     dashboard_calendar_canvas_.drawString(formatDashboardMonth(current_date),
                                           kDashboardCalendarW / 2, 24);
 
-    const int16_t cell_w = 42;
-    const int16_t cell_h = 24;
-    const int16_t grid_w = cell_w * 7;
-    const int16_t start_x = (kDashboardCalendarW - grid_w) / 2;
-    const int16_t header_y = 54;
-    const int16_t grid_y = 86;
-
     for (int col = 0; col < 7; ++col) {
-        const int16_t center_x = start_x + col * cell_w + (cell_w - 2) / 2;
+        const int16_t center_x =
+            kDashboardCalendarStartX + col * kDashboardCalendarCellW +
+            (kDashboardCalendarCellW - 2) / 2;
         if (dashboard_calendar_cjk_font_ready_ && !fast_ascii_only) {
             dashboard_calendar_canvas_.setTextDatum(CC_DATUM);
             dashboard_calendar_canvas_.setTextColor(kText);
             setCanvasTextSize(dashboard_calendar_canvas_, true, 2);
             dashboard_calendar_canvas_.drawString(
                 calendarWeekdayLabel(static_cast<uint8_t>(col)),
-                center_x, header_y + 8);
+                center_x, kDashboardCalendarHeaderY + 8);
         } else {
             static constexpr const char* kFallbackWeekdayLabels[] = {"S", "M", "T",
                                                                      "W", "T", "F",
@@ -1881,7 +1959,8 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
             dashboard_calendar_canvas_.setTextColor(kText);
             setCanvasTextSize(dashboard_calendar_canvas_, false, 2);
             dashboard_calendar_canvas_.drawString(
-                kFallbackWeekdayLabels[col], center_x, header_y + 8);
+                kFallbackWeekdayLabels[col], center_x,
+                kDashboardCalendarHeaderY + 8);
         }
     }
 
@@ -1899,32 +1978,58 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
                 continue;
             }
 
-            const int16_t x = start_x + col * cell_w;
-            const int16_t y = grid_y + row * cell_h;
+            const int16_t x =
+                kDashboardCalendarStartX + col * kDashboardCalendarCellW;
+            const int16_t y =
+                kDashboardCalendarGridY + row * kDashboardCalendarCellH;
             const bool is_today = day == current_date.day;
             const bool is_past = day < current_date.day;
 
             if (is_today) {
-                dashboard_calendar_canvas_.fillRect(x, y, cell_w - 2, cell_h - 2,
-                                                    kCalendarTodayFill);
+                dashboard_calendar_canvas_.fillRect(
+                    x, y, kDashboardCalendarCellW - 2,
+                    kDashboardCalendarCellH - 2, kCalendarTodayFill);
             } else if (is_past) {
-                dashboard_calendar_canvas_.fillRect(x, y, cell_w - 2, cell_h - 2,
-                                                    kCalendarPastFill);
+                dashboard_calendar_canvas_.fillRect(
+                    x, y, kDashboardCalendarCellW - 2,
+                    kDashboardCalendarCellH - 2, kCalendarPastFill);
             }
-            dashboard_calendar_canvas_.drawRect(x, y, cell_w - 2, cell_h - 2,
+            dashboard_calendar_canvas_.drawRect(x, y,
+                                                kDashboardCalendarCellW - 2,
+                                                kDashboardCalendarCellH - 2,
                                                 kBorder);
             dashboard_calendar_canvas_.setTextColor(is_today ? kWhite : kText);
             dashboard_calendar_canvas_.drawString(
-                String(day), x + (cell_w - 2) / 2, y + (cell_h - 2) / 2);
+                String(day), x + (kDashboardCalendarCellW - 2) / 2,
+                y + (kDashboardCalendarCellH - 2) / 2);
         }
     }
 
     dashboard_calendar_canvas_.pushCanvas(kDashboardCalendarX, kDashboardCalendarY,
                                           UPDATE_MODE_NONE);
-    if (!full_refresh) {
-        M5.EPD.UpdateArea(kDashboardCalendarX, kDashboardCalendarY,
-                          kDashboardCalendarW, kDashboardCalendarH,
-                          UPDATE_MODE_GC16);
+    if (full_refresh) {
+        dashboard_calendar_partial_count_ = 0;
+    } else {
+        const bool can_refresh_changed_cells =
+            last_date_.year == current_date.year &&
+            last_date_.mon == current_date.mon &&
+            last_date_.day >= 1 &&
+            last_date_.day != current_date.day;
+        const m5epd_update_mode_t mode =
+            nextPartialMode(dashboard_calendar_partial_count_);
+        if (can_refresh_changed_cells) {
+            DirtyRect dirty;
+            includeDirtyRect(dirty, dashboardCalendarCellRect(last_date_));
+            includeDirtyRect(dirty, dashboardCalendarCellRect(current_date));
+            if (dirty.valid) {
+                updateAlignedArea(kDashboardCalendarX + dirty.x,
+                                  kDashboardCalendarY + dirty.y, dirty.w,
+                                  dirty.h, mode);
+            }
+        } else {
+            updateAlignedArea(kDashboardCalendarX, kDashboardCalendarY,
+                              kDashboardCalendarW, kDashboardCalendarH, mode);
+        }
         ++partial_refresh_count_;
     }
 }

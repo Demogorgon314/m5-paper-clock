@@ -348,6 +348,11 @@ private:
     std::array<uint8_t, 3> humidity_digit_partial_counts_ {};
     std::array<uint8_t, 3> temperature_digit_partial_counts_ {};
     uint8_t battery_partial_count_ = 0;
+    uint8_t classic_time_partial_count_ = 0;
+    uint8_t classic_humidity_partial_count_ = 0;
+    uint8_t classic_temperature_partial_count_ = 0;
+    uint8_t classic_comfort_partial_count_ = 0;
+    uint8_t dashboard_calendar_partial_count_ = 0;
     uint8_t dashboard_time_partial_count_ = 0;
     uint8_t dashboard_climate_partial_count_ = 0;
 };
