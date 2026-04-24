@@ -230,42 +230,39 @@ constexpr int16_t kDashboardSummaryH = 86;
 constexpr int16_t kDashboardSummaryTitleX = 16;
 constexpr int16_t kDashboardSummaryTitleY = 9;
 constexpr int16_t kDashboardSummaryPriceRight = kDashboardSummaryW - 14;
-constexpr int16_t kDashboardSummaryPriceY = 16;
+constexpr int16_t kDashboardSummaryPriceY = 10;
 constexpr int16_t kDashboardSummaryBottomY = 58;
 constexpr int16_t kDashboardSummaryArrowGap = 12;
 constexpr int16_t kDashboardSummaryValueGap = 14;
-constexpr int16_t kDashboardSummaryTitleAreaX = 0;
-constexpr int16_t kDashboardSummaryTitleAreaY = 0;
-constexpr int16_t kDashboardSummaryTitleAreaW = alignUpTo4(188);
-constexpr int16_t kDashboardSummaryTitleAreaH = 38;
+constexpr int16_t kDashboardSummaryTitleAreaX = 8;
+constexpr int16_t kDashboardSummaryTitleAreaY = 4;
+constexpr int16_t kDashboardSummaryTitleAreaW = alignUpTo4(180);
+constexpr int16_t kDashboardSummaryTitleAreaH = 34;
 constexpr int16_t kDashboardSummaryPriceAreaX = alignDownTo4(124);
-constexpr int16_t kDashboardSummaryPriceAreaY = 0;
+constexpr int16_t kDashboardSummaryPriceAreaY = 4;
 constexpr int16_t kDashboardSummaryPriceAreaW =
-    kDashboardSummaryW - kDashboardSummaryPriceAreaX;
-constexpr int16_t kDashboardSummaryPriceAreaH = 56;
-constexpr int16_t kDashboardSummaryBottomAreaX = 0;
-constexpr int16_t kDashboardSummaryBottomAreaY = 50;
-constexpr int16_t kDashboardSummaryBottomAreaW = kDashboardSummaryW;
-constexpr int16_t kDashboardSummaryBottomAreaH =
-    kDashboardSummaryH - kDashboardSummaryBottomAreaY;
+    kDashboardSummaryW - kDashboardSummaryPriceAreaX - 8;
+constexpr int16_t kDashboardSummaryPriceAreaH = 52;
+constexpr int16_t kDashboardSummaryBottomAreaX = 8;
+constexpr int16_t kDashboardSummaryBottomAreaY = 52;
+constexpr int16_t kDashboardSummaryBottomAreaW = kDashboardSummaryW - 16;
+constexpr int16_t kDashboardSummaryBottomAreaH = 26;
 constexpr int16_t kDashboardClimateX = 428;
 constexpr int16_t kDashboardClimateY = 392;
 constexpr int16_t kDashboardClimateW = 456;
 constexpr int16_t kDashboardClimateH = 86;
 constexpr int16_t kDashboardClimateHumidityDividerX = 126;
 constexpr int16_t kDashboardClimateTemperatureDividerX = 286;
-constexpr int16_t kDashboardClimateHumidityAreaX = 0;
-constexpr int16_t kDashboardClimateHumidityAreaW =
-    alignUpTo4(kDashboardClimateHumidityDividerX + 2);
+constexpr int16_t kDashboardClimateContentY = 8;
+constexpr int16_t kDashboardClimateContentH = 70;
+constexpr int16_t kDashboardClimateHumidityAreaX = 8;
+constexpr int16_t kDashboardClimateHumidityAreaW = 112;
 constexpr int16_t kDashboardClimateTemperatureAreaX =
-    alignDownTo4(kDashboardClimateHumidityDividerX);
-constexpr int16_t kDashboardClimateTemperatureAreaW =
-    alignUpTo4(kDashboardClimateTemperatureDividerX + 2 -
-               kDashboardClimateTemperatureAreaX);
+    alignUpTo4(kDashboardClimateHumidityDividerX + 4);
+constexpr int16_t kDashboardClimateTemperatureAreaW = 148;
 constexpr int16_t kDashboardClimateComfortAreaX =
-    alignDownTo4(kDashboardClimateTemperatureDividerX);
-constexpr int16_t kDashboardClimateComfortAreaW =
-    kDashboardClimateW - kDashboardClimateComfortAreaX;
+    alignUpTo4(kDashboardClimateTemperatureDividerX + 4);
+constexpr int16_t kDashboardClimateComfortAreaW = 156;
 constexpr uint8_t kCalendarPastFill = 4;
 constexpr uint8_t kCalendarTodayFill = 15;
 
@@ -2489,8 +2486,10 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
         const m5epd_update_mode_t mode =
             nextPartialMode(dashboard_climate_partial_count_,
                             settings_.partial_clean_interval);
-        updateAlignedArea(kDashboardClimateX + dirty_left, kDashboardClimateY,
-                          dirty_right - dirty_left, kDashboardClimateH, mode);
+        updateAlignedArea(kDashboardClimateX + dirty_left,
+                          kDashboardClimateY + kDashboardClimateContentY,
+                          dirty_right - dirty_left,
+                          kDashboardClimateContentH, mode);
         ++partial_refresh_count_;
     }
     last_humidity_text_rendered_ = humidity_text;
