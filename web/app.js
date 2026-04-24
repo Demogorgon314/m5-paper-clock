@@ -4,6 +4,8 @@ const FALLBACK_BAUD_RATE = 115200;
 const SERIAL_BAUD_RATES = Object.freeze([DEFAULT_BAUD_RATE, FALLBACK_BAUD_RATE]);
 const SERIAL_HANDSHAKE_TIMEOUT_MS = 6000;
 const LOCAL_OTA_CHUNK_SIZE = 512;
+const LOCAL_OTA_BINARY_CHUNK_SIZE = 512;
+const LOCAL_OTA_BINARY_CHUNK_DELAY_MS = 2;
 const LOCAL_OTA_CHUNK_RETRIES = 4;
 const LOCAL_OTA_CHUNK_DELAY_MS = 6;
 const LOCAL_OTA_RETRY_DELAY_MS = 250;
@@ -779,6 +781,13 @@ async function sendCommand(cmd, data = undefined, timeoutMs = REQUEST_TIMEOUT_MS
 }
 
 function handleResponse(packet) {
+  if (packet.event === "local_ota_progress" && packet.data) {
+    renderLocalOtaSummary({
+      written: Number(packet.data.written || 0),
+      total: Number(packet.data.size || 0),
+    });
+  }
+
   if (
     packet.data &&
     Object.prototype.hasOwnProperty.call(packet.data, "written") &&
@@ -1614,6 +1623,41 @@ async function getLocalOtaStatus() {
   }
 }
 
+async function uploadLocalOtaBinary(firmware) {
+  if (!state.writer) {
+    throw new Error("USB 串口未连接");
+  }
+
+  let nextMilestone = 10;
+  for (
+    let offset = 0;
+    offset < firmware.byteLength;
+    offset += LOCAL_OTA_BINARY_CHUNK_SIZE
+  ) {
+    const nextOffset = Math.min(
+      offset + LOCAL_OTA_BINARY_CHUNK_SIZE,
+      firmware.byteLength,
+    );
+    await state.writer.write(firmware.subarray(offset, nextOffset));
+    renderLocalOtaSummary({
+      written: nextOffset,
+      total: firmware.byteLength,
+    });
+
+    const percent = Math.floor((nextOffset / firmware.byteLength) * 100);
+    if (percent >= nextMilestone || nextOffset >= firmware.byteLength) {
+      setMessage(`本地 OTA 上传 ${percent}%。`);
+      nextMilestone += 10;
+    }
+
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, LOCAL_OTA_BINARY_CHUNK_DELAY_MS),
+    );
+  }
+
+  await new Promise((resolve) => window.setTimeout(resolve, 500));
+}
+
 async function startLocalOtaUpload() {
   if (state.connectionType !== "serial") {
     throw new Error("本地 OTA 上传仅支持 USB 串口");
@@ -1639,42 +1683,47 @@ async function startLocalOtaUpload() {
 
   setMessage("正在准备设备接收本地 OTA 固件。");
   state.localOtaLoggedWritten = 0;
-  await sendCommand(
+  const beginData = await sendCommand(
     "local_ota_begin",
     {
       size: firmware.byteLength,
       sha256,
+      mode: "binary",
     },
     30000,
   );
 
   let offset = 0;
   try {
-    while (offset < firmware.byteLength) {
-      const nextOffset = Math.min(
-        offset + LOCAL_OTA_CHUNK_SIZE,
-        firmware.byteLength,
-      );
-      const chunk = firmware.subarray(offset, nextOffset);
-      const data = await uploadLocalOtaChunk(offset, chunk);
-      offset = Number(data.written || nextOffset);
-      renderLocalOtaSummary({ written: offset, total: firmware.byteLength });
-      if (
-        offset % (LOCAL_OTA_CHUNK_SIZE * 20) === 0 ||
-        offset >= firmware.byteLength
-      ) {
-        setMessage(
-          `本地 OTA 上传 ${Math.floor(
-            (offset / firmware.byteLength) * 100,
-          )}%。`,
+    if (beginData.mode === "binary") {
+      await uploadLocalOtaBinary(firmware);
+    } else {
+      while (offset < firmware.byteLength) {
+        const nextOffset = Math.min(
+          offset + LOCAL_OTA_CHUNK_SIZE,
+          firmware.byteLength,
+        );
+        const chunk = firmware.subarray(offset, nextOffset);
+        const data = await uploadLocalOtaChunk(offset, chunk);
+        offset = Number(data.written || nextOffset);
+        renderLocalOtaSummary({ written: offset, total: firmware.byteLength });
+        if (
+          offset % (LOCAL_OTA_CHUNK_SIZE * 20) === 0 ||
+          offset >= firmware.byteLength
+        ) {
+          setMessage(
+            `本地 OTA 上传 ${Math.floor(
+              (offset / firmware.byteLength) * 100,
+            )}%。`,
+          );
+        }
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, LOCAL_OTA_CHUNK_DELAY_MS),
         );
       }
-      await new Promise((resolve) =>
-        window.setTimeout(resolve, LOCAL_OTA_CHUNK_DELAY_MS),
-      );
     }
 
-    const data = await sendCommand("local_ota_end", undefined, 30000);
+    const data = await sendCommand("local_ota_end", undefined, 60000);
     renderLocalOtaSummary({
       written: firmware.byteLength,
       total: firmware.byteLength,

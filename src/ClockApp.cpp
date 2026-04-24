@@ -2370,6 +2370,11 @@ void ClockApp::rebuildClockButtons() {
 
 void ClockApp::handleSerialConfig() {
     while (Serial.available() > 0) {
+        if (local_ota_binary_mode_) {
+            processLocalOtaBinaryStream();
+            continue;
+        }
+
         const char ch = static_cast<char>(Serial.read());
         if (ch == '\r') {
             continue;
@@ -2971,14 +2976,18 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         const JsonObject data = request_doc["data"].as<JsonObject>();
         const size_t size = static_cast<size_t>(data["size"] | 0);
         const String sha256 = String(data["sha256"] | "");
+        const bool binary_mode = String(data["mode"] | "") == "binary";
 
         String error_message;
-        const bool ok = beginLocalOtaUpdate(size, sha256, error_message);
+        const bool ok =
+            beginLocalOtaUpdate(size, sha256, binary_mode, error_message);
         response_doc["ok"] = ok;
         if (ok) {
             response_doc["data"]["message"] = "Local OTA upload ready";
             response_doc["data"]["size"] = local_ota_expected_size_;
             response_doc["data"]["written"] = local_ota_written_;
+            response_doc["data"]["mode"] =
+                local_ota_binary_mode_ ? "binary" : "json";
         } else {
             response_doc["error"] = error_message;
         }
@@ -3777,6 +3786,7 @@ bool ClockApp::performOtaUpdate(const String& url,
 
 bool ClockApp::beginLocalOtaUpdate(size_t size,
                                    const String& expected_sha256,
+                                   bool binary_mode,
                                    String& error_message) {
     const String expected = normalizedSha256(expected_sha256);
     if (size == 0) {
@@ -3798,8 +3808,10 @@ bool ClockApp::beginLocalOtaUpdate(size_t size,
     mbedtls_sha256_init(&local_ota_sha_context_);
     mbedtls_sha256_starts_ret(&local_ota_sha_context_, 0);
     local_ota_active_ = true;
+    local_ota_binary_mode_ = binary_mode;
     local_ota_expected_size_ = size;
     local_ota_written_ = 0;
+    local_ota_last_reported_ = 0;
     local_ota_expected_sha256_ = expected;
     status_message_ = "Local OTA upload ready";
     status_error_ = false;
@@ -3842,19 +3854,45 @@ bool ClockApp::writeLocalOtaChunk(size_t offset,
         return false;
     }
 
-    const size_t update_written = Update.write(buffer, decoded_len);
-    if (update_written != decoded_len) {
+    return writeLocalOtaBytes(buffer, decoded_len, written, error_message);
+}
+
+bool ClockApp::writeLocalOtaBytes(uint8_t* data,
+                                  size_t length,
+                                  size_t& written,
+                                  String& error_message) {
+    if (!local_ota_active_) {
+        error_message = "Local OTA not started";
+        return false;
+    }
+    if (data == nullptr || length == 0) {
+        error_message = "Empty local OTA chunk";
+        written = local_ota_written_;
+        return false;
+    }
+    if (local_ota_written_ + length > local_ota_expected_size_) {
+        error_message = "Local OTA chunk exceeds size";
+        abortLocalOtaUpdate();
+        return false;
+    }
+
+    const size_t update_written = Update.write(data, length);
+    if (update_written != length) {
         error_message =
             String("Local OTA write failed: ") + Update.errorString();
         abortLocalOtaUpdate();
         return false;
     }
 
-    mbedtls_sha256_update_ret(&local_ota_sha_context_, buffer, decoded_len);
-    local_ota_written_ += decoded_len;
+    mbedtls_sha256_update_ret(&local_ota_sha_context_, data, length);
+    local_ota_written_ += length;
     written = local_ota_written_;
     status_message_ = "Local OTA uploading";
     status_error_ = false;
+    if (local_ota_written_ >= local_ota_expected_size_) {
+        local_ota_binary_mode_ = false;
+        status_message_ = "Local OTA upload complete";
+    }
     M5.update();
     return true;
 }
@@ -3884,8 +3922,10 @@ bool ClockApp::finishLocalOtaUpdate(String& error_message) {
     }
 
     local_ota_active_ = false;
+    local_ota_binary_mode_ = false;
     local_ota_expected_size_ = 0;
     local_ota_written_ = 0;
+    local_ota_last_reported_ = 0;
     local_ota_expected_sha256_.clear();
 
     if (!ok) {
@@ -3912,8 +3952,10 @@ void ClockApp::abortLocalOtaUpdate() {
     mbedtls_sha256_free(&local_ota_sha_context_);
     Update.abort();
     local_ota_active_ = false;
+    local_ota_binary_mode_ = false;
     local_ota_expected_size_ = 0;
     local_ota_written_ = 0;
+    local_ota_last_reported_ = 0;
     local_ota_expected_sha256_.clear();
     status_message_ = "Local OTA upload aborted";
     status_error_ = false;
@@ -3921,8 +3963,54 @@ void ClockApp::abortLocalOtaUpdate() {
 
 void ClockApp::populateLocalOtaStatus(JsonObject data) const {
     data["active"] = local_ota_active_;
+    data["binaryMode"] = local_ota_binary_mode_;
     data["written"] = local_ota_written_;
     data["size"] = local_ota_expected_size_;
+}
+
+void ClockApp::processLocalOtaBinaryStream() {
+    uint8_t buffer[512];
+    String error_message;
+    while (local_ota_binary_mode_ && Serial.available() > 0) {
+        const size_t remaining = local_ota_expected_size_ - local_ota_written_;
+        const size_t available = static_cast<size_t>(Serial.available());
+        const size_t to_read =
+            std::min(std::min(sizeof(buffer), remaining), available);
+        if (to_read == 0) {
+            local_ota_binary_mode_ = false;
+            break;
+        }
+
+        const size_t read_len = Serial.readBytes(buffer, to_read);
+        if (read_len == 0) {
+            break;
+        }
+
+        size_t written = local_ota_written_;
+        if (!writeLocalOtaBytes(buffer, read_len, written, error_message)) {
+            sendLocalOtaProgress(ConfigTransport::Serial);
+            return;
+        }
+
+        if (local_ota_written_ >= local_ota_expected_size_ ||
+            local_ota_written_ - local_ota_last_reported_ >= 32768) {
+            local_ota_last_reported_ = local_ota_written_;
+            sendLocalOtaProgress(ConfigTransport::Serial);
+        }
+    }
+}
+
+void ClockApp::sendLocalOtaProgress(ConfigTransport transport) const {
+    DynamicJsonDocument doc(512);
+    doc["id"] = 0;
+    doc["ok"] = local_ota_active_;
+    doc["event"] = "local_ota_progress";
+    JsonObject data = doc.createNestedObject("data");
+    populateLocalOtaStatus(data);
+    if (!local_ota_active_) {
+        doc["error"] = status_message_;
+    }
+    sendConfigDoc(doc, transport);
 }
 
 void ClockApp::connectSelectedNetwork() {

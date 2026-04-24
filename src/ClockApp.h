@@ -195,12 +195,16 @@ private:
     bool performOtaUpdate(const String& url, const String& expected_sha256,
                           String& error_message);
     bool beginLocalOtaUpdate(size_t size, const String& expected_sha256,
-                             String& error_message);
+                             bool binary_mode, String& error_message);
     bool writeLocalOtaChunk(size_t offset, const String& base64_data,
+                            size_t& written, String& error_message);
+    bool writeLocalOtaBytes(uint8_t* data, size_t length,
                             size_t& written, String& error_message);
     bool finishLocalOtaUpdate(String& error_message);
     void abortLocalOtaUpdate();
     void populateLocalOtaStatus(JsonObject data) const;
+    void processLocalOtaBinaryStream();
+    void sendLocalOtaProgress(ConfigTransport transport) const;
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
@@ -228,8 +232,10 @@ private:
     SensorService sensor_;
 
     bool local_ota_active_ = false;
+    bool local_ota_binary_mode_ = false;
     size_t local_ota_expected_size_ = 0;
     size_t local_ota_written_ = 0;
+    size_t local_ota_last_reported_ = 0;
     String local_ota_expected_sha256_;
     mbedtls_sha256_context local_ota_sha_context_;
     SegmentRenderer renderer_;
