@@ -336,6 +336,9 @@ private:
     String last_temperature_text_rendered_;
     String last_comfort_face_rendered_;
     String last_market_summary_rendered_;
+    String last_dashboard_summary_title_rendered_;
+    String last_dashboard_summary_price_rendered_;
+    String last_dashboard_summary_bottom_rendered_;
     String last_date_text_rendered_;
     String last_holiday_display_rendered_;
     uint8_t last_weekday_rendered_ = 255;
@@ -352,7 +355,10 @@ private:
     uint8_t classic_humidity_partial_count_ = 0;
     uint8_t classic_temperature_partial_count_ = 0;
     uint8_t classic_comfort_partial_count_ = 0;
+    uint8_t date_partial_count_ = 0;
     uint8_t dashboard_calendar_partial_count_ = 0;
+    uint8_t dashboard_summary_partial_count_ = 0;
     uint8_t dashboard_time_partial_count_ = 0;
     uint8_t dashboard_climate_partial_count_ = 0;
+    bool last_dashboard_summary_valid_ = false;
 };

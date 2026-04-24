@@ -106,6 +106,13 @@ constexpr uint8_t kDateCjkTextSize = 7;
 constexpr int16_t kDateCjkDateX = 0;
 constexpr int16_t kDateCjkWeekdayX = 142;
 constexpr int16_t kDateCjkHolidayX = 222;
+constexpr int16_t kDateDateAreaX = 0;
+constexpr int16_t kDateDateAreaW = alignUpTo4(kDateCjkWeekdayX + 8);
+constexpr int16_t kDateWeekdayAreaX = alignDownTo4(kDateCjkWeekdayX - 8);
+constexpr int16_t kDateWeekdayAreaW =
+    alignUpTo4((kDateCjkHolidayX + 8) - kDateWeekdayAreaX);
+constexpr int16_t kDateHolidayAreaX = alignDownTo4(kDateCjkHolidayX - 8);
+constexpr int16_t kDateHolidayAreaW = kDateW - kDateHolidayAreaX;
 constexpr int16_t kBatteryX = 768;
 constexpr int16_t kBatteryY = 20;
 constexpr int16_t kBatteryW = 176;
@@ -228,6 +235,20 @@ constexpr int16_t kDashboardSummaryPriceY = 16;
 constexpr int16_t kDashboardSummaryBottomY = 58;
 constexpr int16_t kDashboardSummaryArrowGap = 12;
 constexpr int16_t kDashboardSummaryValueGap = 14;
+constexpr int16_t kDashboardSummaryTitleAreaX = 0;
+constexpr int16_t kDashboardSummaryTitleAreaY = 0;
+constexpr int16_t kDashboardSummaryTitleAreaW = alignUpTo4(188);
+constexpr int16_t kDashboardSummaryTitleAreaH = 38;
+constexpr int16_t kDashboardSummaryPriceAreaX = alignDownTo4(124);
+constexpr int16_t kDashboardSummaryPriceAreaY = 0;
+constexpr int16_t kDashboardSummaryPriceAreaW =
+    kDashboardSummaryW - kDashboardSummaryPriceAreaX;
+constexpr int16_t kDashboardSummaryPriceAreaH = 56;
+constexpr int16_t kDashboardSummaryBottomAreaX = 0;
+constexpr int16_t kDashboardSummaryBottomAreaY = 50;
+constexpr int16_t kDashboardSummaryBottomAreaW = kDashboardSummaryW;
+constexpr int16_t kDashboardSummaryBottomAreaH =
+    kDashboardSummaryH - kDashboardSummaryBottomAreaY;
 constexpr int16_t kDashboardClimateX = 428;
 constexpr int16_t kDashboardClimateY = 392;
 constexpr int16_t kDashboardClimateW = 456;
@@ -1456,6 +1477,9 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     last_temperature_text_rendered_ = "";
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
+    last_dashboard_summary_title_rendered_ = "";
+    last_dashboard_summary_price_rendered_ = "";
+    last_dashboard_summary_bottom_rendered_ = "";
     last_date_text_rendered_ = "";
     last_holiday_display_rendered_ = "";
     last_weekday_rendered_ = 255;
@@ -1470,9 +1494,12 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     classic_humidity_partial_count_ = 0;
     classic_temperature_partial_count_ = 0;
     classic_comfort_partial_count_ = 0;
+    date_partial_count_ = 0;
     dashboard_calendar_partial_count_ = 0;
+    dashboard_summary_partial_count_ = 0;
     dashboard_time_partial_count_ = 0;
     dashboard_climate_partial_count_ = 0;
+    last_dashboard_summary_valid_ = false;
 
     uint32_t step_started_ms = millis();
     updateTimeCanvas(true);
@@ -1513,6 +1540,9 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     last_temperature_text_rendered_ = "";
     last_comfort_face_rendered_ = "";
     last_market_summary_rendered_ = "";
+    last_dashboard_summary_title_rendered_ = "";
+    last_dashboard_summary_price_rendered_ = "";
+    last_dashboard_summary_bottom_rendered_ = "";
     last_date_text_rendered_ = "";
     last_holiday_display_rendered_ = "";
     last_weekday_rendered_ = 255;
@@ -1527,9 +1557,12 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     classic_humidity_partial_count_ = 0;
     classic_temperature_partial_count_ = 0;
     classic_comfort_partial_count_ = 0;
+    date_partial_count_ = 0;
     dashboard_calendar_partial_count_ = 0;
+    dashboard_summary_partial_count_ = 0;
     dashboard_time_partial_count_ = 0;
     dashboard_climate_partial_count_ = 0;
+    last_dashboard_summary_valid_ = false;
     const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
 
     uint32_t step_started_ms = millis();
@@ -1783,13 +1816,18 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     const String holiday_signature = formatHolidayDisplaySignature(holiday_display);
     const String pairing_signature =
         blePairingCodeActive() ? "ble:" + ble_pairing_code_ : "";
+    const String holiday_pairing_signature =
+        holiday_signature + "|" + pairing_signature;
     if (date_text == last_date_text_rendered_ &&
         week == last_weekday_rendered_ &&
-        holiday_signature + "|" + pairing_signature ==
-            last_holiday_display_rendered_) {
+        holiday_pairing_signature == last_holiday_display_rendered_) {
         return;
     }
 
+    const bool date_changed = date_text != last_date_text_rendered_;
+    const bool weekday_changed = week != last_weekday_rendered_;
+    const bool holiday_changed =
+        holiday_pairing_signature != last_holiday_display_rendered_;
     const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
     bool use_date_cjk = date_cjk_font_ready_ && !fast_ascii_only;
     if (use_date_cjk &&
@@ -1836,8 +1874,46 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     active_date_canvas.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
 
     if (!full_refresh) {
-        M5.EPD.UpdateArea(kDateX, kDateY, kDateW, kDateH, UPDATE_MODE_GC16);
+        const m5epd_update_mode_t mode = nextPartialMode(date_partial_count_);
+        if (use_date_cjk) {
+            DirtyRect dirty;
+            if (date_changed) {
+                DirtyRect rect;
+                rect.x = kDateDateAreaX;
+                rect.y = 0;
+                rect.w = kDateDateAreaW;
+                rect.h = kDateH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+            if (weekday_changed) {
+                DirtyRect rect;
+                rect.x = kDateWeekdayAreaX;
+                rect.y = 0;
+                rect.w = kDateWeekdayAreaW;
+                rect.h = kDateH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+            if (holiday_changed) {
+                DirtyRect rect;
+                rect.x = kDateHolidayAreaX;
+                rect.y = 0;
+                rect.w = kDateHolidayAreaW;
+                rect.h = kDateH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+            if (dirty.valid) {
+                updateAlignedArea(kDateX + dirty.x, kDateY + dirty.y,
+                                  dirty.w, dirty.h, mode);
+            }
+        } else {
+            updateAlignedArea(kDateX, kDateY, kDateW, kDateH, mode);
+        }
         ++partial_refresh_count_;
+    } else {
+        date_partial_count_ = 0;
     }
     if (fast_ascii_only) {
         last_date_text_rendered_ = "";
@@ -1845,8 +1921,7 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         last_weekday_rendered_ = 255;
     } else {
         last_date_text_rendered_ = date_text;
-        last_holiday_display_rendered_ =
-            holiday_signature + "|" + pairing_signature;
+        last_holiday_display_rendered_ = holiday_pairing_signature;
         last_weekday_rendered_ = week;
     }
 }
@@ -1860,7 +1935,8 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
                                           : 1;
     const ConfigConnectionIcon config_connection_icon =
         activeConfigConnectionIcon();
-    if (!full_refresh && !battery_status_dirty_ &&
+    const bool status_forced_dirty = battery_status_dirty_;
+    if (!full_refresh && !status_forced_dirty &&
         battery == last_battery_percentage_ &&
         wifi_connected == last_wifi_connected_ &&
         wifi_signal_level == last_wifi_signal_level_ &&
@@ -1919,8 +1995,51 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     if (full_refresh) {
         battery_partial_count_ = 0;
     } else {
+        DirtyRect dirty;
+        const bool battery_changed = battery != last_battery_percentage_;
+        const bool wifi_changed = wifi_connected != last_wifi_connected_ ||
+                                  wifi_signal_level != last_wifi_signal_level_;
+        const bool transport_changed =
+            config_connection_icon != last_config_connection_icon_;
+        if (battery_changed) {
+            DirtyRect rect;
+            rect.x = max<int16_t>(0, label_right - 72);
+            rect.y = 0;
+            rect.w = kBatteryW - rect.x;
+            rect.h = kBatteryH;
+            rect.valid = true;
+            includeDirtyRect(dirty, rect);
+        }
+        if (wifi_changed) {
+            DirtyRect rect;
+            rect.x = max<int16_t>(0, wifi_x - 4);
+            rect.y = 0;
+            rect.w = min<int16_t>(kBatteryW - rect.x, wifi_size + 8);
+            rect.h = kBatteryH;
+            rect.valid = true;
+            includeDirtyRect(dirty, rect);
+        }
+        if (transport_changed) {
+            DirtyRect rect;
+            rect.x = max<int16_t>(0, transport_x - 4);
+            rect.y = 0;
+            rect.w = min<int16_t>(kBatteryW - rect.x, transport_size + 8);
+            rect.h = kBatteryH;
+            rect.valid = true;
+            includeDirtyRect(dirty, rect);
+        }
+        if (status_forced_dirty && !dirty.valid) {
+            dirty.x = 0;
+            dirty.y = 0;
+            dirty.w = kBatteryW;
+            dirty.h = kBatteryH;
+            dirty.valid = true;
+        }
         const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
-        updateAlignedArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH, mode);
+        if (dirty.valid) {
+            updateAlignedArea(kBatteryX + dirty.x, kBatteryY + dirty.y,
+                              dirty.w, dirty.h, mode);
+        }
     }
     last_battery_percentage_ = battery;
     last_wifi_connected_ = wifi_connected;
@@ -2124,6 +2243,30 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
     setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
     const String market_title =
         marketDisplayLabel(market_quote_, use_summary_cjk);
+    const bool summary_valid = market_quote_.valid;
+    String summary_price;
+    String summary_bottom;
+    String change_value;
+    String percent_value;
+    String status_label;
+    String status_detail;
+    if (summary_valid) {
+        summary_price = market_quote_.price;
+        const String change_prefix = market_quote_.positive ? "+" : "";
+        change_value = change_prefix + market_quote_.change;
+        percent_value = change_prefix + market_quote_.change_percent + "%";
+        status_label =
+            marketStatusLabel(market_quote_, market_open, use_summary_cjk);
+        summary_bottom = change_value + "|" + percent_value + "|" +
+                         status_label + "|" +
+                         (market_quote_.positive ? "1" : "0");
+    } else {
+        status_detail =
+            !market_quote_.error_message.isEmpty()
+                ? market_quote_.error_message
+                : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
+        summary_bottom = status_detail;
+    }
     if (use_summary_cjk) {
         drawFauxBoldString(active_summary_canvas, market_title,
                            kDashboardSummaryTitleX, kDashboardSummaryTitleY);
@@ -2133,20 +2276,14 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
                                          kDashboardSummaryTitleY);
     }
 
-    if (market_quote_.valid) {
+    if (summary_valid) {
         active_summary_canvas.setTextDatum(TR_DATUM);
         setCanvasTextSize(active_summary_canvas, false, 4);
         active_summary_canvas.setTextColor(kText);
-        active_summary_canvas.drawString(market_quote_.price,
+        active_summary_canvas.drawString(summary_price,
                                          kDashboardSummaryPriceRight,
                                          kDashboardSummaryPriceY);
 
-        const String change_prefix = market_quote_.positive ? "+" : "";
-        const String change_value = change_prefix + market_quote_.change;
-        const String percent_value =
-            change_prefix + market_quote_.change_percent + "%";
-        const String status_label =
-            marketStatusLabel(market_quote_, market_open, use_summary_cjk);
         setCanvasTextSize(active_summary_canvas, false, 2);
         active_summary_canvas.setTextColor(kText);
         active_summary_canvas.setTextDatum(TR_DATUM);
@@ -2193,22 +2330,65 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         active_summary_canvas.drawString("No quote", 16, 34);
         setCanvasTextSize(active_summary_canvas, false, 2);
         active_summary_canvas.setTextColor(kMutedText);
-        const String status_detail =
-            !market_quote_.error_message.isEmpty()
-                ? market_quote_.error_message
-                : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
         active_summary_canvas.drawString(status_detail, 16, 62);
     }
 
     active_summary_canvas.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
                                      UPDATE_MODE_NONE);
-    if (!full_refresh) {
-        M5.EPD.UpdateArea(kDashboardSummaryX, kDashboardSummaryY,
-                          kDashboardSummaryW, kDashboardSummaryH,
-                          UPDATE_MODE_GC16);
+    if (full_refresh) {
+        dashboard_summary_partial_count_ = 0;
+    } else {
+        DirtyRect dirty;
+        if (summary_valid != last_dashboard_summary_valid_) {
+            dirty.x = 0;
+            dirty.y = 0;
+            dirty.w = kDashboardSummaryW;
+            dirty.h = kDashboardSummaryH;
+            dirty.valid = true;
+        } else {
+            if (market_title != last_dashboard_summary_title_rendered_) {
+                DirtyRect rect;
+                rect.x = kDashboardSummaryTitleAreaX;
+                rect.y = kDashboardSummaryTitleAreaY;
+                rect.w = kDashboardSummaryTitleAreaW;
+                rect.h = kDashboardSummaryTitleAreaH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+            if (summary_price != last_dashboard_summary_price_rendered_) {
+                DirtyRect rect;
+                rect.x = kDashboardSummaryPriceAreaX;
+                rect.y = kDashboardSummaryPriceAreaY;
+                rect.w = kDashboardSummaryPriceAreaW;
+                rect.h = kDashboardSummaryPriceAreaH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+            if (summary_bottom != last_dashboard_summary_bottom_rendered_) {
+                DirtyRect rect;
+                rect.x = kDashboardSummaryBottomAreaX;
+                rect.y = kDashboardSummaryBottomAreaY;
+                rect.w = kDashboardSummaryBottomAreaW;
+                rect.h = kDashboardSummaryBottomAreaH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            }
+        }
+        const m5epd_update_mode_t mode =
+            nextPartialMode(dashboard_summary_partial_count_);
+        if (dirty.valid) {
+            updateAlignedArea(kDashboardSummaryX + dirty.x,
+                              kDashboardSummaryY + dirty.y, dirty.w,
+                              dirty.h, mode);
+        }
         ++partial_refresh_count_;
     }
     last_market_summary_rendered_ = fast_ascii_only ? String("") : summary_signature;
+    last_dashboard_summary_title_rendered_ = fast_ascii_only ? String("") : market_title;
+    last_dashboard_summary_price_rendered_ = fast_ascii_only ? String("") : summary_price;
+    last_dashboard_summary_bottom_rendered_ =
+        fast_ascii_only ? String("") : summary_bottom;
+    last_dashboard_summary_valid_ = !fast_ascii_only && summary_valid;
 }
 
 void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
