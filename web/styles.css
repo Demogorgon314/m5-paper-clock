@@ -70,6 +70,32 @@ code {
   font-weight: 700;
 }
 
+.intro-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.language-switch {
+  display: grid;
+  gap: 6px;
+  min-width: 132px;
+  margin-top: 0;
+}
+
+.language-switch span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.language-switch select {
+  min-height: 40px;
+  padding: 0 10px;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   color: var(--accent-strong);
@@ -906,6 +932,7 @@ button:focus {
   }
 
   .intro-band,
+  .intro-title-row,
   .workspace-grid,
   .market-picker-grid,
   .update-grid,
@@ -919,6 +946,10 @@ button:focus {
   .preview-figure {
     justify-self: stretch;
     max-width: none;
+  }
+
+  .language-switch {
+    width: min(100%, 220px);
   }
 
   .status-grid {

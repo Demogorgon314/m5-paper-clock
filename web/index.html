@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>M5Paper Ink Clock 配置</title>
+    <title data-i18n="app.title">M5Paper Ink Clock 配置</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -11,34 +11,43 @@
       <header class="band intro-band">
         <div class="intro-copy">
           <p class="eyebrow">M5Paper Ink Clock</p>
-          <h1>设备配置</h1>
-          <p class="lead">
+          <div class="intro-title-row">
+            <h1 data-i18n="intro.heading">设备配置</h1>
+            <label class="language-switch" for="language-select">
+              <span data-i18n="language.label">语言</span>
+              <select id="language-select" aria-label="语言">
+                <option value="zh-CN">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+          <p class="lead" data-i18n="intro.lead">
             通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和时钟样式。
           </p>
           <ol class="steps">
-            <li>连接 USB 或蓝牙</li>
-            <li>扫描并选择 Wi-Fi</li>
-            <li>保存并连接 Wi-Fi</li>
-            <li>同步时间并回到时钟页</li>
+            <li data-i18n="intro.step.connect">连接 USB 或蓝牙</li>
+            <li data-i18n="intro.step.scan">扫描并选择 Wi-Fi</li>
+            <li data-i18n="intro.step.save">保存并连接 Wi-Fi</li>
+            <li data-i18n="intro.step.sync">同步时间并回到时钟页</li>
           </ol>
           <div class="connection-row">
             <button id="connect-button" class="action-button primary">
-              连接 USB
+              <span data-i18n="button.connectUsb">连接 USB</span>
             </button>
             <button id="bluetooth-button" class="action-button">
-              连接蓝牙
+              <span data-i18n="button.connectBluetooth">连接蓝牙</span>
             </button>
             <button id="reconnect-button" class="action-button">
-              恢复 USB
+              <span data-i18n="button.reconnectUsb">恢复 USB</span>
             </button>
             <button id="disconnect-button" class="action-button subtle" disabled>
-              断开
+              <span data-i18n="button.disconnect">断开</span>
             </button>
             <button id="status-button" class="action-button subtle" disabled>
-              读取状态
+              <span data-i18n="button.readStatus">读取状态</span>
             </button>
           </div>
-          <p id="browser-note" class="helper-text">
+          <p id="browser-note" class="helper-text" data-i18n="browser.note">
             需要 Chrome 或 Edge，并从 <code>localhost</code> 或 HTTPS 打开。
           </p>
         </div>
@@ -47,6 +56,7 @@
           <img
             src="./assets/m5paper.webp"
             alt="M5Paper 设备"
+            data-i18n-alt="intro.deviceAlt"
             width="480"
             height="360"
           />
@@ -55,20 +65,20 @@
 
       <section class="band status-band">
         <div class="band-heading">
-          <h2>设备状态</h2>
+          <h2 data-i18n="status.heading">设备状态</h2>
           <p id="connection-state" class="status-pill offline">
             <span
               id="transport-icon"
               class="transport-icon"
               aria-hidden="true"
             ></span>
-            <span id="connection-state-label">未连接</span>
+            <span id="connection-state-label" data-i18n="status.disconnected">未连接</span>
           </p>
         </div>
 
         <div class="status-grid">
           <div class="status-tile">
-            <span class="status-label">固件</span>
+            <span class="status-label" data-i18n="status.firmware">固件</span>
             <strong id="firmware-version">-</strong>
           </div>
           <div class="status-tile">
@@ -76,28 +86,28 @@
             <strong id="wifi-name">-</strong>
           </div>
           <div class="status-tile">
-            <span class="status-label">行情</span>
+            <span class="status-label" data-i18n="status.market">行情</span>
             <strong id="market-label">-</strong>
           </div>
           <div class="status-tile">
-            <span class="status-label">电量</span>
+            <span class="status-label" data-i18n="status.battery">电量</span>
             <strong id="battery-label">-</strong>
           </div>
           <div class="status-tile">
-            <span class="status-label">时间同步</span>
+            <span class="status-label" data-i18n="status.timeSync">时间同步</span>
             <strong id="sync-state">-</strong>
           </div>
         </div>
 
         <details class="status-details">
-          <summary>详细状态</summary>
+          <summary data-i18n="status.details">详细状态</summary>
           <div class="status-grid status-grid-detail">
             <div class="status-tile">
-              <span class="status-label">设备</span>
+              <span class="status-label" data-i18n="status.device">设备</span>
               <strong id="device-name">-</strong>
             </div>
             <div class="status-tile">
-              <span class="status-label">页面</span>
+              <span class="status-label" data-i18n="status.page">页面</span>
               <strong id="page-name">-</strong>
             </div>
             <div class="status-tile">
@@ -105,11 +115,11 @@
               <strong id="ip-address">-</strong>
             </div>
             <div class="status-tile">
-              <span class="status-label">时区</span>
+              <span class="status-label" data-i18n="status.timezone">时区</span>
               <strong id="timezone-label">-</strong>
             </div>
             <div class="status-tile">
-              <span class="status-label">样式</span>
+              <span class="status-label" data-i18n="status.style">样式</span>
               <strong id="clock-style-label">-</strong>
             </div>
             <div class="status-tile">
@@ -120,7 +130,7 @@
         </details>
 
         <div class="message-row">
-          <p id="device-message" class="device-message">
+          <p id="device-message" class="device-message" data-i18n="message.waitingDevice">
             连接后会在这里显示设备返回的信息。
           </p>
         </div>
@@ -132,77 +142,78 @@
             <div class="panel-heading">
               <div>
                 <h2>Wi-Fi</h2>
-                <p class="helper-text">先扫描，再选网络，最后保存到设备或立即连接 Wi-Fi。</p>
+                <p class="helper-text" data-i18n="wifi.helper">先扫描，再选网络，最后保存到设备或立即连接 Wi-Fi。</p>
               </div>
               <button id="scan-button" class="action-button" disabled>
-                扫描
+                <span data-i18n="button.scan">扫描</span>
               </button>
             </div>
 
             <label class="field">
-              <span>网络名称</span>
-              <input id="ssid-input" type="text" placeholder="选择或输入 SSID" />
+              <span data-i18n="wifi.ssid">网络名称</span>
+              <input id="ssid-input" type="text" placeholder="选择或输入 SSID" data-i18n-placeholder="wifi.ssidPlaceholder" />
             </label>
 
             <label class="field">
-              <span>密码</span>
+              <span data-i18n="wifi.password">密码</span>
               <div class="password-row">
                 <input
                   id="password-input"
                   type="password"
                   placeholder="输入 Wi-Fi 密码"
+                  data-i18n-placeholder="wifi.passwordPlaceholder"
                 />
                 <button
                   id="toggle-password-button"
                   class="action-button subtle small"
                   type="button"
                 >
-                  显示
+                  <span data-i18n="button.showPassword">显示</span>
                 </button>
               </div>
             </label>
 
             <div class="saved-row">
-              <span class="status-label">已保存网络</span>
+              <span class="status-label" data-i18n="wifi.savedNetwork">已保存网络</span>
               <strong id="saved-ssid">-</strong>
             </div>
 
             <div id="network-list" class="network-list" aria-live="polite">
-              <p class="empty-state">连接设备后可以开始扫描。</p>
+              <p class="empty-state" data-i18n="wifi.emptyDisconnected">连接设备后可以开始扫描。</p>
             </div>
           </div>
 
           <div class="workspace-panel config-panel">
             <div class="panel-heading">
               <div>
-                <h2>设置</h2>
-                <p class="helper-text">保存后会写入设备存储，重启后继续生效。</p>
+                <h2 data-i18n="settings.heading">设置</h2>
+                <p class="helper-text" data-i18n="settings.helper">保存后会写入设备存储，重启后继续生效。</p>
               </div>
             </div>
 
             <div class="field-grid">
               <label class="field">
-                <span>时区</span>
+                <span data-i18n="settings.timezone">时区</span>
                 <select id="timezone-select"></select>
               </label>
               <label class="field">
-                <span>时钟样式</span>
+                <span data-i18n="settings.clockStyle">时钟样式</span>
                 <select id="clock-style-select">
-                  <option value="classic">经典数字</option>
-                  <option value="dashboard">仪表盘</option>
+                  <option value="classic" data-i18n="clockStyle.classic">经典数字</option>
+                  <option value="dashboard" data-i18n="clockStyle.dashboard">仪表盘</option>
                 </select>
               </label>
             </div>
 
             <div class="config-subsection">
               <div class="config-subheading">
-                <h3>表情条件</h3>
-                <p class="helper-text">舒适区间显示 <code>(^_^)</code>，超出范围显示 <code>(-^-)</code>。</p>
+                <h3 data-i18n="comfort.heading">表情条件</h3>
+                <p class="helper-text" data-i18n="comfort.helper">舒适区间显示 <code>(^_^)</code>，超出范围显示 <code>(-^-)</code>。</p>
               </div>
 
               <div class="field-grid comfort-grid">
                 <label class="field">
-                  <span>最低舒适温度</span>
+                  <span data-i18n="comfort.tempMin">最低舒适温度</span>
                   <input
                     id="comfort-temp-min-input"
                     type="number"
@@ -214,7 +225,7 @@
                   />
                 </label>
                 <label class="field">
-                  <span>最高舒适温度</span>
+                  <span data-i18n="comfort.tempMax">最高舒适温度</span>
                   <input
                     id="comfort-temp-max-input"
                     type="number"
@@ -226,7 +237,7 @@
                   />
                 </label>
                 <label class="field">
-                  <span>最低舒适湿度</span>
+                  <span data-i18n="comfort.humidityMin">最低舒适湿度</span>
                   <input
                     id="comfort-humidity-min-input"
                     type="number"
@@ -238,7 +249,7 @@
                   />
                 </label>
                 <label class="field">
-                  <span>最高舒适湿度</span>
+                  <span data-i18n="comfort.humidityMax">最高舒适湿度</span>
                   <input
                     id="comfort-humidity-max-input"
                     type="number"
@@ -254,45 +265,45 @@
 
             <div class="config-actions">
               <div class="config-action-section">
-                <p class="config-action-title">配置保存</p>
+                <p class="config-action-title" data-i18n="settings.saveSection">配置保存</p>
                 <div class="action-row action-row-pair">
                   <button id="save-button" class="action-button" disabled>
-                    仅保存配置
+                    <span data-i18n="button.saveOnly">仅保存配置</span>
                   </button>
                   <button id="apply-button" class="action-button primary" disabled>
-                    保存并连接 Wi-Fi
+                    <span data-i18n="button.saveConnect">保存并连接 Wi-Fi</span>
                   </button>
                 </div>
-                <p class="action-help">
+                <p class="action-help" data-i18n="settings.saveHelp">
                   仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。
                 </p>
               </div>
 
               <div class="config-action-section">
-                <p class="config-action-title">设备操作</p>
+                <p class="config-action-title" data-i18n="settings.deviceSection">设备操作</p>
                 <div class="action-row action-row-pair">
                   <button id="sync-button" class="action-button subtle" disabled>
-                    同步时间
+                    <span data-i18n="button.syncTime">同步时间</span>
                   </button>
                   <button id="refresh-button" class="action-button subtle" disabled>
-                    全量刷新
+                    <span data-i18n="button.fullRefresh">全量刷新</span>
                   </button>
                 </div>
               </div>
 
               <div class="config-action-section">
-                <p class="config-action-title danger">危险操作</p>
+                <p class="config-action-title danger" data-i18n="settings.dangerSection">危险操作</p>
                 <div class="action-row">
                   <button id="reboot-button" class="action-button danger" disabled>
-                    重启设备
+                    <span data-i18n="button.reboot">重启设备</span>
                   </button>
                 </div>
               </div>
             </div>
 
             <div class="hint-list">
-              <p>Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。</p>
-              <p>蓝牙连接需要先在设备附近点“连接蓝牙”并选择 M5Paper Clock。</p>
+              <p data-i18n="hint.serial">Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。</p>
+              <p data-i18n="hint.bluetooth">蓝牙连接需要先在设备附近点“连接蓝牙”并选择 M5Paper Clock。</p>
             </div>
           </div>
         </div>
@@ -301,8 +312,8 @@
       <section class="band update-band">
         <div class="band-heading">
           <div>
-            <h2>固件更新</h2>
-            <p class="helper-text">
+            <h2 data-i18n="update.heading">固件更新</h2>
+            <p class="helper-text" data-i18n="update.helper">
               日常升级优先使用 OTA；字体、分区变化或首次安装时再使用完整刷写。
             </p>
           </div>
@@ -312,33 +323,33 @@
           <div class="workspace-panel update-panel update-card">
             <div class="update-card-heading">
               <div>
-                <h3>OTA 更新</h3>
-                <p class="helper-text">保留配置，只替换应用固件。</p>
+                <h3 data-i18n="update.otaHeading">OTA 更新</h3>
+                <p class="helper-text" data-i18n="update.otaHelper">保留配置，只替换应用固件。</p>
               </div>
-              <span class="update-badge">推荐</span>
+              <span class="update-badge" data-i18n="update.recommended">推荐</span>
             </div>
 
             <label class="field update-field">
-              <span>OTA 信息地址</span>
+              <span data-i18n="update.otaManifest">OTA 信息地址</span>
               <input id="ota-manifest-input" type="url" />
             </label>
 
             <div class="action-row action-row-pair update-actions">
               <button id="check-update-button" class="action-button" type="button">
-                检查更新
+                <span data-i18n="button.checkUpdate">检查更新</span>
               </button>
               <button id="ota-update-button" class="action-button primary" type="button" disabled>
-                OTA 更新
+                <span data-i18n="button.otaUpdate">OTA 更新</span>
               </button>
             </div>
 
-            <p id="ota-summary" class="update-summary">
+            <p id="ota-summary" class="update-summary" data-i18n="update.otaSummaryDefault">
               读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
             </p>
 
             <div class="local-ota-box">
               <label class="field update-field local-ota-file-field">
-                <span>本地 OTA 固件</span>
+                <span data-i18n="update.localOtaFirmware">本地 OTA 固件</span>
                 <input
                   id="local-ota-file-input"
                   class="visually-hidden-file"
@@ -346,7 +357,7 @@
                   accept=".bin"
                 />
                 <span class="file-picker-control">
-                  <span class="file-picker-button">选择 bin 文件</span>
+                  <span class="file-picker-button" data-i18n="button.chooseBin">选择 bin 文件</span>
                   <span id="local-ota-file-name" class="file-picker-name">
                     未选择文件
                   </span>
@@ -358,9 +369,9 @@
                 type="button"
                 disabled
               >
-                USB 上传并更新
+                <span data-i18n="button.usbUploadUpdate">USB 上传并更新</span>
               </button>
-              <p id="local-ota-summary" class="helper-text">
+              <p id="local-ota-summary" class="helper-text" data-i18n="update.localOtaSummaryDefault">
                 仅支持 USB 串口上传应用固件 bin，保留设备配置。
               </p>
             </div>
@@ -369,30 +380,30 @@
           <div class="workspace-panel update-panel update-card update-card-secondary">
             <div class="update-card-heading">
               <div>
-                <h3>完整刷写</h3>
-                <p class="helper-text">用于首次安装、字体或分区变化。</p>
+                <h3 data-i18n="update.fullFlashHeading">完整刷写</h3>
+                <p class="helper-text" data-i18n="update.fullFlashHelper">用于首次安装、字体或分区变化。</p>
               </div>
-              <span class="update-badge muted">高级</span>
+              <span class="update-badge muted" data-i18n="update.advanced">高级</span>
             </div>
 
-            <p class="update-warning">
+            <p class="update-warning" data-i18n="update.fullFlashWarning">
               可能清除设备配置，包括 Wi-Fi、时区、时钟样式、行情标的和表情条件。
             </p>
 
             <label class="field update-field">
-              <span>完整刷写 Manifest 地址</span>
+              <span data-i18n="update.fullFlashManifest">完整刷写 Manifest 地址</span>
               <input id="web-flash-manifest-input" type="url" />
             </label>
 
             <esp-web-install-button id="web-flash-button" class="web-flash-control">
               <button slot="activate" class="action-button" type="button">
-                完整刷写
+                <span data-i18n="button.fullFlash">完整刷写</span>
               </button>
               <p slot="unsupported" class="helper-text">
-                当前浏览器不支持 WebSerial，请使用桌面版 Chrome 或 Edge。
+                <span data-i18n="browser.webSerialUnsupported">当前浏览器不支持 WebSerial，请使用桌面版 Chrome 或 Edge。</span>
               </p>
               <p slot="not-allowed" class="helper-text">
-                请通过 localhost 或 HTTPS 打开页面。
+                <span data-i18n="browser.notAllowed">请通过 localhost 或 HTTPS 打开页面。</span>
               </p>
             </esp-web-install-button>
           </div>
@@ -402,41 +413,42 @@
       <section class="band market-band">
         <div class="band-heading">
           <div>
-            <h2>行情标的</h2>
-            <p class="helper-text">支持大盘指数和 A 股股票，按代码搜索后直接设为首页行情卡片。</p>
+            <h2 data-i18n="market.heading">行情标的</h2>
+            <p class="helper-text" data-i18n="market.helper">支持大盘指数和 A 股股票，按代码搜索后直接设为首页行情卡片。</p>
           </div>
         </div>
 
         <div class="market-picker-grid">
           <div class="workspace-panel market-panel">
             <div class="market-current">
-              <span class="status-label">当前标的</span>
+              <span class="status-label" data-i18n="market.current">当前标的</span>
               <strong id="market-current-name">上证指数</strong>
               <span id="market-current-code" class="market-code">000001</span>
             </div>
 
             <div class="market-search-row">
               <label class="field market-search-field">
-                <span>代码搜索</span>
+                <span data-i18n="market.searchCode">代码搜索</span>
                 <input
                   id="market-search-input"
                   type="text"
                   inputmode="search"
                   placeholder="输入 600519 / 000001 / 399001 / sh000300"
+                  data-i18n-placeholder="market.searchPlaceholder"
                 />
               </label>
               <button id="market-search-button" class="action-button" type="button">
-                搜索
+                <span data-i18n="button.search">搜索</span>
               </button>
             </div>
 
-            <p class="helper-text market-helper">
+            <p class="helper-text market-helper" data-i18n="market.searchHelper">
               热门标的在下方；输入代码后右侧显示搜索结果。
             </p>
 
             <div class="market-quick">
               <div class="market-subheading">
-                <h3>热门标的</h3>
+                <h3 data-i18n="market.hot">热门标的</h3>
               </div>
               <div id="market-hot-list" class="market-hot-list"></div>
             </div>
@@ -444,11 +456,11 @@
 
           <div class="workspace-panel market-panel">
             <div class="market-subheading">
-              <h3>搜索结果</h3>
+              <h3 data-i18n="market.results">搜索结果</h3>
               <span id="market-result-count" class="status-label">0 个结果</span>
             </div>
             <div id="market-results" class="market-results" aria-live="polite">
-              <p class="empty-state">连接设备后即可搜索并切换行情标的。</p>
+              <p class="empty-state" data-i18n="market.emptyDisconnected">连接设备后即可搜索并切换行情标的。</p>
             </div>
           </div>
         </div>
@@ -456,9 +468,9 @@
 
       <section class="band log-band">
         <div class="band-heading">
-          <h2>通信日志</h2>
+          <h2 data-i18n="log.heading">通信日志</h2>
           <button id="clear-log-button" class="action-button subtle small">
-            清空
+            <span data-i18n="button.clear">清空</span>
           </button>
         </div>
         <pre id="log-output" class="log-output" aria-live="polite"></pre>
