@@ -200,6 +200,7 @@ private:
                             size_t& written, String& error_message);
     bool finishLocalOtaUpdate(String& error_message);
     void abortLocalOtaUpdate();
+    void populateLocalOtaStatus(JsonObject data) const;
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;

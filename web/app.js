@@ -4,6 +4,9 @@ const FALLBACK_BAUD_RATE = 115200;
 const SERIAL_BAUD_RATES = Object.freeze([DEFAULT_BAUD_RATE, FALLBACK_BAUD_RATE]);
 const SERIAL_HANDSHAKE_TIMEOUT_MS = 6000;
 const LOCAL_OTA_CHUNK_SIZE = 512;
+const LOCAL_OTA_CHUNK_RETRIES = 4;
+const LOCAL_OTA_CHUNK_DELAY_MS = 6;
+const LOCAL_OTA_RETRY_DELAY_MS = 250;
 const BLE_DEVICE_NAME_PREFIX = "M5Paper";
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_RX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -820,6 +823,8 @@ function handleResponse(packet) {
 
   if (!packet.ok) {
     const error = new Error(packet.error || "设备返回失败");
+    error.data = payload;
+    error.packet = packet;
     if (packet.error === "Bluetooth pairing required") {
       window.localStorage.removeItem(BLE_AUTH_STORAGE_KEY);
       state.bleAuthToken = "";
@@ -1541,6 +1546,74 @@ async function startOtaUpdate() {
   await closePort();
 }
 
+async function uploadLocalOtaChunk(offset, chunk) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= LOCAL_OTA_CHUNK_RETRIES; attempt += 1) {
+    try {
+      return await sendCommand(
+        "local_ota_chunk",
+        {
+          offset,
+          data: bytesToBase64(chunk),
+        },
+        30000,
+      );
+    } catch (error) {
+      lastError = error;
+      const message = String(error.message || "");
+      const data = error.data || {};
+      if (
+        message.includes("Local OTA offset mismatch") &&
+        Number.isFinite(Number(data.written))
+      ) {
+        appendLog(
+          `本地 OTA offset 已恢复到 ${Number(data.written || 0)}`,
+          "device",
+        );
+        return data;
+      }
+      if (
+        (message.includes("local_ota_chunk 超时") ||
+          message.includes("Invalid local OTA chunk")) &&
+        attempt < LOCAL_OTA_CHUNK_RETRIES
+      ) {
+        const status = await getLocalOtaStatus();
+        if (status?.active && Number.isFinite(Number(status.written))) {
+          const written = Number(status.written || 0);
+          if (written !== offset) {
+            appendLog(`本地 OTA 进度已恢复到 ${written}`, "device");
+            return status;
+          }
+        } else if (!message.includes("Invalid JSON request")) {
+          throw error;
+        }
+      } else if (!message.includes("Invalid JSON request")) {
+        throw error;
+      }
+      const retryReason = message.includes("Invalid JSON request")
+        ? "JSON 损坏"
+        : "响应异常";
+      appendLog(
+        `本地 OTA chunk ${offset} ${retryReason}，重试 ${attempt}/${LOCAL_OTA_CHUNK_RETRIES}`,
+        "error",
+      );
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, LOCAL_OTA_RETRY_DELAY_MS),
+      );
+    }
+  }
+  throw lastError || new Error("本地 OTA chunk 上传失败");
+}
+
+async function getLocalOtaStatus() {
+  try {
+    return await sendCommand("local_ota_status", undefined, 5000);
+  } catch (error) {
+    appendLog(`读取本地 OTA 进度失败: ${error.message}`, "error");
+    return null;
+  }
+}
+
 async function startLocalOtaUpload() {
   if (state.connectionType !== "serial") {
     throw new Error("本地 OTA 上传仅支持 USB 串口");
@@ -1583,14 +1656,7 @@ async function startLocalOtaUpload() {
         firmware.byteLength,
       );
       const chunk = firmware.subarray(offset, nextOffset);
-      const data = await sendCommand(
-        "local_ota_chunk",
-        {
-          offset,
-          data: bytesToBase64(chunk),
-        },
-        30000,
-      );
+      const data = await uploadLocalOtaChunk(offset, chunk);
       offset = Number(data.written || nextOffset);
       renderLocalOtaSummary({ written: offset, total: firmware.byteLength });
       if (
@@ -1603,7 +1669,9 @@ async function startLocalOtaUpload() {
           )}%。`,
         );
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, LOCAL_OTA_CHUNK_DELAY_MS),
+      );
     }
 
     const data = await sendCommand("local_ota_end", undefined, 30000);

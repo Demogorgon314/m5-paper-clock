@@ -3008,7 +3008,24 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
             response_doc["data"]["size"] = local_ota_expected_size_;
         } else {
             response_doc["error"] = error_message;
+            response_doc["data"]["active"] = local_ota_active_;
+            response_doc["data"]["written"] = local_ota_written_;
+            response_doc["data"]["size"] = local_ota_expected_size_;
         }
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "local_ota_status") {
+        if (transport != ConfigTransport::Serial) {
+            response_doc["ok"] = false;
+            response_doc["error"] = "Local OTA upload requires USB";
+            sendConfigDoc(response_doc, transport);
+            return;
+        }
+
+        response_doc["ok"] = true;
+        populateLocalOtaStatus(response_doc.createNestedObject("data"));
         sendConfigDoc(response_doc, transport);
         return;
     }
@@ -3799,12 +3816,12 @@ bool ClockApp::writeLocalOtaChunk(size_t offset,
     }
     if (offset != local_ota_written_) {
         error_message = "Local OTA offset mismatch";
-        abortLocalOtaUpdate();
+        written = local_ota_written_;
         return false;
     }
     if (base64_data.isEmpty()) {
         error_message = "Empty local OTA chunk";
-        abortLocalOtaUpdate();
+        written = local_ota_written_;
         return false;
     }
 
@@ -3816,7 +3833,7 @@ bool ClockApp::writeLocalOtaChunk(size_t offset,
         base64_data.length());
     if (decode_result != 0 || decoded_len == 0) {
         error_message = "Invalid local OTA chunk";
-        abortLocalOtaUpdate();
+        written = local_ota_written_;
         return false;
     }
     if (local_ota_written_ + decoded_len > local_ota_expected_size_) {
@@ -3898,6 +3915,14 @@ void ClockApp::abortLocalOtaUpdate() {
     local_ota_expected_size_ = 0;
     local_ota_written_ = 0;
     local_ota_expected_sha256_.clear();
+    status_message_ = "Local OTA upload aborted";
+    status_error_ = false;
+}
+
+void ClockApp::populateLocalOtaStatus(JsonObject data) const {
+    data["active"] = local_ota_active_;
+    data["written"] = local_ota_written_;
+    data["size"] = local_ota_expected_size_;
 }
 
 void ClockApp::connectSelectedNetwork() {
