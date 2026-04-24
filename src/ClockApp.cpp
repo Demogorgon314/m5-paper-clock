@@ -13,6 +13,7 @@
 #include <esp_system.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha256.h>
+#include <memory>
 
 #include "logic/ComfortLogic.h"
 #include "logic/HolidayLogic.h"
@@ -3613,52 +3614,78 @@ bool ClockApp::performOtaUpdate(const String& url,
         }
     }
 
-    WiFiClient plain_client;
-    WiFiClientSecure secure_client;
-    HTTPClient http;
+    std::unique_ptr<WiFiClient> plain_client;
+    std::unique_ptr<WiFiClientSecure> secure_client;
+    std::unique_ptr<HTTPClient> http(new HTTPClient());
+    if (!http) {
+        error_message = "OTA HTTP allocation failed";
+        return false;
+    }
+
     const bool use_https = url.startsWith("https://");
     if (use_https) {
-        secure_client.setInsecure();
-        if (!http.begin(secure_client, url)) {
+        secure_client.reset(new WiFiClientSecure());
+        if (!secure_client) {
+            error_message = "OTA HTTPS allocation failed";
+            return false;
+        }
+        secure_client->setInsecure();
+        if (!http->begin(*secure_client, url)) {
             error_message = "OTA HTTPS begin failed";
             return false;
         }
-    } else if (!http.begin(plain_client, url)) {
-        error_message = "OTA HTTP begin failed";
-        return false;
+    } else {
+        plain_client.reset(new WiFiClient());
+        if (!plain_client) {
+            error_message = "OTA HTTP client allocation failed";
+            return false;
+        }
+        if (!http->begin(*plain_client, url)) {
+            error_message = "OTA HTTP begin failed";
+            return false;
+        }
     }
 
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    http.setTimeout(15000);
-    http.addHeader("User-Agent", "M5PaperClock/" FIRMWARE_VERSION);
+    http->setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http->setTimeout(15000);
+    http->addHeader("User-Agent", "M5PaperClock/" FIRMWARE_VERSION);
 
-    const int http_code = http.GET();
+    const int http_code = http->GET();
     if (http_code != HTTP_CODE_OK) {
         error_message = http_code > 0 ? "OTA HTTP " + String(http_code)
                                       : "OTA connect failed";
-        http.end();
+        http->end();
         return false;
     }
 
-    const int content_length = http.getSize();
+    const int content_length = http->getSize();
     if (content_length <= 0) {
         error_message = "OTA missing content length";
-        http.end();
+        http->end();
         return false;
     }
 
     if (!Update.begin(static_cast<size_t>(content_length), U_FLASH)) {
         error_message = String("OTA begin failed: ") + Update.errorString();
-        http.end();
+        http->end();
         return false;
     }
 
-    WiFiClient* stream = http.getStreamPtr();
+    WiFiClient* stream = http->getStreamPtr();
     mbedtls_sha256_context sha_context;
     mbedtls_sha256_init(&sha_context);
     mbedtls_sha256_starts_ret(&sha_context, 0);
 
-    uint8_t buffer[1024];
+    constexpr size_t kOtaBufferSize = 1024;
+    std::unique_ptr<uint8_t[]> buffer(new uint8_t[kOtaBufferSize]);
+    if (!buffer) {
+        error_message = "OTA buffer allocation failed";
+        mbedtls_sha256_free(&sha_context);
+        http->end();
+        Update.abort();
+        return false;
+    }
+
     size_t written = 0;
     uint32_t last_progress_ms = millis();
     bool ok = true;
@@ -3676,15 +3703,14 @@ bool ClockApp::performOtaUpdate(const String& url,
             continue;
         }
 
-        const size_t to_read =
-            std::min(available, sizeof(buffer));
-        const int read_count = stream->readBytes(buffer, to_read);
+        const size_t to_read = std::min(available, kOtaBufferSize);
+        const int read_count = stream->readBytes(buffer.get(), to_read);
         if (read_count <= 0) {
             continue;
         }
 
         const size_t update_written =
-            Update.write(buffer, static_cast<size_t>(read_count));
+            Update.write(buffer.get(), static_cast<size_t>(read_count));
         if (update_written != static_cast<size_t>(read_count)) {
             error_message = String("OTA write failed: ") + Update.errorString();
             ok = false;
@@ -3692,7 +3718,7 @@ bool ClockApp::performOtaUpdate(const String& url,
         }
 
         mbedtls_sha256_update_ret(
-            &sha_context, buffer, static_cast<size_t>(read_count));
+            &sha_context, buffer.get(), static_cast<size_t>(read_count));
         written += static_cast<size_t>(read_count);
         last_progress_ms = millis();
         M5.update();
@@ -3701,7 +3727,7 @@ bool ClockApp::performOtaUpdate(const String& url,
     uint8_t digest[32];
     mbedtls_sha256_finish_ret(&sha_context, digest);
     mbedtls_sha256_free(&sha_context);
-    http.end();
+    http->end();
 
     if (ok && written != static_cast<size_t>(content_length)) {
         error_message = "OTA incomplete download";
