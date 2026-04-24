@@ -181,13 +181,35 @@ constexpr int16_t kDashboardCalendarX = 72;
 constexpr int16_t kDashboardCalendarY = 106;
 constexpr int16_t kDashboardCalendarW = 304;
 constexpr int16_t kDashboardCalendarH = 232;
-constexpr int16_t kDashboardTimeX = 414;
+constexpr int16_t kDashboardTimeX = 412;
 constexpr int16_t kDashboardTimeY = 104;
-constexpr int16_t kDashboardTimeW = 468;
+constexpr int16_t kDashboardTimeW = 472;
 constexpr int16_t kDashboardTimeH = 236;
 constexpr int16_t kDashboardTimeDigitW = 92;
 constexpr int16_t kDashboardTimeDigitH = 210;
 constexpr int16_t kDashboardTimeGap = 18;
+constexpr int16_t kDashboardTimeColonW = kDashboardTimeDigitW / 3;
+constexpr int16_t kDashboardTimeTextW =
+    (kDashboardTimeDigitW * 4) + kDashboardTimeColonW +
+    (kDashboardTimeGap * 4);
+constexpr int16_t kDashboardTimeDrawX =
+    kDashboardTimeW > kDashboardTimeTextW
+        ? ((kDashboardTimeW - kDashboardTimeTextW) / 2)
+        : 0;
+constexpr int16_t kDashboardTimeDigitY =
+    (kDashboardTimeH - kDashboardTimeDigitH) / 2;
+constexpr int16_t kDashboardMinuteLocalX =
+    kDashboardTimeDrawX + ((kDashboardTimeDigitW + kDashboardTimeGap) * 2);
+constexpr int16_t kDashboardMinuteCanvasX =
+    alignDownTo4(kDashboardTimeX + kDashboardMinuteLocalX);
+constexpr int16_t kDashboardMinuteCanvasY = kDashboardTimeY;
+constexpr int16_t kDashboardMinuteDrawX =
+    (kDashboardTimeX + kDashboardMinuteLocalX) - kDashboardMinuteCanvasX;
+constexpr int16_t kDashboardMinuteCanvasW =
+    alignUpTo4(kDashboardMinuteDrawX + kDashboardTimeColonW +
+               kDashboardTimeGap + kDashboardTimeDigitW + kDashboardTimeGap +
+               kDashboardTimeDigitW);
+constexpr int16_t kDashboardMinuteCanvasH = kDashboardTimeH;
 constexpr int16_t kDashboardSummaryX = 72;
 constexpr int16_t kDashboardSummaryY = 392;
 constexpr int16_t kDashboardSummaryW = 332;
@@ -199,12 +221,24 @@ constexpr int16_t kDashboardSummaryPriceY = 16;
 constexpr int16_t kDashboardSummaryBottomY = 58;
 constexpr int16_t kDashboardSummaryArrowGap = 12;
 constexpr int16_t kDashboardSummaryValueGap = 14;
-constexpr int16_t kDashboardClimateX = 430;
+constexpr int16_t kDashboardClimateX = 428;
 constexpr int16_t kDashboardClimateY = 392;
-constexpr int16_t kDashboardClimateW = 452;
+constexpr int16_t kDashboardClimateW = 456;
 constexpr int16_t kDashboardClimateH = 86;
 constexpr int16_t kDashboardClimateHumidityDividerX = 126;
 constexpr int16_t kDashboardClimateTemperatureDividerX = 286;
+constexpr int16_t kDashboardClimateHumidityAreaX = 0;
+constexpr int16_t kDashboardClimateHumidityAreaW =
+    alignUpTo4(kDashboardClimateHumidityDividerX + 2);
+constexpr int16_t kDashboardClimateTemperatureAreaX =
+    alignDownTo4(kDashboardClimateHumidityDividerX);
+constexpr int16_t kDashboardClimateTemperatureAreaW =
+    alignUpTo4(kDashboardClimateTemperatureDividerX + 2 -
+               kDashboardClimateTemperatureAreaX);
+constexpr int16_t kDashboardClimateComfortAreaX =
+    alignDownTo4(kDashboardClimateTemperatureDividerX);
+constexpr int16_t kDashboardClimateComfortAreaW =
+    kDashboardClimateW - kDashboardClimateComfortAreaX;
 constexpr uint8_t kCalendarPastFill = 4;
 constexpr uint8_t kCalendarTodayFill = 15;
 
@@ -213,6 +247,8 @@ struct PartialRegion {
     int16_t update_y = 0;
     int16_t draw_x = 0;
     int16_t draw_y = 0;
+    int16_t update_w = 0;
+    int16_t update_h = 0;
 };
 
 inline uint16_t uiTextPixelSize(uint8_t legacy_size) {
@@ -590,15 +626,32 @@ void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
     }
 }
 
-PartialRegion makePartialRegion(int16_t x, int16_t y) {
+PartialRegion makePartialRegion(int16_t x, int16_t y, int16_t w, int16_t h) {
     const int16_t update_x = alignDownTo4(x);
     const int16_t update_y = alignDownTo4(y);
+    const int16_t update_right = alignUpTo4(x + w);
+    const int16_t update_bottom = y + h;
     PartialRegion region;
     region.update_x = update_x;
     region.update_y = update_y;
     region.draw_x = x - update_x;
     region.draw_y = y - update_y;
+    region.update_w = update_right - update_x;
+    region.update_h = update_bottom - update_y;
     return region;
+}
+
+void updateAlignedArea(int16_t x, int16_t y, int16_t w, int16_t h,
+                       m5epd_update_mode_t mode) {
+    const PartialRegion region = makePartialRegion(x, y, w, h);
+    M5.EPD.UpdateArea(region.update_x, region.update_y, region.update_w,
+                      region.update_h, mode);
+}
+
+void pushAndRefreshCanvas(M5EPD_Canvas& canvas, int16_t x, int16_t y,
+                          m5epd_update_mode_t mode) {
+    canvas.pushCanvas(x, y, UPDATE_MODE_NONE);
+    updateAlignedArea(x, y, canvas.width(), canvas.height(), mode);
 }
 
 void drawSegmentCharAt(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
@@ -634,6 +687,22 @@ void drawMinuteTime(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
     renderer.drawText(canvas, kTimeMinuteDrawX, kTimeDigitY, minute_text,
                       kTimeDigitWidth, kTimeDigitHeight, kTimeGap, body_color,
                       edge_color);
+}
+
+void drawDashboardMinuteTime(const SegmentRenderer& renderer,
+                             M5EPD_Canvas& canvas, const String& time_digits,
+                             uint8_t body_color, uint8_t edge_color) {
+    if (time_digits.length() != 4) {
+        return;
+    }
+
+    const String minute_text = ":" + time_digits.substring(2);
+    canvas.fillCanvas(kWhite);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.setTextColor(body_color);
+    renderer.drawText(canvas, kDashboardMinuteDrawX, kDashboardTimeDigitY,
+                      minute_text, kDashboardTimeDigitW, kDashboardTimeDigitH,
+                      kDashboardTimeGap, body_color, edge_color);
 }
 
 void drawHumidityInfo(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
@@ -1148,6 +1217,9 @@ void ClockApp::createCanvases() {
     dashboard_calendar_canvas_.useFreetypeFont(false);
     dashboard_time_canvas_.createCanvas(kDashboardTimeW, kDashboardTimeH);
     dashboard_time_canvas_.useFreetypeFont(false);
+    dashboard_minute_canvas_.createCanvas(kDashboardMinuteCanvasW,
+                                          kDashboardMinuteCanvasH);
+    dashboard_minute_canvas_.useFreetypeFont(false);
     dashboard_summary_canvas_.createCanvas(kDashboardSummaryW,
                                            kDashboardSummaryH);
     dashboard_summary_canvas_.useFreetypeFont(false);
@@ -1332,6 +1404,8 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
+    dashboard_time_partial_count_ = 0;
+    dashboard_climate_partial_count_ = 0;
 
     uint32_t step_started_ms = millis();
     updateTimeCanvas(true);
@@ -1382,6 +1456,8 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     humidity_digit_partial_counts_.fill(0);
     temperature_digit_partial_counts_.fill(0);
     battery_partial_count_ = 0;
+    dashboard_time_partial_count_ = 0;
+    dashboard_climate_partial_count_ = 0;
     const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
 
     uint32_t step_started_ms = millis();
@@ -1761,9 +1837,7 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
         battery_partial_count_ = 0;
     } else {
         const m5epd_update_mode_t mode = nextPartialMode(battery_partial_count_);
-        M5.EPD.UpdateArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH,
-                          mode);
-        ++battery_partial_count_;
+        updateAlignedArea(kBatteryX, kBatteryY, kBatteryW, kBatteryH, mode);
     }
     last_battery_percentage_ = battery;
     last_wifi_connected_ = wifi_connected;
@@ -1864,22 +1938,39 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
         return;
     }
 
+    const bool can_refresh_minutes_only =
+        !full_refresh && last_time_text_rendered_.length() == 4 &&
+        time_digits.substring(0, 2) == last_time_text_rendered_.substring(0, 2);
+
+    if (can_refresh_minutes_only) {
+        drawDashboardMinuteTime(renderer_, dashboard_minute_canvas_, time_digits,
+                                kText, kTimeEdgeText);
+        const m5epd_update_mode_t mode =
+            nextPartialMode(dashboard_time_partial_count_);
+        pushAndRefreshCanvas(dashboard_minute_canvas_, kDashboardMinuteCanvasX,
+                             kDashboardMinuteCanvasY, mode);
+        ++partial_refresh_count_;
+        last_time_text_rendered_ = time_digits;
+        return;
+    }
+
     const String time_text =
         time_digits.substring(0, 2) + ":" + time_digits.substring(2);
-    const int16_t text_w =
-        renderer_.measureText(time_text, kDashboardTimeDigitW, kDashboardTimeGap);
-    const int16_t draw_x = max<int16_t>(0, (kDashboardTimeW - text_w) / 2);
-    const int16_t draw_y = (kDashboardTimeH - kDashboardTimeDigitH) / 2;
 
     dashboard_time_canvas_.fillCanvas(kWhite);
-    renderer_.drawText(dashboard_time_canvas_, draw_x, draw_y, time_text,
+    renderer_.drawText(dashboard_time_canvas_, kDashboardTimeDrawX,
+                       kDashboardTimeDigitY, time_text,
                        kDashboardTimeDigitW, kDashboardTimeDigitH,
                        kDashboardTimeGap, kText, kTimeEdgeText);
     dashboard_time_canvas_.pushCanvas(kDashboardTimeX, kDashboardTimeY,
                                       UPDATE_MODE_NONE);
-    if (!full_refresh) {
-        M5.EPD.UpdateArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
-                          kDashboardTimeH, UPDATE_MODE_GC16);
+    if (full_refresh) {
+        dashboard_time_partial_count_ = 0;
+    } else {
+        const m5epd_update_mode_t mode =
+            nextPartialMode(dashboard_time_partial_count_);
+        updateAlignedArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
+                          kDashboardTimeH, mode);
         ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
@@ -2075,10 +2166,32 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
 
     dashboard_climate_canvas_.pushCanvas(kDashboardClimateX, kDashboardClimateY,
                                          UPDATE_MODE_NONE);
-    if (!full_refresh) {
-        M5.EPD.UpdateArea(kDashboardClimateX, kDashboardClimateY,
-                          kDashboardClimateW, kDashboardClimateH,
-                          UPDATE_MODE_GC16);
+    if (full_refresh) {
+        dashboard_climate_partial_count_ = 0;
+    } else {
+        int16_t dirty_left = kDashboardClimateW;
+        int16_t dirty_right = 0;
+        const auto includeDirtyArea = [&](int16_t x, int16_t w) {
+            dirty_left = min<int16_t>(dirty_left, x);
+            dirty_right = max<int16_t>(dirty_right, static_cast<int16_t>(x + w));
+        };
+        if (humidity_changed) {
+            includeDirtyArea(kDashboardClimateHumidityAreaX,
+                             kDashboardClimateHumidityAreaW);
+        }
+        if (temperature_changed) {
+            includeDirtyArea(kDashboardClimateTemperatureAreaX,
+                             kDashboardClimateTemperatureAreaW);
+        }
+        if (comfort_changed) {
+            includeDirtyArea(kDashboardClimateComfortAreaX,
+                             kDashboardClimateComfortAreaW);
+        }
+
+        const m5epd_update_mode_t mode =
+            nextPartialMode(dashboard_climate_partial_count_);
+        updateAlignedArea(kDashboardClimateX + dirty_left, kDashboardClimateY,
+                          dirty_right - dirty_left, kDashboardClimateH, mode);
         ++partial_refresh_count_;
     }
     last_humidity_text_rendered_ = humidity_text;

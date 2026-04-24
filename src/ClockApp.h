@@ -265,6 +265,7 @@ private:
     M5EPD_Canvas battery_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_calendar_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_time_canvas_ {&M5.EPD};
+    M5EPD_Canvas dashboard_minute_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_summary_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_summary_cjk_canvas_ {&M5.EPD};
     M5EPD_Canvas dashboard_climate_canvas_ {&M5.EPD};
@@ -347,4 +348,6 @@ private:
     std::array<uint8_t, 3> humidity_digit_partial_counts_ {};
     std::array<uint8_t, 3> temperature_digit_partial_counts_ {};
     uint8_t battery_partial_count_ = 0;
+    uint8_t dashboard_time_partial_count_ = 0;
+    uint8_t dashboard_climate_partial_count_ = 0;
 };
