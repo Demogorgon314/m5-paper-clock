@@ -117,6 +117,10 @@ const I18N = Object.freeze({
     "update.noOtaInfo": "没有可用的 OTA 固件信息。",
     "update.latestSummary": "当前 {current}，可用 {available}，已是最新版本，固件 {size} MB。",
     "update.availableSummary": "当前 {current}，可用 {available}，固件 {size} MB。",
+    "update.otaProgressPreparing": "准备更新",
+    "update.otaProgressDownloading": "正在下载 {percent}% ({written} / {total})",
+    "update.otaProgressVerifying": "正在校验固件",
+    "update.otaProgressInstalled": "OTA 已安装",
     "update.noFile": "未选择文件",
     "update.localUploading": "{file}，正在上传 {percent}% ({written} / {total})。",
     "update.localReady": "{file}，可通过 USB 上传并更新。",
@@ -244,6 +248,10 @@ const I18N = Object.freeze({
     "update.noOtaInfo": "No OTA firmware information is available.",
     "update.latestSummary": "Current {current}, available {available}, already up to date, firmware {size} MB.",
     "update.availableSummary": "Current {current}, available {available}, firmware {size} MB.",
+    "update.otaProgressPreparing": "Preparing update",
+    "update.otaProgressDownloading": "Downloading {percent}% ({written} / {total})",
+    "update.otaProgressVerifying": "Verifying firmware",
+    "update.otaProgressInstalled": "OTA installed",
     "update.noFile": "No file selected",
     "update.localUploading": "{file}, uploading {percent}% ({written} / {total}).",
     "update.localReady": "{file}, ready to upload and update over USB.",
@@ -420,6 +428,10 @@ const elements = {
   webFlashManifestInput: document.querySelector("#web-flash-manifest-input"),
   webFlashButton: document.querySelector("#web-flash-button"),
   otaSummary: document.querySelector("#ota-summary"),
+  otaProgressBox: document.querySelector("#ota-progress-box"),
+  otaProgressLabel: document.querySelector("#ota-progress-label"),
+  otaProgressPercent: document.querySelector("#ota-progress-percent"),
+  otaProgressBar: document.querySelector("#ota-progress-bar"),
   localOtaSummary: document.querySelector("#local-ota-summary"),
   marketCurrentName: document.querySelector("#market-current-name"),
   marketCurrentCode: document.querySelector("#market-current-code"),
@@ -460,6 +472,7 @@ const state = {
   otaManifest: null,
   otaManifestUrl: "",
   otaUpdateAvailable: false,
+  otaProgress: null,
   localOtaFile: null,
   localOtaLoggedWritten: 0,
   marketResultsVisible: false,
@@ -527,6 +540,7 @@ function setLocale(locale) {
   renderMarketHotList();
   renderMarketResults();
   renderOtaSummary(state.otaManifest);
+  renderOtaProgress();
   renderLocalOtaSummary();
 }
 
@@ -1152,6 +1166,15 @@ async function sendCommand(cmd, data = undefined, timeoutMs = REQUEST_TIMEOUT_MS
 }
 
 function handleResponse(packet) {
+  if (packet.event === "ota_progress" && packet.data) {
+    state.otaProgress = {
+      stage: String(packet.data.stage || "downloading"),
+      written: Number(packet.data.written || 0),
+      total: Number(packet.data.size || 0),
+    };
+    renderOtaProgress();
+  }
+
   if (packet.event === "local_ota_progress" && packet.data) {
     renderLocalOtaSummary({
       written: Number(packet.data.written || 0),
@@ -1167,8 +1190,9 @@ function handleResponse(packet) {
     const written = Number(packet.data.written || 0);
     const size = Number(packet.data.size || 0);
     if (
-      written >= size ||
-      written - state.localOtaLoggedWritten >= LOCAL_OTA_CHUNK_SIZE * 20
+      packet.event === "local_ota_progress" &&
+      (written >= size ||
+        written - state.localOtaLoggedWritten >= LOCAL_OTA_CHUNK_SIZE * 20)
     ) {
       state.localOtaLoggedWritten = written;
       appendLog(
@@ -1909,6 +1933,42 @@ function renderOtaSummary(manifest) {
   });
 }
 
+function renderOtaProgress(progress = state.otaProgress) {
+  if (!elements.otaProgressBox) {
+    return;
+  }
+  if (!progress) {
+    elements.otaProgressBox.hidden = true;
+    elements.otaProgressBar.value = 0;
+    elements.otaProgressPercent.textContent = "0%";
+    elements.otaProgressLabel.textContent = t("update.otaProgressPreparing");
+    return;
+  }
+
+  const written = Math.max(0, Number(progress.written || 0));
+  const total = Math.max(0, Number(progress.total || progress.size || 0));
+  const percent =
+    total > 0 ? Math.min(100, Math.floor((written / total) * 100)) : 0;
+  const stage = String(progress.stage || "downloading");
+
+  elements.otaProgressBox.hidden = false;
+  elements.otaProgressBar.value = percent;
+  elements.otaProgressPercent.textContent = `${percent}%`;
+  if (stage === "installed") {
+    elements.otaProgressLabel.textContent = t("update.otaProgressInstalled");
+  } else if (stage === "verifying") {
+    elements.otaProgressLabel.textContent = t("update.otaProgressVerifying");
+  } else if (stage === "preparing") {
+    elements.otaProgressLabel.textContent = t("update.otaProgressPreparing");
+  } else {
+    elements.otaProgressLabel.textContent = t("update.otaProgressDownloading", {
+      percent,
+      written: formatBytes(written),
+      total: total > 0 ? formatBytes(total) : "-",
+    });
+  }
+}
+
 function renderLocalOtaSummary(progress = null) {
   const file = state.localOtaFile;
   elements.localOtaFileName.textContent = file
@@ -1947,6 +2007,8 @@ function syncWebFlashManifest() {
 async function checkForUpdate() {
   const manifestUrl =
     elements.otaManifestInput.value.trim() || DEFAULT_OTA_MANIFEST_URL;
+  state.otaProgress = null;
+  renderOtaProgress();
   setMessage(localized("正在读取 OTA 信息。", "Reading OTA information."));
   const manifest = await fetchOtaManifest(manifestUrl);
   if (!manifest?.ota?.url || !manifest?.ota?.sha256) {
@@ -1994,6 +2056,12 @@ async function startOtaUpdate() {
       "The device is downloading and installing OTA firmware. Keep power connected.",
     ),
   );
+  state.otaProgress = {
+    stage: "preparing",
+    written: 0,
+    total: Number(ota.size || 0),
+  };
+  renderOtaProgress();
   const data = await sendCommand(
     "ota_update",
     {
@@ -2005,6 +2073,12 @@ async function startOtaUpdate() {
   if (data.status) {
     updateStatus(data.status);
   }
+  state.otaProgress = {
+    stage: "installed",
+    written: Number(ota.size || 0),
+    total: Number(ota.size || 0),
+  };
+  renderOtaProgress();
   setMessage(localized("OTA 已安装，设备即将重启。", "OTA installed. The device will reboot."));
   await closePort();
 }

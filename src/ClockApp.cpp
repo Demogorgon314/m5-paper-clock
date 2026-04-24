@@ -2958,7 +2958,7 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         status_error_ = false;
 
         String error_message;
-        const bool ok = performOtaUpdate(url, sha256, error_message);
+        const bool ok = performOtaUpdate(url, sha256, transport, error_message);
         response_doc["ok"] = ok;
         if (ok) {
             status_message_ = "OTA update installed";
@@ -3695,6 +3695,7 @@ void ClockApp::restoreAfterFailedOtaUpdate() {
 
 bool ClockApp::performOtaUpdate(const String& url,
                                 const String& expected_sha256,
+                                ConfigTransport transport,
                                 String& error_message) {
     if (url.isEmpty()) {
         error_message = "Missing OTA URL";
@@ -3772,8 +3773,10 @@ bool ClockApp::performOtaUpdate(const String& url,
         http->end();
         return fail_after_prepare();
     }
+    const size_t total_size = static_cast<size_t>(content_length);
+    sendOtaProgress(transport, "downloading", 0, total_size);
 
-    if (!Update.begin(static_cast<size_t>(content_length), U_FLASH)) {
+    if (!Update.begin(total_size, U_FLASH)) {
         error_message = String("OTA begin failed: ") + Update.errorString();
         http->end();
         return fail_after_prepare();
@@ -3796,9 +3799,11 @@ bool ClockApp::performOtaUpdate(const String& url,
 
     size_t written = 0;
     uint32_t last_progress_ms = millis();
+    uint32_t last_report_ms = millis();
+    size_t last_reported = 0;
     bool ok = true;
 
-    while (written < static_cast<size_t>(content_length)) {
+    while (written < total_size) {
         const size_t available = stream->available();
         if (available == 0) {
             if (millis() - last_progress_ms > 30000) {
@@ -3829,7 +3834,17 @@ bool ClockApp::performOtaUpdate(const String& url,
             &sha_context, buffer.get(), static_cast<size_t>(read_count));
         written += static_cast<size_t>(read_count);
         last_progress_ms = millis();
+        if (written >= total_size || written - last_reported >= 32768 ||
+            millis() - last_report_ms >= 1000) {
+            last_reported = written;
+            last_report_ms = millis();
+            sendOtaProgress(transport, "downloading", written, total_size);
+        }
         M5.update();
+    }
+
+    if (ok) {
+        sendOtaProgress(transport, "verifying", written, total_size);
     }
 
     uint8_t digest[32];
@@ -3837,7 +3852,7 @@ bool ClockApp::performOtaUpdate(const String& url,
     mbedtls_sha256_free(&sha_context);
     http->end();
 
-    if (ok && written != static_cast<size_t>(content_length)) {
+    if (ok && written != total_size) {
         error_message = "OTA incomplete download";
         ok = false;
     }
@@ -3863,6 +3878,7 @@ bool ClockApp::performOtaUpdate(const String& url,
         error_message = "OTA not finished";
         return fail_after_prepare();
     }
+    sendOtaProgress(transport, "installed", total_size, total_size);
     return true;
 }
 
@@ -4082,6 +4098,19 @@ void ClockApp::processLocalOtaBinaryStream() {
             sendLocalOtaProgress(ConfigTransport::Serial);
         }
     }
+}
+
+void ClockApp::sendOtaProgress(ConfigTransport transport, const char* stage,
+                               size_t written, size_t size) const {
+    DynamicJsonDocument doc(512);
+    doc["id"] = 0;
+    doc["ok"] = true;
+    doc["event"] = "ota_progress";
+    JsonObject data = doc.createNestedObject("data");
+    data["stage"] = stage;
+    data["written"] = written;
+    data["size"] = size;
+    sendConfigDoc(doc, transport);
 }
 
 void ClockApp::sendLocalOtaProgress(ConfigTransport transport) const {

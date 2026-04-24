@@ -346,6 +346,15 @@
             <p id="ota-summary" class="update-summary" data-i18n="update.otaSummaryDefault">
               读取 release metadata 后可以通过 Wi-Fi 执行 OTA 更新。
             </p>
+            <div id="ota-progress-box" class="ota-progress-box" hidden>
+              <div class="ota-progress-meta">
+                <span id="ota-progress-label" data-i18n="update.otaProgressPreparing">
+                  准备更新
+                </span>
+                <strong id="ota-progress-percent">0%</strong>
+              </div>
+              <progress id="ota-progress-bar" value="0" max="100"></progress>
+            </div>
 
             <div class="local-ota-box">
               <label class="field update-field local-ota-file-field">

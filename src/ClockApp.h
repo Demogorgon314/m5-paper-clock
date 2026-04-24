@@ -198,7 +198,7 @@ private:
     void prepareBleConfigForOta();
     void releaseTypographyForOta();
     bool performOtaUpdate(const String& url, const String& expected_sha256,
-                          String& error_message);
+                          ConfigTransport transport, String& error_message);
     bool beginLocalOtaUpdate(size_t size, const String& expected_sha256,
                              bool binary_mode, String& error_message);
     bool writeLocalOtaChunk(size_t offset, const String& base64_data,
@@ -209,6 +209,8 @@ private:
     void abortLocalOtaUpdate();
     void populateLocalOtaStatus(JsonObject data) const;
     void processLocalOtaBinaryStream();
+    void sendOtaProgress(ConfigTransport transport, const char* stage,
+                         size_t written, size_t size) const;
     void sendLocalOtaProgress(ConfigTransport transport) const;
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
