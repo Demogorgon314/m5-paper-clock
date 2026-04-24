@@ -467,6 +467,64 @@ button:focus {
   margin-top: 0;
 }
 
+.local-ota-file-field {
+  cursor: pointer;
+}
+
+.visually-hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.file-picker-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.file-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0 16px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.file-picker-name {
+  min-width: 0;
+  padding: 0 14px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-ota-file-field:focus-within .file-picker-control {
+  outline: 2px solid rgba(14, 124, 102, 0.2);
+  outline-offset: 2px;
+}
+
+.local-ota-file-field:hover .file-picker-control {
+  border-color: var(--warm);
+}
+
 .local-ota-box .action-button {
   width: 100%;
   margin-top: 12px;

@@ -337,9 +337,20 @@
             </p>
 
             <div class="local-ota-box">
-              <label class="field update-field">
+              <label class="field update-field local-ota-file-field">
                 <span>本地 OTA 固件</span>
-                <input id="local-ota-file-input" type="file" accept=".bin" />
+                <input
+                  id="local-ota-file-input"
+                  class="visually-hidden-file"
+                  type="file"
+                  accept=".bin"
+                />
+                <span class="file-picker-control">
+                  <span class="file-picker-button">选择 bin 文件</span>
+                  <span id="local-ota-file-name" class="file-picker-name">
+                    未选择文件
+                  </span>
+                </span>
               </label>
               <button
                 id="local-ota-upload-button"

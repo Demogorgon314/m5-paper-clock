@@ -112,6 +112,7 @@ const elements = {
   checkUpdateButton: document.querySelector("#check-update-button"),
   otaUpdateButton: document.querySelector("#ota-update-button"),
   localOtaFileInput: document.querySelector("#local-ota-file-input"),
+  localOtaFileName: document.querySelector("#local-ota-file-name"),
   localOtaUploadButton: document.querySelector("#local-ota-upload-button"),
   togglePasswordButton: document.querySelector("#toggle-password-button"),
   clearLogButton: document.querySelector("#clear-log-button"),
@@ -1422,6 +1423,9 @@ function renderOtaSummary(manifest) {
 
 function renderLocalOtaSummary(progress = null) {
   const file = state.localOtaFile;
+  elements.localOtaFileName.textContent = file
+    ? `${file.name} · ${formatBytes(file.size)}`
+    : "未选择文件";
   if (!file) {
     elements.localOtaSummary.textContent =
       "仅支持 USB 串口上传应用固件 bin，保留设备配置。";
