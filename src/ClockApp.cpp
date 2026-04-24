@@ -34,7 +34,20 @@
 #define FIRMWARE_BUILD_TIME "unknown"
 #endif
 
+#ifndef M5_CLOCK_ENABLE_PERF_LOGS
+#define M5_CLOCK_ENABLE_PERF_LOGS 0
+#endif
+
 namespace {
+
+constexpr bool kPerfLogs = M5_CLOCK_ENABLE_PERF_LOGS != 0;
+
+template <typename... Args>
+void logPerf(const char* format, Args... args) {
+    if (kPerfLogs) {
+        Serial.printf(format, args...);
+    }
+}
 
 constexpr int16_t alignDownTo4(int16_t value) {
     return value & ~0x03;
@@ -1013,7 +1026,6 @@ bool ClockApp::loadCjkFont(M5EPD_Canvas& canvas,
         }
     }
     canvas.useFreetypeFont(false);
-    Serial.println("[font] loadFont + createRender OK");
     return true;
 }
 
@@ -1300,7 +1312,7 @@ void ClockApp::renderClockPage(bool full_refresh) {
 
 void ClockApp::renderClassicClockPage(bool full_refresh) {
     const uint32_t render_started_ms = millis();
-    Serial.printf("[perf] renderClassicClockPage start full=%d at=%lu\n",
+    logPerf("[perf] renderClassicClockPage start full=%d at=%lu\n",
                   full_refresh ? 1 : 0, render_started_ms);
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
@@ -1323,34 +1335,34 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
 
     uint32_t step_started_ms = millis();
     updateTimeCanvas(true);
-    Serial.printf("[perf] classic updateTimeCanvas took=%lu\n",
+    logPerf("[perf] classic updateTimeCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateBatteryCanvas(true);
-    Serial.printf("[perf] classic updateBatteryCanvas took=%lu\n",
+    logPerf("[perf] classic updateBatteryCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateInfoCanvas(true);
-    Serial.printf("[perf] classic updateInfoCanvas took=%lu\n",
+    logPerf("[perf] classic updateInfoCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateDateCanvas(true);
-    Serial.printf("[perf] classic updateDateCanvas took=%lu\n",
+    logPerf("[perf] classic updateDateCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     const m5epd_update_mode_t mode =
         full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
     M5.EPD.UpdateFull(mode);
-    Serial.printf("[perf] classic UpdateFull mode=%d took=%lu\n",
+    logPerf("[perf] classic UpdateFull mode=%d took=%lu\n",
                   static_cast<int>(mode), millis() - step_started_ms);
     partial_refresh_count_ = 0;
-    Serial.printf("[perf] renderClassicClockPage total=%lu\n",
+    logPerf("[perf] renderClassicClockPage total=%lu\n",
                   millis() - render_started_ms);
 }
 
 void ClockApp::renderDashboardClockPage(bool full_refresh) {
     const uint32_t render_started_ms = millis();
-    Serial.printf("[perf] renderDashboardClockPage start full=%d at=%lu\n",
+    logPerf("[perf] renderDashboardClockPage start full=%d at=%lu\n",
                   full_refresh ? 1 : 0, render_started_ms);
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
@@ -1374,33 +1386,33 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
 
     uint32_t step_started_ms = millis();
     updateDateCanvas(true);
-    Serial.printf("[perf] dashboard updateDateCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateDateCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateBatteryCanvas(true);
-    Serial.printf("[perf] dashboard updateBatteryCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateBatteryCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateDashboardCalendarCanvas(true);
-    Serial.printf("[perf] dashboard updateDashboardCalendarCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateDashboardCalendarCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateDashboardTimeCanvas(true);
-    Serial.printf("[perf] dashboard updateDashboardTimeCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateDashboardTimeCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateDashboardSummaryCanvas(true, false);
-    Serial.printf("[perf] dashboard updateDashboardSummaryCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateDashboardSummaryCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     updateDashboardClimateCanvas(true);
-    Serial.printf("[perf] dashboard updateDashboardClimateCanvas took=%lu\n",
+    logPerf("[perf] dashboard updateDashboardClimateCanvas took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     const m5epd_update_mode_t mode =
         full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
     M5.EPD.UpdateFull(mode);
-    Serial.printf("[perf] dashboard UpdateFull mode=%d took=%lu\n",
+    logPerf("[perf] dashboard UpdateFull mode=%d took=%lu\n",
                   static_cast<int>(mode), millis() - step_started_ms);
     partial_refresh_count_ = 0;
     if (fast_entry) {
@@ -1408,7 +1420,7 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
         pending_dashboard_calendar_cjk_render_ = true;
     }
     fast_dashboard_entry_render_ = false;
-    Serial.printf("[perf] renderDashboardClockPage total=%lu\n",
+    logPerf("[perf] renderDashboardClockPage total=%lu\n",
                   millis() - render_started_ms);
 }
 
@@ -3305,7 +3317,7 @@ int ClockApp::buttonIdAt(int16_t x, int16_t y) const {
 
 void ClockApp::switchPage(PageId page, bool force_full_refresh) {
     const uint32_t started_ms = millis();
-    Serial.printf("[perf] switchPage from=%d to=%d force_full=%d at=%lu\n",
+    logPerf("[perf] switchPage from=%d to=%d force_full=%d at=%lu\n",
                   static_cast<int>(current_page_), static_cast<int>(page),
                   force_full_refresh ? 1 : 0, started_ms);
     const PageId previous_page = current_page_;
@@ -3319,7 +3331,7 @@ void ClockApp::switchPage(PageId page, bool force_full_refresh) {
     buttons_.clear();
     renderPage(force_full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16,
                force_full_refresh);
-    Serial.printf("[perf] switchPage to=%d done total=%lu\n",
+    logPerf("[perf] switchPage to=%d done total=%lu\n",
                   static_cast<int>(page), millis() - started_ms);
 }
 
@@ -3469,7 +3481,7 @@ void ClockApp::autoConnectIfNeeded() {
     }
 
     const uint32_t started_ms = millis();
-    Serial.printf("[perf] autoConnectIfNeeded start attempted=%d ssid=%d at=%lu\n",
+    logPerf("[perf] autoConnectIfNeeded start attempted=%d ssid=%d at=%lu\n",
                   auto_connect_attempted_ ? 1 : 0,
                   settings_.ssid.isEmpty() ? 0 : 1, started_ms);
     auto_connect_attempted_ = true;
@@ -3477,32 +3489,32 @@ void ClockApp::autoConnectIfNeeded() {
     status_error_ = false;
     uint32_t step_started_ms = millis();
     updateSettingsStatusCanvas(UPDATE_MODE_GL16);
-    Serial.printf("[perf] autoConnect status(connecting) took=%lu\n",
+    logPerf("[perf] autoConnect status(connecting) took=%lu\n",
                   millis() - step_started_ms);
 
     step_started_ms = millis();
     if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
-        Serial.printf("[perf] autoConnect ensureConnected failed after=%lu\n",
+        logPerf("[perf] autoConnect ensureConnected failed after=%lu\n",
                       millis() - step_started_ms);
         status_message_ = "Wi-Fi connect failed";
         status_error_ = true;
         updateSettingsStatusCanvas(UPDATE_MODE_GL16);
         return;
     }
-    Serial.printf("[perf] autoConnect ensureConnected ok after=%lu\n",
+    logPerf("[perf] autoConnect ensureConnected ok after=%lu\n",
                   millis() - step_started_ms);
 
     status_message_ = "Wi-Fi connected, syncing time...";
     step_started_ms = millis();
     updateSettingsStatusCanvas(UPDATE_MODE_GL16);
-    Serial.printf("[perf] autoConnect status(syncing) took=%lu\n",
+    logPerf("[perf] autoConnect status(syncing) took=%lu\n",
                   millis() - step_started_ms);
     step_started_ms = millis();
     if (trySyncTime(false)) {
-        Serial.printf("[perf] autoConnect trySyncTime ok after=%lu\n",
+        logPerf("[perf] autoConnect trySyncTime ok after=%lu\n",
                       millis() - step_started_ms);
         switchPage(PageId::Clock);
-        Serial.printf("[perf] autoConnect switchPage done total=%lu\n",
+        logPerf("[perf] autoConnect switchPage done total=%lu\n",
                       millis() - started_ms);
     }
 }
@@ -3559,7 +3571,7 @@ std::vector<ClockApp::WiFiNetwork> ClockApp::scanWiFiNetworks(bool update_status
 
 bool ClockApp::trySyncTime(bool allow_connect) {
     const uint32_t started_ms = millis();
-    Serial.printf("[perf] trySyncTime start allow_connect=%d connected=%d at=%lu\n",
+    logPerf("[perf] trySyncTime start allow_connect=%d connected=%d at=%lu\n",
                   allow_connect ? 1 : 0, connectivity_.isConnected() ? 1 : 0,
                   started_ms);
     if (allow_connect && !connectivity_.isConnected()) {
@@ -3573,7 +3585,7 @@ bool ClockApp::trySyncTime(bool allow_connect) {
         }
         const uint32_t connect_started_ms = millis();
         if (!connectivity_.ensureConnected(settings_.ssid, settings_.password)) {
-            Serial.printf("[perf] trySyncTime ensureConnected failed after=%lu\n",
+            logPerf("[perf] trySyncTime ensureConnected failed after=%lu\n",
                           millis() - connect_started_ms);
             status_message_ = "Wi-Fi connect failed";
             status_error_ = true;
@@ -3582,7 +3594,7 @@ bool ClockApp::trySyncTime(bool allow_connect) {
             }
             return false;
         }
-        Serial.printf("[perf] trySyncTime ensureConnected ok after=%lu\n",
+        logPerf("[perf] trySyncTime ensureConnected ok after=%lu\n",
                       millis() - connect_started_ms);
     }
 
@@ -3597,7 +3609,7 @@ bool ClockApp::trySyncTime(bool allow_connect) {
 
     const uint32_t sync_started_ms = millis();
     if (connectivity_.syncTimeToRtc(settings_.timezone)) {
-        Serial.printf("[perf] trySyncTime syncTimeToRtc ok after=%lu\n",
+        logPerf("[perf] trySyncTime syncTimeToRtc ok after=%lu\n",
                       millis() - sync_started_ms);
         settings_.time_synced = true;
         store_.saveTimeSynced(true);
@@ -3606,7 +3618,7 @@ bool ClockApp::trySyncTime(bool allow_connect) {
         M5.RTC.getTime(&last_time_);
         M5.RTC.getDate(&last_date_);
     } else {
-        Serial.printf("[perf] trySyncTime syncTimeToRtc failed after=%lu\n",
+        logPerf("[perf] trySyncTime syncTimeToRtc failed after=%lu\n",
                       millis() - sync_started_ms);
         status_message_ = "Time sync failed";
         status_error_ = true;
@@ -3615,10 +3627,10 @@ bool ClockApp::trySyncTime(bool allow_connect) {
     if (current_page_ == PageId::Settings) {
         const uint32_t status_started_ms = millis();
         updateSettingsStatusCanvas(UPDATE_MODE_GL16);
-        Serial.printf("[perf] trySyncTime settings status update took=%lu\n",
+        logPerf("[perf] trySyncTime settings status update took=%lu\n",
                       millis() - status_started_ms);
     }
-    Serial.printf("[perf] trySyncTime done success=%d total=%lu\n",
+    logPerf("[perf] trySyncTime done success=%d total=%lu\n",
                   status_error_ ? 0 : 1, millis() - started_ms);
     return !status_error_;
 }
