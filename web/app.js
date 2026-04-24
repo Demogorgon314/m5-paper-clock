@@ -2,6 +2,7 @@ const CFG_PREFIX = "@cfg:";
 const DEFAULT_BAUD_RATE = 1500000;
 const FALLBACK_BAUD_RATE = 115200;
 const SERIAL_BAUD_RATES = Object.freeze([DEFAULT_BAUD_RATE, FALLBACK_BAUD_RATE]);
+const SERIAL_HANDSHAKE_TIMEOUT_MS = 6000;
 const LOCAL_OTA_CHUNK_SIZE = 512;
 const BLE_DEVICE_NAME_PREFIX = "M5Paper";
 const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -983,7 +984,13 @@ async function openPortAtBaud(port, baudRate) {
     setMessage(`读取串口失败：${error.message}`, true);
     void closePort();
   });
-  const data = await sendCommand("get_status", undefined, 3500);
+  await state.writer.write(state.encoder.encode("\n"));
+  await new Promise((resolve) => window.setTimeout(resolve, 120));
+  const data = await sendCommand(
+    "get_status",
+    undefined,
+    SERIAL_HANDSHAKE_TIMEOUT_MS,
+  );
   updateStatus(data);
   startPolling();
   await searchMarkets("", { silent: true });
