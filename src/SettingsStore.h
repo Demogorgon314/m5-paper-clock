@@ -10,7 +10,7 @@ struct AppSettings {
     String password;
     int8_t timezone = 8;
     bool time_synced = false;
-    uint8_t clock_style = 0;
+    uint8_t clock_style = 1;
     String market_symbol = "sh000001";
     String market_name = "上证指数";
     String ble_pairing_token;

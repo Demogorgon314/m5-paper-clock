@@ -307,7 +307,7 @@ private:
     bool first_settings_render_ = true;
     bool touch_down_ = false;
     bool center_button_long_press_handled_ = false;
-    ClockStyle clock_style_ = ClockStyle::Classic;
+    ClockStyle clock_style_ = ClockStyle::Dashboard;
     BackgroundConnectivityTask background_connectivity_task_ =
         BackgroundConnectivityTask::Idle;
     bool littlefs_ready_ = false;
