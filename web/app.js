@@ -16,6 +16,7 @@ const BLE_TX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const BLE_WRITE_CHUNK_SIZE = 20;
 const BLE_AUTH_STORAGE_KEY = "m5-paper-clock.bleAuthToken";
 const LANGUAGE_STORAGE_KEY = "m5-paper-clock.language";
+const LAYOUT_PRESETS_STORAGE_KEY = "m5-paper-clock.layoutPresets";
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
@@ -150,15 +151,27 @@ const I18N = Object.freeze({
     "comfort.humidityMax": "最高舒适湿度",
     "layout.heading": "仪表盘布局",
     "layout.helper": "拖动组件调整位置，保存后设备会全量刷新一次仪表盘。",
+    "layout.preset": "布局预设",
     "layout.preview": "一比一预览",
     "layout.position": "位置",
     "layout.components": "组件",
     "layout.addComponent": "添加组件",
     "layout.removeComponent": "删除组件",
+    "layout.keyboardHint": "选中画布组件后，可用方向键微调位置，Shift + 方向键大步移动。",
+    "layout.contextReset": "重置位置",
+    "layout.contextRemove": "删除组件",
+    "layout.contextConfirmReset": "确认重置这个组件的位置？",
+    "layout.contextConfirmRemove": "确认删除这个组件？",
+    "layout.contextConfirm": "确认",
+    "layout.contextCancel": "取消",
     "layout.hiddenComponents": "可添加组件",
     "layout.visibleComponents": "已显示组件",
     "layout.noVisibleComponents": "没有显示组件，请先添加组件。",
     "layout.noHiddenComponents": "所有组件都已添加。",
+    "layout.blankName": "空白布局",
+    "layout.copySuffix": "副本",
+    "layout.status": "{name} · {visible}/{total} 个组件{dirty}",
+    "layout.unsaved": " · 未保存",
     "layout.component.date": "日期",
     "layout.component.battery": "状态",
     "layout.component.calendar": "日历",
@@ -241,6 +254,9 @@ const I18N = Object.freeze({
     "button.fullFlash": "完整刷写",
     "button.search": "搜索",
     "button.clear": "清空",
+    "button.newLayout": "新建空白",
+    "button.duplicateLayout": "复制预设",
+    "button.deleteLayout": "删除预设",
     "button.saveLayout": "保存布局",
     "button.resetLayout": "恢复默认布局",
   },
@@ -303,15 +319,27 @@ const I18N = Object.freeze({
     "comfort.humidityMax": "Maximum comfort humidity",
     "layout.heading": "Dashboard Layout",
     "layout.helper": "Drag components to adjust positions. Saving refreshes the dashboard once.",
+    "layout.preset": "Layout preset",
     "layout.preview": "1:1 Preview",
     "layout.position": "Position",
     "layout.components": "Components",
     "layout.addComponent": "Add component",
     "layout.removeComponent": "Remove component",
+    "layout.keyboardHint": "Select a canvas component, then use arrow keys to nudge. Hold Shift for larger steps.",
+    "layout.contextReset": "Reset position",
+    "layout.contextRemove": "Remove component",
+    "layout.contextConfirmReset": "Reset this component position?",
+    "layout.contextConfirmRemove": "Remove this component?",
+    "layout.contextConfirm": "Confirm",
+    "layout.contextCancel": "Cancel",
     "layout.hiddenComponents": "Available components",
     "layout.visibleComponents": "Visible components",
     "layout.noVisibleComponents": "No visible components. Add one first.",
     "layout.noHiddenComponents": "All components are already added.",
+    "layout.blankName": "Blank layout",
+    "layout.copySuffix": "Copy",
+    "layout.status": "{name} · {visible}/{total} components{dirty}",
+    "layout.unsaved": " · Unsaved",
     "layout.component.date": "Date",
     "layout.component.battery": "Status",
     "layout.component.calendar": "Calendar",
@@ -394,6 +422,9 @@ const I18N = Object.freeze({
     "button.fullFlash": "Full Flash",
     "button.search": "Search",
     "button.clear": "Clear",
+    "button.newLayout": "Blank",
+    "button.duplicateLayout": "Duplicate",
+    "button.deleteLayout": "Delete",
     "button.saveLayout": "Save Layout",
     "button.resetLayout": "Reset Layout",
   },
@@ -522,6 +553,11 @@ const elements = {
   comfortHumidityMaxInput: document.querySelector("#comfort-humidity-max-input"),
   layoutPreview: document.querySelector("#layout-preview"),
   layoutComponentList: document.querySelector("#layout-component-list"),
+  layoutEditorStatus: document.querySelector("#layout-editor-status"),
+  layoutPresetSelect: document.querySelector("#layout-preset-select"),
+  layoutNewButton: document.querySelector("#layout-new-button"),
+  layoutDuplicateButton: document.querySelector("#layout-duplicate-button"),
+  layoutDeleteButton: document.querySelector("#layout-delete-button"),
   layoutSaveButton: document.querySelector("#layout-save-button"),
   layoutResetButton: document.querySelector("#layout-reset-button"),
   otaManifestInput: document.querySelector("#ota-manifest-input"),
@@ -578,6 +614,8 @@ const state = {
   marketResultsVisible: false,
   marketResults: [],
   activeClockStyle: "dashboard",
+  activeLayoutId: DEFAULT_LAYOUT_ID,
+  dashboardLayouts: [],
   dashboardLayout: cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT),
   selectedLayoutId: DEFAULT_DASHBOARD_LAYOUT[0]?.id || null,
   draggedLayoutId: null,
@@ -673,6 +711,122 @@ function cloneDashboardLayout(layout) {
     ...item,
     props: { ...(item.props || {}) },
   }));
+}
+
+function createDashboardLayoutPreset(id, name, components) {
+  return {
+    id,
+    name,
+    canvas: {
+      width: DASHBOARD_PREVIEW.width,
+      height: DASHBOARD_PREVIEW.height,
+    },
+    components: dashboardLayoutWithLabels(components),
+  };
+}
+
+function defaultDashboardLayoutPreset() {
+  return createDashboardLayoutPreset(
+    DEFAULT_LAYOUT_ID,
+    DEFAULT_LAYOUT_NAME,
+    DEFAULT_DASHBOARD_LAYOUT,
+  );
+}
+
+function blankDashboardLayoutPreset() {
+  return createDashboardLayoutPreset(
+    uniqueLayoutId("dashboard-blank"),
+    t("layout.blankName"),
+    DEFAULT_DASHBOARD_LAYOUT.map((item) => ({ ...item, visible: false })),
+  );
+}
+
+function uniqueLayoutId(prefix = "dashboard-custom") {
+  const ids = new Set(state.dashboardLayouts.map((layout) => layout.id));
+  let index = Date.now().toString(36);
+  let candidate = `${prefix}-${index}`;
+  while (ids.has(candidate)) {
+    index = `${index}-1`;
+    candidate = `${prefix}-${index}`;
+  }
+  return candidate;
+}
+
+function normalizeDashboardLayoutPreset(layout, fallback = defaultDashboardLayoutPreset()) {
+  return createDashboardLayoutPreset(
+    String(layout?.id || fallback.id || DEFAULT_LAYOUT_ID),
+    String(layout?.name || fallback.name || DEFAULT_LAYOUT_NAME),
+    Array.isArray(layout?.components) ? layout.components : fallback.components,
+  );
+}
+
+function layoutDocumentFromState() {
+  const activeLayout = state.dashboardLayouts.find(
+    (layout) => layout.id === state.activeLayoutId,
+  );
+  const layouts = state.dashboardLayouts.length
+    ? state.dashboardLayouts
+    : [defaultDashboardLayoutPreset()];
+  return {
+    activeLayoutId: activeLayout?.id || DEFAULT_LAYOUT_ID,
+    layouts: layouts.map((layout) => ({
+      id: layout.id,
+      name: layout.name,
+      canvas: {
+        width: DASHBOARD_PREVIEW.width,
+        height: DASHBOARD_PREVIEW.height,
+      },
+      components: layout.components.map((item) => ({
+        id: item.id,
+        type: item.type,
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h,
+        visible: item.visible !== false,
+        props: { ...(item.props || {}) },
+      })),
+    })),
+  };
+}
+
+function saveLayoutPresets() {
+  try {
+    window.localStorage.setItem(
+      LAYOUT_PRESETS_STORAGE_KEY,
+      JSON.stringify(layoutDocumentFromState()),
+    );
+  } catch {
+    // Ignore quota or private-mode storage failures; device save still works.
+  }
+}
+
+function loadLayoutPresets() {
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_PRESETS_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const document = JSON.parse(raw);
+    if (!document || !Array.isArray(document.layouts)) {
+      return;
+    }
+    state.dashboardLayouts = document.layouts.map((layout) =>
+      normalizeDashboardLayoutPreset(layout),
+    );
+    state.activeLayoutId = String(document.activeLayoutId || state.dashboardLayouts[0]?.id || DEFAULT_LAYOUT_ID);
+    const activeLayout =
+      state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+      state.dashboardLayouts[0];
+    if (activeLayout) {
+      state.dashboardLayout = cloneDashboardLayout(activeLayout.components);
+      state.activeLayoutId = activeLayout.id;
+    }
+  } catch {
+    state.dashboardLayouts = [defaultDashboardLayoutPreset()];
+    state.activeLayoutId = DEFAULT_LAYOUT_ID;
+    state.dashboardLayout = cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT);
+  }
 }
 
 function dashboardLayoutWithLabels(layout) {
@@ -1768,9 +1922,83 @@ function setDashboardLayout(layout, { dirty = false } = {}) {
   state.dashboardLayout = dashboardLayoutWithLabels(layout).map(
     clampDashboardLayoutItem,
   );
+  const index = state.dashboardLayouts.findIndex(
+    (preset) => preset.id === state.activeLayoutId,
+  );
+  if (index >= 0) {
+    state.dashboardLayouts[index] = {
+      ...state.dashboardLayouts[index],
+      components: cloneDashboardLayout(state.dashboardLayout),
+    };
+  } else {
+    state.dashboardLayouts = [
+      ...state.dashboardLayouts,
+      createDashboardLayoutPreset(
+        state.activeLayoutId || DEFAULT_LAYOUT_ID,
+        DEFAULT_LAYOUT_NAME,
+        state.dashboardLayout,
+      ),
+    ];
+  }
   state.layoutDirty = dirty;
+  if (dirty) {
+    saveLayoutPresets();
+  }
   renderDashboardLayoutEditor();
   setConnected(state.connected);
+}
+
+function setActiveDashboardLayout(id, { dirty = false } = {}) {
+  const layout =
+    state.dashboardLayouts.find((preset) => preset.id === id) ||
+    state.dashboardLayouts[0] ||
+    defaultDashboardLayoutPreset();
+  state.activeLayoutId = layout.id;
+  state.dashboardLayout = cloneDashboardLayout(layout.components);
+  state.selectedLayoutId =
+    state.dashboardLayout.find((item) => item.visible !== false)?.id ||
+    state.dashboardLayout[0]?.id ||
+    null;
+  state.layoutDirty = dirty;
+  saveLayoutPresets();
+  renderDashboardLayoutEditor();
+  setConnected(state.connected);
+}
+
+function createBlankDashboardPreset() {
+  const preset = blankDashboardLayoutPreset();
+  state.dashboardLayouts = [...state.dashboardLayouts, preset];
+  setActiveDashboardLayout(preset.id, { dirty: true });
+}
+
+function duplicateDashboardPreset() {
+  const source =
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    defaultDashboardLayoutPreset();
+  const preset = createDashboardLayoutPreset(
+    uniqueLayoutId(`${source.id}-copy`),
+    `${source.name} ${t("layout.copySuffix")}`,
+    source.components,
+  );
+  state.dashboardLayouts = [...state.dashboardLayouts, preset];
+  setActiveDashboardLayout(preset.id, { dirty: true });
+}
+
+function deleteDashboardPreset() {
+  if (state.activeLayoutId === DEFAULT_LAYOUT_ID) {
+    return;
+  }
+  const nextLayouts = state.dashboardLayouts.filter(
+    (layout) => layout.id !== state.activeLayoutId,
+  );
+  state.dashboardLayouts = nextLayouts.length
+    ? nextLayouts
+    : [defaultDashboardLayoutPreset()];
+  setActiveDashboardLayout(
+    state.dashboardLayouts.find((layout) => layout.id === DEFAULT_LAYOUT_ID)?.id ||
+      state.dashboardLayouts[0].id,
+    { dirty: true },
+  );
 }
 
 function applyTranslations() {
@@ -2131,6 +2359,11 @@ function setConnected(connected) {
   elements.syncButton.disabled = !allowDeviceActions;
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
+  elements.layoutPresetSelect.disabled = state.activeClockStyle === "classic";
+  elements.layoutNewButton.disabled = state.activeClockStyle === "classic";
+  elements.layoutDuplicateButton.disabled = state.activeClockStyle === "classic";
+  elements.layoutDeleteButton.disabled =
+    state.activeClockStyle === "classic" || state.activeLayoutId === DEFAULT_LAYOUT_ID;
   elements.layoutSaveButton.disabled =
     state.activeClockStyle === "classic" || !allowDeviceActions || !state.layoutDirty;
   elements.layoutResetButton.disabled =
@@ -2204,6 +2437,8 @@ function renderDashboardLayoutEditor() {
   if (!elements.layoutPreview || !elements.layoutComponentList) {
     return;
   }
+  renderLayoutPresetControls();
+  renderLayoutEditorStatus();
 
   elements.layoutPreview.innerHTML = "";
   const previewCanvas = createDashboardPreviewCanvas();
@@ -2250,6 +2485,7 @@ function renderDashboardLayoutEditor() {
       node.classList.add("is-selected");
     }
     node.dataset.id = item.id;
+    node.tabIndex = 0;
     node.style.left = `${(item.x / DASHBOARD_PREVIEW.width) * 100}%`;
     node.style.top = `${(item.y / DASHBOARD_PREVIEW.height) * 100}%`;
     node.style.width = `${(item.w / DASHBOARD_PREVIEW.width) * 100}%`;
@@ -2260,6 +2496,12 @@ function renderDashboardLayoutEditor() {
     );
     node.addEventListener("click", () => {
       selectDashboardLayoutItem(item.id);
+      focusSelectedLayoutComponent();
+    });
+    node.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      selectDashboardLayoutItem(item.id);
+      showLayoutContextMenu(item.id, event.clientX, event.clientY);
     });
     node.addEventListener("keydown", (event) => {
       const moves = {
@@ -2286,6 +2528,7 @@ function renderDashboardLayoutEditor() {
       };
       state.layoutGuides = { vertical: [], horizontal: [] };
       node.setPointerCapture?.(event.pointerId);
+      node.focus({ preventScroll: true });
       event.preventDefault();
     });
     elements.layoutPreview.appendChild(node);
@@ -2311,6 +2554,7 @@ function renderDashboardLayoutEditor() {
   row.className = "layout-position-row is-selected";
   row.dataset.id = selectedItem.id;
   row.innerHTML = `
+    <div class="layout-position-section-title">${escapeHtml(t("layout.position"))}</div>
     <div class="layout-position-heading">
       <strong>${escapeHtml(t(selectedItem.labelKey))}</strong>
       <span>${escapeHtml(selectedItem.id)}</span>
@@ -2319,14 +2563,7 @@ function renderDashboardLayoutEditor() {
       <label><span>X</span><input type="number" data-axis="x" data-id="${escapeHtml(selectedItem.id)}" min="0" max="${DASHBOARD_PREVIEW.width - selectedItem.w}" step="${DASHBOARD_PREVIEW.snap}" value="${selectedItem.x}" /></label>
       <label><span>Y</span><input type="number" data-axis="y" data-id="${escapeHtml(selectedItem.id)}" min="0" max="${DASHBOARD_PREVIEW.height - selectedItem.h}" step="${DASHBOARD_PREVIEW.snap}" value="${selectedItem.y}" /></label>
     </div>
-    <div class="layout-position-actions" aria-label="${escapeHtml(t("layout.nudge"))}">
-      <button type="button" class="layout-nudge-button" data-dx="0" data-dy="${-DASHBOARD_PREVIEW.snap}" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">↑</button>
-      <button type="button" class="layout-nudge-button" data-dx="${-DASHBOARD_PREVIEW.snap}" data-dy="0" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">←</button>
-      <button type="button" class="layout-nudge-button" data-dx="${DASHBOARD_PREVIEW.snap}" data-dy="0" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">→</button>
-      <button type="button" class="layout-nudge-button" data-dx="0" data-dy="${DASHBOARD_PREVIEW.snap}" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">↓</button>
-      <button type="button" class="layout-reset-item-button" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.resetComponent"))}">↺</button>
-      <button type="button" class="layout-remove-item-button" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.removeComponent"))}">-</button>
-    </div>
+    <p class="layout-position-hint">${escapeHtml(t("layout.keyboardHint"))}</p>
   `;
   row.querySelectorAll("input").forEach((input) => {
     input.addEventListener("change", () => {
@@ -2335,22 +2572,123 @@ function renderDashboardLayoutEditor() {
       });
     });
   });
-  row.querySelectorAll(".layout-nudge-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      nudgeDashboardLayoutItem(
-        button.dataset.id,
-        Number(button.dataset.dx),
-        Number(button.dataset.dy),
-      );
-    });
-  });
-  row.querySelector(".layout-reset-item-button").addEventListener("click", () => {
-    resetDashboardLayoutItem(selectedItem.id);
-  });
-  row.querySelector(".layout-remove-item-button").addEventListener("click", () => {
-    removeDashboardLayoutItem(selectedItem.id);
-  });
   elements.layoutComponentList.appendChild(row);
+}
+
+function showLayoutContextMenu(id, clientX, clientY) {
+  closeLayoutContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "layout-context-menu";
+  renderLayoutContextMenuActions(menu);
+  menu.style.left = `${clientX}px`;
+  menu.style.top = `${clientY}px`;
+  menu.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  menu.addEventListener("click", (event) => {
+    const action = event.target?.dataset?.action;
+    event.stopPropagation();
+    if (action === "reset") {
+      renderLayoutContextMenuConfirm(menu, id, "reset");
+    } else if (action === "remove") {
+      renderLayoutContextMenuConfirm(menu, id, "remove");
+    } else if (action === "confirm-reset") {
+      resetDashboardLayoutItem(id);
+      closeLayoutContextMenu();
+    } else if (action === "confirm-remove") {
+      removeDashboardLayoutItem(id);
+      closeLayoutContextMenu();
+    } else if (action === "cancel") {
+      closeLayoutContextMenu();
+    }
+  });
+  document.body.appendChild(menu);
+
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(clientX, window.innerWidth - rect.width - 8);
+  const top = Math.min(clientY, window.innerHeight - rect.height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+
+  window.setTimeout(() => {
+    document.addEventListener("pointerdown", closeLayoutContextMenu, { once: true });
+    document.addEventListener("keydown", handleLayoutContextMenuKeydown, { once: true });
+  }, 0);
+}
+
+function renderLayoutContextMenuActions(menu) {
+  menu.innerHTML = `
+    <button type="button" data-action="reset">${escapeHtml(t("layout.contextReset"))}</button>
+    <button type="button" data-action="remove">${escapeHtml(t("layout.contextRemove"))}</button>
+  `;
+}
+
+function renderLayoutContextMenuConfirm(menu, id, action) {
+  const selectedItem = state.dashboardLayout.find((item) => item.id === id);
+  const label = selectedItem ? t(selectedItem.labelKey) : id;
+  const message = action === "reset"
+    ? t("layout.contextConfirmReset")
+    : t("layout.contextConfirmRemove");
+  menu.innerHTML = `
+    <div class="layout-context-confirm">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>
+    <div class="layout-context-confirm-actions">
+      <button type="button" data-action="cancel">${escapeHtml(t("layout.contextCancel"))}</button>
+      <button type="button" data-action="confirm-${escapeHtml(action)}">${escapeHtml(t("layout.contextConfirm"))}</button>
+    </div>
+  `;
+}
+
+function closeLayoutContextMenu() {
+  document.querySelector(".layout-context-menu")?.remove();
+}
+
+function handleLayoutContextMenuKeydown(event) {
+  if (event.key === "Escape") {
+    closeLayoutContextMenu();
+  }
+}
+
+function renderLayoutEditorStatus() {
+  if (!elements.layoutEditorStatus) {
+    return;
+  }
+  const activeLayout =
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    defaultDashboardLayoutPreset();
+  const visibleCount = state.dashboardLayout.filter(
+    (item) => item.visible !== false,
+  ).length;
+  elements.layoutEditorStatus.textContent = t("layout.status", {
+    name: activeLayout.name,
+    visible: visibleCount,
+    total: state.dashboardLayout.length,
+    dirty: state.layoutDirty ? t("layout.unsaved") : "",
+  });
+  elements.layoutEditorStatus.classList.toggle("is-dirty", state.layoutDirty);
+}
+
+function renderLayoutPresetControls() {
+  if (!elements.layoutPresetSelect) {
+    return;
+  }
+  elements.layoutPresetSelect.innerHTML = "";
+  const layouts = state.dashboardLayouts.length
+    ? state.dashboardLayouts
+    : [defaultDashboardLayoutPreset()];
+  for (const layout of layouts) {
+    const option = document.createElement("option");
+    option.value = layout.id;
+    option.textContent = layout.name;
+    elements.layoutPresetSelect.appendChild(option);
+  }
+  elements.layoutPresetSelect.value = state.activeLayoutId;
+  elements.layoutDeleteButton.disabled =
+    state.activeClockStyle === "classic" ||
+    state.activeLayoutId === DEFAULT_LAYOUT_ID ||
+    state.busyCount > 0;
 }
 
 function renderDashboardComponentLibrary() {
@@ -2434,6 +2772,55 @@ function selectDashboardLayoutItem(id) {
   }
   state.selectedLayoutId = id;
   renderDashboardLayoutEditor();
+}
+
+function focusSelectedLayoutComponent() {
+  if (!state.selectedLayoutId) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const selector = `.layout-component[data-id="${CSS.escape(state.selectedLayoutId)}"]`;
+    elements.layoutPreview.querySelector(selector)?.focus({ preventScroll: true });
+  });
+}
+
+function isEditableTextTarget(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(
+    target.closest("input, textarea, select, button, [contenteditable='true']"),
+  );
+}
+
+function handleLayoutKeyboardNudge(event) {
+  if (
+    state.activeClockStyle === "classic" ||
+    !state.selectedLayoutId ||
+    isEditableTextTarget(event.target)
+  ) {
+    return;
+  }
+  const moves = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+  };
+  const move = moves[event.key];
+  if (!move) {
+    return;
+  }
+  const selectedItem = state.dashboardLayout.find(
+    (item) => item.id === state.selectedLayoutId && item.visible !== false,
+  );
+  if (!selectedItem) {
+    return;
+  }
+  const step = event.shiftKey ? DASHBOARD_PREVIEW.snap * 5 : DASHBOARD_PREVIEW.snap;
+  nudgeDashboardLayoutItem(selectedItem.id, move[0] * step, move[1] * step);
+  focusSelectedLayoutComponent();
+  event.preventDefault();
 }
 
 function addDashboardLayoutItem(id) {
@@ -2709,11 +3096,27 @@ function updateStatus(status) {
     comfortHumidityMax:
       status.comfortHumidityMax ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMax,
   });
-  const activeLayout = activeLayoutFromDocument(status.layoutDocument);
-  if (activeLayout?.components) {
-    setDashboardLayout(activeLayout.components, { dirty: false });
-  } else if (Array.isArray(status.dashboardLayout)) {
-    setDashboardLayout(status.dashboardLayout, { dirty: false });
+  if (!state.layoutDirty) {
+    const activeLayout = activeLayoutFromDocument(status.layoutDocument);
+    if (activeLayout?.components) {
+      const normalized = normalizeDashboardLayoutPreset(activeLayout);
+      const existingIndex = state.dashboardLayouts.findIndex(
+        (layout) => layout.id === normalized.id,
+      );
+      if (existingIndex >= 0) {
+        state.dashboardLayouts[existingIndex] = normalized;
+      } else {
+        state.dashboardLayouts = [...state.dashboardLayouts, normalized];
+      }
+      state.activeLayoutId = normalized.id;
+      state.dashboardLayout = cloneDashboardLayout(normalized.components);
+      state.layoutDirty = false;
+      saveLayoutPresets();
+      renderDashboardLayoutEditor();
+      setConnected(state.connected);
+    } else if (Array.isArray(status.dashboardLayout)) {
+      setDashboardLayout(status.dashboardLayout, { dirty: false });
+    }
   }
 
   const message =
@@ -3453,15 +3856,27 @@ async function saveDashboardLayout() {
     throw new Error(localized("请先连接设备，再保存布局", "Connect the device before saving the layout"));
   }
   setMessage(localized("正在保存仪表盘布局。", "Saving dashboard layout."));
+  const localLayoutDocument = layoutDocumentFromState();
+  const localActiveLayoutId = localLayoutDocument.activeLayoutId;
   const data = await sendCommand(
     "apply_layout",
     {
-      layoutDocument: layoutDocumentFromComponents(state.dashboardLayout),
+      layoutDocument: localLayoutDocument,
     },
     REQUEST_TIMEOUT_MS,
   );
   updateStatus(data);
+  state.dashboardLayouts = localLayoutDocument.layouts.map((layout) =>
+    normalizeDashboardLayoutPreset(layout),
+  );
+  state.activeLayoutId = localActiveLayoutId;
+  const activeLayout =
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    state.dashboardLayouts[0];
+  state.dashboardLayout = cloneDashboardLayout(activeLayout.components);
   state.layoutDirty = false;
+  saveLayoutPresets();
+  renderDashboardLayoutEditor();
   setConnected(state.connected);
   setMessage(localized("仪表盘布局已保存。", "Dashboard layout saved."));
 }
@@ -4020,6 +4435,18 @@ function installEventHandlers() {
       elements.clockStyleSelect.value === "classic" ? "classic" : "dashboard";
     renderDashboardLayoutEditor();
   });
+  elements.layoutPresetSelect.addEventListener("change", () => {
+    setActiveDashboardLayout(elements.layoutPresetSelect.value, { dirty: true });
+  });
+  elements.layoutNewButton.addEventListener("click", () => {
+    createBlankDashboardPreset();
+  });
+  elements.layoutDuplicateButton.addEventListener("click", () => {
+    duplicateDashboardPreset();
+  });
+  elements.layoutDeleteButton.addEventListener("click", () => {
+    deleteDashboardPreset();
+  });
 
   elements.saveButton.addEventListener("click", () =>
     withBusyWork(() =>
@@ -4047,6 +4474,7 @@ function installEventHandlers() {
 
   window.addEventListener("pointermove", moveDraggedDashboardComponent);
   window.addEventListener("pointerup", stopDashboardLayoutDrag);
+  window.addEventListener("keydown", handleLayoutKeyboardNudge);
 
   elements.checkUpdateButton.addEventListener("click", () =>
     withBusyWork(checkForUpdate).catch(handleActionError),
@@ -4120,6 +4548,8 @@ async function initialize() {
   applyTranslations();
   renderTimezoneOptions();
   applyComfortInputs(DEFAULT_COMFORT_SETTINGS);
+  state.dashboardLayouts = [defaultDashboardLayoutPreset()];
+  loadLayoutPresets();
   elements.otaManifestInput.value = DEFAULT_OTA_MANIFEST_URL;
   elements.webFlashManifestInput.value = DEFAULT_WEB_FLASH_MANIFEST_URL;
   syncWebFlashManifest();

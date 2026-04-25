@@ -329,12 +329,28 @@
               拖动组件调整位置，保存后设备会全量刷新一次仪表盘。
             </p>
           </div>
-          <div class="action-row action-row-pair layout-actions">
-            <button id="layout-save-button" class="action-button primary" disabled>
-              <span data-i18n="button.saveLayout">保存布局</span>
+        </div>
+
+        <div class="layout-toolbar">
+          <label class="layout-preset-field">
+            <span data-i18n="layout.preset">布局预设</span>
+            <select id="layout-preset-select" class="layout-preset-select" aria-label="Layout preset"></select>
+          </label>
+          <div class="layout-toolbar-actions">
+            <button id="layout-new-button" class="action-button subtle" disabled>
+              <span data-i18n="button.newLayout">新建空白</span>
+            </button>
+            <button id="layout-duplicate-button" class="action-button subtle" disabled>
+              <span data-i18n="button.duplicateLayout">复制预设</span>
+            </button>
+            <button id="layout-delete-button" class="action-button subtle" disabled>
+              <span data-i18n="button.deleteLayout">删除预设</span>
             </button>
             <button id="layout-reset-button" class="action-button subtle" disabled>
               <span data-i18n="button.resetLayout">恢复默认布局</span>
+            </button>
+            <button id="layout-save-button" class="action-button primary" disabled>
+              <span data-i18n="button.saveLayout">保存布局</span>
             </button>
           </div>
         </div>
@@ -343,9 +359,10 @@
           <div class="layout-preview-panel">
             <p class="config-action-title" data-i18n="layout.preview">一比一预览</p>
             <div id="layout-preview" class="layout-preview" aria-label="Dashboard layout preview"></div>
+            <div id="layout-editor-status" class="layout-editor-status"></div>
           </div>
           <div class="layout-list-panel">
-            <p class="config-action-title" data-i18n="layout.position">位置</p>
+            <p class="config-action-title" data-i18n="layout.components">组件</p>
             <div id="layout-component-list" class="layout-component-list"></div>
           </div>
         </div>
