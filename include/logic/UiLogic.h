@@ -2,7 +2,7 @@
 
 namespace logic {
 
-static constexpr int kDefaultPartialCleanInterval = 4;
+static constexpr int kDefaultPartialCleanInterval = 16;
 static constexpr int kMinPartialCleanInterval = 1;
 static constexpr int kMaxPartialCleanInterval = 30;
 

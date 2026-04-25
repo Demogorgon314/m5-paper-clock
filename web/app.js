@@ -48,7 +48,7 @@ const DEFAULT_COMFORT_SETTINGS = Object.freeze({
   comfortHumidityMax: 85,
 });
 const DEFAULT_REFRESH_SETTINGS = Object.freeze({
-  partialCleanInterval: 4,
+  partialCleanInterval: 16,
 });
 const COMFORT_LIMITS = Object.freeze({
   temperatureMin: -20,
