@@ -471,62 +471,6 @@
         </div>
       </section>
 
-      <section class="band market-band">
-        <div class="band-heading">
-          <div>
-            <h2 data-i18n="market.heading">行情标的</h2>
-            <p class="helper-text" data-i18n="market.helper">支持大盘指数和 A 股股票，按代码搜索后直接设为首页行情卡片。</p>
-          </div>
-        </div>
-
-        <div class="market-picker-grid">
-          <div class="workspace-panel market-panel">
-            <div class="market-current">
-              <span class="status-label" data-i18n="market.current">当前标的</span>
-              <strong id="market-current-name">上证指数</strong>
-              <span id="market-current-code" class="market-code">000001</span>
-            </div>
-
-            <div class="market-search-row">
-              <label class="field market-search-field">
-                <span data-i18n="market.searchCode">代码搜索</span>
-                <input
-                  id="market-search-input"
-                  type="text"
-                  inputmode="search"
-                  placeholder="输入 600519 / 000001 / 399001 / sh000300"
-                  data-i18n-placeholder="market.searchPlaceholder"
-                />
-              </label>
-              <button id="market-search-button" class="action-button" type="button">
-                <span data-i18n="button.search">搜索</span>
-              </button>
-            </div>
-
-            <p class="helper-text market-helper" data-i18n="market.searchHelper">
-              热门标的在下方；输入代码后右侧显示搜索结果。
-            </p>
-
-            <div class="market-quick">
-              <div class="market-subheading">
-                <h3 data-i18n="market.hot">热门标的</h3>
-              </div>
-              <div id="market-hot-list" class="market-hot-list"></div>
-            </div>
-          </div>
-
-          <div class="workspace-panel market-panel">
-            <div class="market-subheading">
-              <h3 data-i18n="market.results">搜索结果</h3>
-              <span id="market-result-count" class="status-label">0 个结果</span>
-            </div>
-            <div id="market-results" class="market-results" aria-live="polite">
-              <p class="empty-state" data-i18n="market.emptyDisconnected">连接设备后即可搜索并切换行情标的。</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="band log-band">
         <div class="band-heading">
           <h2 data-i18n="log.heading">通信日志</h2>

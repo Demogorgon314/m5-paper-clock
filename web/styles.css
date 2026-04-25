@@ -1017,6 +1017,35 @@ button:focus {
   min-width: 0;
 }
 
+.market-properties-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.market-properties-panel .market-current {
+  padding: 10px 12px;
+}
+
+.market-properties-panel .market-current strong {
+  font-size: 17px;
+}
+
+.market-picker-grid-embedded {
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 0;
+}
+
+.market-picker-grid-embedded .market-hot-list,
+.market-picker-grid-embedded .market-results {
+  max-height: none;
+}
+
+.market-picker-grid-embedded .market-chip-list {
+  grid-template-columns: 1fr;
+}
+
 .layout-position-row label {
   display: grid;
   gap: 4px;

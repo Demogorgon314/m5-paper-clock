@@ -4956,6 +4956,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
     }
 
     logic::DashboardLayout next_layout = settings_.dashboard_layout;
+    String next_market_symbol = settings_.market_symbol;
     std::array<bool, logic::kDashboardComponentCount> seen {};
     for (JsonVariantConst value : components) {
         JsonObjectConst component = value.as<JsonObjectConst>();
@@ -4983,6 +4984,16 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         item.h = default_item.h;
         item.visible = component["visible"] | item.visible;
         item = logic::ClampDashboardLayoutItem(item);
+
+        if (id == logic::DashboardComponentId::Summary) {
+            JsonObjectConst props = component["props"].as<JsonObjectConst>();
+            if (!props.isNull()) {
+                const String prop_symbol = String(props["symbol"] | "");
+                if (!prop_symbol.isEmpty()) {
+                    next_market_symbol = prop_symbol;
+                }
+            }
+        }
     }
 
     for (size_t index = 0; index < next_layout.size(); ++index) {
@@ -4993,6 +5004,21 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
 
     settings_.dashboard_layout = next_layout;
     store_.saveDashboardLayout(settings_.dashboard_layout);
+    if (!next_market_symbol.isEmpty() &&
+        next_market_symbol != settings_.market_symbol) {
+        settings_.market_symbol = next_market_symbol;
+        const String market_code =
+            marketCodeFromRequestSymbol(settings_.market_symbol);
+        const std::string known_name =
+            logic::KnownMarketDisplayName(std::string(market_code.c_str()));
+        settings_.market_name = known_name.empty()
+            ? market_code
+            : String(known_name.c_str());
+        seedMarketQuoteFromSettings();
+        last_market_summary_rendered_ = "";
+        last_market_fetch_ms_ = 0;
+        store_.saveMarket(settings_.market_symbol, settings_.market_name);
+    }
     return true;
 }
 

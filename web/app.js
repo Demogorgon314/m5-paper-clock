@@ -578,13 +578,6 @@ const elements = {
   otaProgressPercent: document.querySelector("#ota-progress-percent"),
   otaProgressBar: document.querySelector("#ota-progress-bar"),
   localOtaSummary: document.querySelector("#local-ota-summary"),
-  marketCurrentName: document.querySelector("#market-current-name"),
-  marketCurrentCode: document.querySelector("#market-current-code"),
-  marketSearchInput: document.querySelector("#market-search-input"),
-  marketSearchButton: document.querySelector("#market-search-button"),
-  marketHotList: document.querySelector("#market-hot-list"),
-  marketResultCount: document.querySelector("#market-result-count"),
-  marketResults: document.querySelector("#market-results"),
   networkList: document.querySelector("#network-list"),
   logOutput: document.querySelector("#log-output"),
 };
@@ -620,6 +613,7 @@ const state = {
   otaProgress: null,
   localOtaFile: null,
   localOtaLoggedWritten: 0,
+  marketSearchQuery: "",
   marketResultsVisible: false,
   marketResults: [],
   activeLayoutId: DEFAULT_LAYOUT_ID,
@@ -2119,8 +2113,6 @@ function setLocale(locale) {
     updateStatus(state.lastStatus);
   }
   renderNetworks();
-  renderMarketHotList();
-  renderMarketResults();
   renderOtaSummary(state.otaManifest);
   renderOtaProgress();
   renderLocalOtaSummary();
@@ -2134,7 +2126,63 @@ function normalizeMarketQuery(value) {
 }
 
 function currentMarketSymbol() {
-  return normalizeMarketQuery(state.lastStatus?.marketSymbol || "");
+  return normalizeMarketQuery(
+    currentMarketLayoutItem()?.props?.symbol || state.lastStatus?.marketSymbol || "",
+  );
+}
+
+function currentMarketLayoutItem() {
+  const activeLayout =
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    activeLayoutPreset();
+  return activeLayout?.components?.find((item) => item.type === "market") || null;
+}
+
+function updateMarketSymbolInActiveLayout(symbol) {
+  const requestSymbol = normalizeMarketQuery(symbol);
+  if (!requestSymbol) {
+    return false;
+  }
+  const activeLayout =
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    null;
+  if (!activeLayout || activeLayout.kind === "classic") {
+    return false;
+  }
+
+  let updated = false;
+  const nextComponents = activeLayout.components.map((item) => {
+    if (item.type !== "market") {
+      return item;
+    }
+    updated = true;
+    return {
+      ...item,
+      props: {
+        ...(item.props || {}),
+        symbol: requestSymbol,
+      },
+    };
+  });
+  if (!updated) {
+    return false;
+  }
+
+  state.dashboardLayouts = state.dashboardLayouts.map((layout) =>
+    layout.id === activeLayout.id
+      ? {
+          ...layout,
+          components: nextComponents,
+        }
+      : layout,
+  );
+  if (activeLayout.id === state.activeLayoutId) {
+    state.dashboardLayout = cloneDashboardLayout(nextComponents);
+  }
+  state.layoutDirty = true;
+  saveLayoutPresets();
+  renderDashboardLayoutEditor();
+  return true;
 }
 
 function normalizeVersion(value) {
@@ -2461,9 +2509,6 @@ function setConnected(connected) {
     !allowDeviceActions ||
     state.connectionType !== "serial" ||
     !state.localOtaFile;
-  elements.marketSearchButton.disabled = state.busyCount > 0;
-  renderMarketHotList();
-  renderMarketResults();
   renderLocalOtaSummary();
 }
 
@@ -2886,6 +2931,14 @@ function focusSelectedLayoutComponent() {
 function renderComponentPropertiesPanel(item) {
   const panel = document.createElement("div");
   panel.className = "layout-position-row layout-properties-row";
+  if (item.type === "market") {
+    panel.innerHTML = `
+      <div class="layout-position-section-title">${escapeHtml(t("layout.properties"))}</div>
+    `;
+    panel.appendChild(renderMarketPropertiesPanel(item));
+    return panel;
+  }
+
   const definition = COMPONENT_REGISTRY[item.type];
   const schema = definition?.propsSchema || [];
   const fields = schema.map((field) => {
@@ -2922,6 +2975,98 @@ function renderComponentPropertiesPanel(item) {
       });
     });
   });
+  return panel;
+}
+
+function renderMarketPropertiesPanel(item) {
+  const panel = document.createElement("div");
+  panel.className = "market-properties-panel";
+  const currentSymbol = normalizeMarketQuery(item.props?.symbol || currentMarketSymbol());
+  const displayName = state.lastStatus?.marketDisplayName || t("market.defaultName");
+  const displayCode =
+    state.lastStatus?.marketCode ||
+    currentSymbol.replace(/^(sh|sz)/, "") ||
+    "000001";
+  panel.innerHTML = `
+    <div class="market-current">
+      <span class="status-label">${escapeHtml(t("market.current"))}</span>
+      <strong>${escapeHtml(displayName)}</strong>
+      <span class="market-code">${escapeHtml(displayCode)}</span>
+    </div>
+    <div class="layout-property-fields">
+      <label>
+        <span>${escapeHtml(t("layout.prop.symbol"))}</span>
+        <input
+          type="text"
+          data-prop="symbol"
+          data-id="${escapeHtml(item.id)}"
+          value="${escapeHtml(currentSymbol)}"
+          placeholder="${escapeHtml(t("layout.prop.symbolPlaceholder"))}"
+        />
+      </label>
+    </div>
+    <div class="market-search-row">
+      <label class="field market-search-field">
+        <span>${escapeHtml(t("market.searchCode"))}</span>
+        <input
+          type="text"
+          inputmode="search"
+          value="${escapeHtml(state.marketSearchQuery)}"
+          placeholder="${escapeHtml(t("market.searchPlaceholder"))}"
+          data-market-search-input="true"
+        />
+      </label>
+      <button class="action-button" type="button" data-market-search-button="true">
+        <span>${escapeHtml(t("button.search"))}</span>
+      </button>
+    </div>
+    <p class="helper-text market-helper">${escapeHtml(t("market.searchHelper"))}</p>
+    <div class="market-picker-grid market-picker-grid-embedded">
+      <div class="market-panel">
+        <div class="market-subheading">
+          <h3>${escapeHtml(t("market.hot"))}</h3>
+        </div>
+        <div class="market-hot-list" data-market-hot-list="true"></div>
+      </div>
+      <div class="market-panel">
+        <div class="market-subheading">
+          <h3>${escapeHtml(t("market.results"))}</h3>
+          <span class="status-label" data-market-result-count="true"></span>
+        </div>
+        <div class="market-results" data-market-results="true" aria-live="polite"></div>
+      </div>
+    </div>
+  `;
+
+  const symbolInput = panel.querySelector("[data-prop='symbol']");
+  symbolInput.addEventListener("change", () => {
+    updateDashboardLayoutItemProps(symbolInput.dataset.id, {
+      symbol: normalizeMarketQuery(symbolInput.value),
+    });
+  });
+
+  const searchInput = panel.querySelector("[data-market-search-input]");
+  const searchButton = panel.querySelector("[data-market-search-button]");
+  searchButton.disabled = state.busyCount > 0;
+  searchInput.addEventListener("input", () => {
+    state.marketSearchQuery = searchInput.value;
+  });
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    void withBusyWork(() => searchMarkets(searchInput.value)).catch(handleActionError);
+  });
+  searchButton.addEventListener("click", () => {
+    void withBusyWork(() => searchMarkets(searchInput.value)).catch(handleActionError);
+  });
+
+  renderMarketHotList(panel.querySelector("[data-market-hot-list]"));
+  renderMarketResults(
+    panel.querySelector("[data-market-results]"),
+    panel.querySelector("[data-market-result-count]"),
+  );
   return panel;
 }
 
@@ -3048,9 +3193,12 @@ function stopDashboardLayoutDrag() {
   state.draggedLayoutId = null;
 }
 
-function renderMarketHotList() {
+function renderMarketHotList(container) {
+  if (!container) {
+    return;
+  }
   const markets = withCurrentFlag(DEFAULT_MARKETS);
-  elements.marketHotList.innerHTML = "";
+  container.innerHTML = "";
 
   for (const kind of ["index", "stock"]) {
     const groupMarkets = markets.filter((market) => market.kind === kind);
@@ -3085,23 +3233,26 @@ function renderMarketHotList() {
       list.appendChild(button);
     }
     group.appendChild(list);
-    elements.marketHotList.appendChild(group);
+    container.appendChild(group);
   }
 }
 
-function renderMarketResults() {
-  elements.marketResults.innerHTML = "";
+function renderMarketResults(container, countElement) {
+  if (!container || !countElement) {
+    return;
+  }
+  container.innerHTML = "";
   if (!state.marketResultsVisible) {
-    elements.marketResultCount.textContent = t("market.pending");
+    countElement.textContent = t("market.pending");
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = t("market.emptyBeforeSearch");
-    elements.marketResults.appendChild(empty);
+    container.appendChild(empty);
     return;
   }
 
   const results = withCurrentFlag(state.marketResults);
-  elements.marketResultCount.textContent = t("market.resultCount", {
+  countElement.textContent = t("market.resultCount", {
     count: results.length,
   });
 
@@ -3111,7 +3262,7 @@ function renderMarketResults() {
     empty.textContent = state.connected
       ? t("market.emptyConnected")
       : t("market.emptyDisconnected");
-    elements.marketResults.appendChild(empty);
+    container.appendChild(empty);
     return;
   }
 
@@ -3137,7 +3288,7 @@ function renderMarketResults() {
     button.addEventListener("click", () => {
       void selectMarket(market).catch(handleActionError);
     });
-    elements.marketResults.appendChild(button);
+    container.appendChild(button);
   }
 }
 
@@ -3198,8 +3349,6 @@ function updateStatus(status) {
   const marketDisplayName = status.marketDisplayName || t("market.defaultName");
   const marketCode = status.marketCode || "000001";
   elements.marketLabel.textContent = `${marketDisplayName} · ${marketCode}`;
-  elements.marketCurrentName.textContent = marketDisplayName;
-  elements.marketCurrentCode.textContent = marketCode;
   elements.batteryLabel.textContent =
     typeof status.batteryPercent === "number"
       ? `${status.batteryPercent}%`
@@ -3822,9 +3971,9 @@ async function scanWifi() {
 async function searchMarkets(queryOverride, options = {}) {
   const { silent = false } = options;
   const query = normalizeMarketQuery(
-    queryOverride ?? elements.marketSearchInput.value,
+    queryOverride ?? state.marketSearchQuery,
   );
-  elements.marketSearchInput.value = query;
+  state.marketSearchQuery = query;
   const localMatches = DEFAULT_MARKETS.filter((item) =>
     localMarketMatches(item, query),
   );
@@ -3832,7 +3981,7 @@ async function searchMarkets(queryOverride, options = {}) {
   if (!query) {
     state.marketResults = [];
     state.marketResultsVisible = false;
-    renderMarketResults();
+    renderDashboardLayoutEditor();
     if (!silent) {
       setMessage(
         state.connected
@@ -3862,7 +4011,7 @@ async function searchMarkets(queryOverride, options = {}) {
     ]);
   } catch (error) {
     state.marketResults = dedupeMarkets(localMatches);
-    renderMarketResults();
+    renderDashboardLayoutEditor();
     if (state.marketResults.length) {
       if (!silent) {
         setMessage(
@@ -3877,7 +4026,7 @@ async function searchMarkets(queryOverride, options = {}) {
     throw error;
   }
 
-  renderMarketResults();
+  renderDashboardLayoutEditor();
   if (!silent) {
     setMessage(
       state.marketResults.length
@@ -3905,33 +4054,31 @@ async function selectMarket(market) {
   if (!requestSymbol) {
     throw new Error(localized("缺少标的代码", "Missing market symbol code"));
   }
+  if (!updateMarketSymbolInActiveLayout(requestSymbol)) {
+    throw new Error(localized("当前布局没有可配置的行情组件", "The current layout has no configurable market component"));
+  }
 
   setMessage(
     localized(
-      `正在切换到 ${displayName || requestSymbol}。`,
-      `Switching to ${displayName || requestSymbol}.`,
+      `正在保存行情组件为 ${displayName || requestSymbol}。`,
+      `Saving the market component as ${displayName || requestSymbol}.`,
     ),
   );
   const data = await sendCommand(
-    "set_market",
+    "apply_layout",
     {
-      requestSymbol,
-      displayName,
+      layoutDocument: layoutDocumentFromState(),
     },
     20000,
   );
-  updateStatus({
-    ...data,
-    marketSymbol: requestSymbol,
-    marketCode: String(market.code || data.marketCode || ""),
-    marketDisplayName: displayName || String(data.marketDisplayName || ""),
-  });
+  state.layoutDirty = false;
+  updateStatus(data);
   state.marketResults = withCurrentFlag(state.marketResults);
-  renderMarketResults();
+  renderDashboardLayoutEditor();
   setMessage(
     localized(
-      `首页行情已切换为 ${displayName || requestSymbol}。`,
-      `Home market symbol switched to ${displayName || requestSymbol}.`,
+      `行情组件已保存为 ${displayName || requestSymbol}。`,
+      `Market component saved as ${displayName || requestSymbol}.`,
     ),
   );
 }
@@ -4582,10 +4729,6 @@ function installEventHandlers() {
     withBusyWork(scanWifi).catch(handleActionError),
   );
 
-  elements.marketSearchButton.addEventListener("click", () =>
-    withBusyWork(() => searchMarkets()).catch(handleActionError),
-  );
-
   elements.layoutPresetSelect.addEventListener("change", () => {
     setActiveDashboardLayout(elements.layoutPresetSelect.value, { dirty: true });
   });
@@ -4671,14 +4814,6 @@ function installEventHandlers() {
   elements.ssidInput.addEventListener("input", () => {
     state.selectedSsid = elements.ssidInput.value.trim();
     renderNetworks();
-  });
-
-  elements.marketSearchInput.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") {
-      return;
-    }
-    event.preventDefault();
-    void withBusyWork(() => searchMarkets()).catch(handleActionError);
   });
 
   navigator.serial?.addEventListener("disconnect", async (event) => {
