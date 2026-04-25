@@ -1,6 +1,7 @@
 #include "ClockApp.h"
 
 #include <algorithm>
+#include <array>
 #include <BLE2902.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -4796,6 +4797,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
     }
 
     logic::DashboardLayout next_layout = settings_.dashboard_layout;
+    std::array<bool, logic::kDashboardComponentCount> seen {};
     for (JsonVariantConst value : components) {
         JsonObjectConst component = value.as<JsonObjectConst>();
         const char* id_key = component["id"] | "";
@@ -4813,6 +4815,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
 
         logic::DashboardLayoutItem& item =
             next_layout[logic::DashboardComponentIndex(id)];
+        seen[logic::DashboardComponentIndex(id)] = true;
         const logic::DashboardLayoutItem& default_item =
             logic::DashboardLayoutDefaultItem(id);
         item.x = component["x"] | item.x;
@@ -4821,6 +4824,12 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         item.h = default_item.h;
         item.visible = component["visible"] | item.visible;
         item = logic::ClampDashboardLayoutItem(item);
+    }
+
+    for (size_t index = 0; index < next_layout.size(); ++index) {
+        if (!seen[index]) {
+            next_layout[index].visible = false;
+        }
     }
 
     settings_.dashboard_layout = next_layout;

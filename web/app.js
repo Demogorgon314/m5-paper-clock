@@ -152,6 +152,13 @@ const I18N = Object.freeze({
     "layout.helper": "拖动组件调整位置，保存后设备会全量刷新一次仪表盘。",
     "layout.preview": "一比一预览",
     "layout.position": "位置",
+    "layout.components": "组件",
+    "layout.addComponent": "添加组件",
+    "layout.removeComponent": "删除组件",
+    "layout.hiddenComponents": "可添加组件",
+    "layout.visibleComponents": "已显示组件",
+    "layout.noVisibleComponents": "没有显示组件，请先添加组件。",
+    "layout.noHiddenComponents": "所有组件都已添加。",
     "layout.component.date": "日期",
     "layout.component.battery": "状态",
     "layout.component.calendar": "日历",
@@ -298,6 +305,13 @@ const I18N = Object.freeze({
     "layout.helper": "Drag components to adjust positions. Saving refreshes the dashboard once.",
     "layout.preview": "1:1 Preview",
     "layout.position": "Position",
+    "layout.components": "Components",
+    "layout.addComponent": "Add component",
+    "layout.removeComponent": "Remove component",
+    "layout.hiddenComponents": "Available components",
+    "layout.visibleComponents": "Visible components",
+    "layout.noVisibleComponents": "No visible components. Add one first.",
+    "layout.noHiddenComponents": "All components are already added.",
     "layout.component.date": "Date",
     "layout.component.battery": "Status",
     "layout.component.calendar": "Calendar",
@@ -768,7 +782,7 @@ function dashboardGuideCandidates(draggedId) {
     DASHBOARD_PREVIEW.height,
   ];
 
-  for (const item of state.dashboardLayout) {
+  for (const item of state.dashboardLayout.filter((layoutItem) => layoutItem.visible !== false)) {
     if (item.id === draggedId) {
       continue;
     }
@@ -1706,7 +1720,7 @@ function renderDashboardPreviewCanvas(ctx) {
   rootCanvas.drawRect(12, 12, DASHBOARD_PREVIEW.width - 24,
     DASHBOARD_PREVIEW.height - 24, INK.frame);
 
-  for (const item of state.dashboardLayout) {
+  for (const item of state.dashboardLayout.filter((layoutItem) => layoutItem.visible !== false)) {
     if (item.visible === false) {
       continue;
     }
@@ -2225,7 +2239,10 @@ function renderDashboardLayoutEditor() {
     elements.layoutPreview.appendChild(guide);
   }
 
-  for (const item of state.dashboardLayout) {
+  const visibleLayoutItems = state.dashboardLayout.filter(
+    (layoutItem) => layoutItem.visible !== false,
+  );
+  for (const item of visibleLayoutItems) {
     const node = document.createElement("button");
     node.type = "button";
     node.className = `layout-component layout-component-${item.type}`;
@@ -2275,10 +2292,17 @@ function renderDashboardLayoutEditor() {
   }
 
   elements.layoutComponentList.innerHTML = "";
+  renderDashboardComponentLibrary();
   const selectedItem =
-    state.dashboardLayout.find((item) => item.id === state.selectedLayoutId) ||
-    state.dashboardLayout[0];
+    state.dashboardLayout.find(
+      (item) => item.id === state.selectedLayoutId && item.visible !== false,
+    ) ||
+    state.dashboardLayout.find((item) => item.visible !== false);
   if (!selectedItem) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = t("layout.noVisibleComponents");
+    elements.layoutComponentList.appendChild(empty);
     return;
   }
   state.selectedLayoutId = selectedItem.id;
@@ -2301,6 +2325,7 @@ function renderDashboardLayoutEditor() {
       <button type="button" class="layout-nudge-button" data-dx="${DASHBOARD_PREVIEW.snap}" data-dy="0" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">→</button>
       <button type="button" class="layout-nudge-button" data-dx="0" data-dy="${DASHBOARD_PREVIEW.snap}" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">↓</button>
       <button type="button" class="layout-reset-item-button" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.resetComponent"))}">↺</button>
+      <button type="button" class="layout-remove-item-button" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.removeComponent"))}">-</button>
     </div>
   `;
   row.querySelectorAll("input").forEach((input) => {
@@ -2322,7 +2347,66 @@ function renderDashboardLayoutEditor() {
   row.querySelector(".layout-reset-item-button").addEventListener("click", () => {
     resetDashboardLayoutItem(selectedItem.id);
   });
+  row.querySelector(".layout-remove-item-button").addEventListener("click", () => {
+    removeDashboardLayoutItem(selectedItem.id);
+  });
   elements.layoutComponentList.appendChild(row);
+}
+
+function renderDashboardComponentLibrary() {
+  const panel = document.createElement("div");
+  panel.className = "layout-component-library";
+  const visibleItems = state.dashboardLayout.filter((item) => item.visible !== false);
+  const hiddenItems = state.dashboardLayout.filter((item) => item.visible === false);
+  panel.innerHTML = `
+    <div class="layout-library-group">
+      <p class="layout-library-title">${escapeHtml(t("layout.visibleComponents"))}</p>
+      <div class="layout-chip-list" data-list="visible"></div>
+    </div>
+    <div class="layout-library-group">
+      <p class="layout-library-title">${escapeHtml(t("layout.hiddenComponents"))}</p>
+      <div class="layout-chip-list" data-list="hidden"></div>
+    </div>
+  `;
+
+  const visibleList = panel.querySelector('[data-list="visible"]');
+  const hiddenList = panel.querySelector('[data-list="hidden"]');
+  if (visibleItems.length) {
+    visibleItems.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "layout-chip";
+      if (item.id === state.selectedLayoutId) {
+        button.classList.add("is-selected");
+      }
+      button.textContent = t(item.labelKey);
+      button.addEventListener("click", () => selectDashboardLayoutItem(item.id));
+      visibleList.appendChild(button);
+    });
+  } else {
+    const empty = document.createElement("span");
+    empty.className = "layout-chip-empty";
+    empty.textContent = t("layout.noVisibleComponents");
+    visibleList.appendChild(empty);
+  }
+
+  if (hiddenItems.length) {
+    hiddenItems.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "layout-chip layout-chip-add";
+      button.textContent = `+ ${t(item.labelKey)}`;
+      button.addEventListener("click", () => addDashboardLayoutItem(item.id));
+      hiddenList.appendChild(button);
+    });
+  } else {
+    const empty = document.createElement("span");
+    empty.className = "layout-chip-empty";
+    empty.textContent = t("layout.noHiddenComponents");
+    hiddenList.appendChild(empty);
+  }
+
+  elements.layoutComponentList.appendChild(panel);
 }
 
 function dashboardPreviewPoint(event) {
@@ -2342,15 +2426,48 @@ function updateDashboardLayoutItem(id, patch) {
 }
 
 function selectDashboardLayoutItem(id) {
-  if (state.selectedLayoutId === id) {
+  const item = state.dashboardLayout.find(
+    (layoutItem) => layoutItem.id === id && layoutItem.visible !== false,
+  );
+  if (!item || state.selectedLayoutId === id) {
     return;
   }
   state.selectedLayoutId = id;
   renderDashboardLayoutEditor();
 }
 
+function addDashboardLayoutItem(id) {
+  const defaultItem = DEFAULT_DASHBOARD_LAYOUT.find((item) => item.id === id);
+  state.selectedLayoutId = id;
+  const nextLayout = state.dashboardLayout.map((item) => {
+    if (item.id !== id) {
+      return item;
+    }
+    return clampDashboardLayoutItem({
+      ...item,
+      x: item.x ?? defaultItem?.x ?? 0,
+      y: item.y ?? defaultItem?.y ?? 0,
+      visible: true,
+    });
+  });
+  setDashboardLayout(nextLayout, { dirty: true });
+}
+
+function removeDashboardLayoutItem(id) {
+  const visibleItems = state.dashboardLayout.filter((item) => item.visible !== false);
+  const nextSelected =
+    visibleItems.find((item) => item.id !== id)?.id || null;
+  state.selectedLayoutId = nextSelected;
+  const nextLayout = state.dashboardLayout.map((item) =>
+    item.id === id ? { ...item, visible: false } : item,
+  );
+  setDashboardLayout(nextLayout, { dirty: true });
+}
+
 function nudgeDashboardLayoutItem(id, dx, dy) {
-  const currentItem = state.dashboardLayout.find((item) => item.id === id);
+  const currentItem = state.dashboardLayout.find(
+    (item) => item.id === id && item.visible !== false,
+  );
   if (!currentItem) {
     return;
   }
@@ -2377,7 +2494,7 @@ function moveDraggedDashboardComponent(event) {
   }
   const point = dashboardPreviewPoint(event);
   const currentItem = state.dashboardLayout.find(
-    (item) => item.id === state.draggedLayoutId,
+    (item) => item.id === state.draggedLayoutId && item.visible !== false,
   );
   if (!currentItem) {
     return;

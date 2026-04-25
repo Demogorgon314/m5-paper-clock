@@ -846,6 +846,59 @@ button:focus {
   gap: 8px;
 }
 
+.layout-component-library {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.layout-library-group {
+  display: grid;
+  gap: 6px;
+}
+
+.layout-library-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.layout-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.layout-chip {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 6px 10px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.layout-chip.is-selected {
+  border-color: var(--accent);
+  background: #edf7f4;
+}
+
+.layout-chip-add {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.layout-chip-empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .layout-position-row {
   display: grid;
   grid-template-columns: minmax(92px, 1fr) minmax(156px, 184px) auto;
