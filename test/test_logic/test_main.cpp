@@ -3,6 +3,7 @@
 #include <string>
 
 #include "logic/ComfortLogic.h"
+#include "logic/ComponentUpdateGroups.h"
 #include "logic/MarketLogic.h"
 #include "logic/HolidayLogic.h"
 #include "logic/LayoutLogic.h"
@@ -53,6 +54,29 @@ void test_dashboard_component_id_from_key() {
 
     logic::DashboardComponentIdFromKey("unknown", found);
     TEST_ASSERT_FALSE(found);
+}
+
+void test_component_update_groups_cover_expected_components() {
+    TEST_ASSERT_EQUAL(8, static_cast<int>(logic::kFullRefreshComponents.count));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::Date),
+        static_cast<int>(logic::kFullRefreshComponents.ids[0]));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::ClassicInfo),
+        static_cast<int>(logic::kFullRefreshComponents.ids[7]));
+
+    TEST_ASSERT_EQUAL(2, static_cast<int>(logic::kMinuteComponents.count));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::Time),
+        static_cast<int>(logic::kMinuteComponents.ids[0]));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::ClassicTime),
+        static_cast<int>(logic::kMinuteComponents.ids[1]));
+
+    TEST_ASSERT_EQUAL(1, static_cast<int>(logic::kMarketComponents.count));
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::Summary),
+        static_cast<int>(logic::kMarketComponents.ids[0]));
 }
 
 void test_wifi_pagination() {
@@ -325,6 +349,7 @@ int main() {
     RUN_TEST(test_partial_clean_interval_clamp);
     RUN_TEST(test_dashboard_layout_clamps_to_screen);
     RUN_TEST(test_dashboard_component_id_from_key);
+    RUN_TEST(test_component_update_groups_cover_expected_components);
     RUN_TEST(test_wifi_pagination);
     RUN_TEST(test_segment_masks);
     RUN_TEST(test_parse_tencent_quote);

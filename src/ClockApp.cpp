@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "logic/ComfortLogic.h"
+#include "logic/ComponentUpdateGroups.h"
 #include "logic/HolidayLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/UiLogic.h"
@@ -1601,59 +1602,33 @@ void ClockApp::updateLayoutComponents(const logic::DashboardComponentId* ids,
 }
 
 void ClockApp::updateDashboardLayoutComponents(bool full_refresh) {
-    constexpr logic::DashboardComponentId kFullRefreshComponents[] = {
-        logic::DashboardComponentId::Date,
-        logic::DashboardComponentId::Battery,
-        logic::DashboardComponentId::Calendar,
-        logic::DashboardComponentId::Time,
-        logic::DashboardComponentId::ClassicTime,
-        logic::DashboardComponentId::Summary,
-        logic::DashboardComponentId::Climate,
-        logic::DashboardComponentId::ClassicInfo,
-    };
-    updateLayoutComponents(kFullRefreshComponents,
-                           sizeof(kFullRefreshComponents) /
-                               sizeof(kFullRefreshComponents[0]),
+    updateLayoutComponents(logic::kFullRefreshComponents.ids,
+                           logic::kFullRefreshComponents.count,
                            full_refresh,
                            false);
 }
 
 void ClockApp::updateDashboardMinuteComponents() {
-    constexpr logic::DashboardComponentId kMinuteComponents[] = {
-        logic::DashboardComponentId::Time,
-        logic::DashboardComponentId::ClassicTime,
-    };
-    updateLayoutComponents(kMinuteComponents,
-                           sizeof(kMinuteComponents) /
-                               sizeof(kMinuteComponents[0]),
+    updateLayoutComponents(logic::kMinuteComponents.ids,
+                           logic::kMinuteComponents.count,
                            false);
 }
 
 void ClockApp::updateDashboardDateComponents() {
-    constexpr logic::DashboardComponentId kDateComponents[] = {
-        logic::DashboardComponentId::Date,
-        logic::DashboardComponentId::Calendar,
-        logic::DashboardComponentId::Summary,
-    };
-    updateLayoutComponents(kDateComponents,
-                           sizeof(kDateComponents) /
-                               sizeof(kDateComponents[0]),
+    updateLayoutComponents(logic::kDateComponents.ids,
+                           logic::kDateComponents.count,
                            false);
 }
 
 void ClockApp::updateDashboardSensorComponents() {
-    constexpr logic::DashboardComponentId kSensorComponents[] = {
-        logic::DashboardComponentId::Climate,
-        logic::DashboardComponentId::ClassicInfo,
-    };
-    updateLayoutComponents(kSensorComponents,
-                           sizeof(kSensorComponents) /
-                               sizeof(kSensorComponents[0]),
+    updateLayoutComponents(logic::kSensorComponents.ids,
+                           logic::kSensorComponents.count,
                            false);
 }
 
 void ClockApp::updateDashboardMarketComponents() {
-    updateLayoutComponent(logic::DashboardComponentId::Summary, false);
+    updateLayoutComponents(logic::kMarketComponents.ids,
+                           logic::kMarketComponents.count, false);
 }
 
 void ClockApp::updateClockPage() {
