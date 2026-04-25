@@ -1,5 +1,21 @@
 #include "SettingsStore.h"
 
+namespace {
+constexpr uint8_t kMaxSavedMarketLayoutItems = 6;
+
+MarketLayoutItem defaultMarketLayoutItem(uint8_t index,
+                                         const String& fallback_symbol,
+                                         const logic::DashboardLayoutItem& summary) {
+    MarketLayoutItem item;
+    item.instance_id = "market-" + String(index + 1);
+    item.symbol = fallback_symbol.isEmpty() ? String("sh000001") : fallback_symbol;
+    item.x = index == 0 ? summary.x : static_cast<int16_t>(summary.x + 348);
+    item.y = summary.y;
+    item.visible = summary.visible;
+    return item;
+}
+}  // namespace
+
 bool SettingsStore::begin() {
     if (started_) {
         return true;
@@ -53,6 +69,36 @@ AppSettings SettingsStore::load() const {
     }
     settings.dashboard_layout =
         logic::NormalizeDashboardLayout(settings.dashboard_layout);
+    settings.market_layout.clear();
+    const logic::DashboardLayoutItem& summary =
+        settings.dashboard_layout[logic::DashboardComponentIndex(
+            logic::DashboardComponentId::Summary)];
+    const uint8_t market_count =
+        preferences_.getUChar("market_count", 1);
+    const uint8_t clamped_market_count =
+        market_count > kMaxSavedMarketLayoutItems ? kMaxSavedMarketLayoutItems
+                                                  : market_count;
+    for (uint8_t i = 0; i < clamped_market_count; ++i) {
+        const String prefix = "market_" + String(i);
+        MarketLayoutItem item = defaultMarketLayoutItem(
+            i, i == 0 ? settings.market_symbol : String("sh000001"), summary);
+        item.instance_id =
+            preferences_.getString((prefix + "_id").c_str(), item.instance_id);
+        item.symbol =
+            preferences_.getString((prefix + "_sym").c_str(), item.symbol);
+        item.x = preferences_.getShort((prefix + "_x").c_str(), item.x);
+        item.y = preferences_.getShort((prefix + "_y").c_str(), item.y);
+        item.visible =
+            preferences_.getBool((prefix + "_v").c_str(), item.visible);
+        if (item.symbol.isEmpty()) {
+            item.symbol = "sh000001";
+        }
+        settings.market_layout.push_back(item);
+    }
+    if (settings.market_layout.empty() && summary.visible) {
+        settings.market_layout.push_back(
+            defaultMarketLayoutItem(0, settings.market_symbol, summary));
+    }
     settings.comfort_settings.min_temperature =
         preferences_.getFloat("comfort_t_min",
                               settings.comfort_settings.min_temperature);
@@ -97,6 +143,7 @@ void SettingsStore::save(const AppSettings& settings) {
         static_cast<uint8_t>(
             logic::ClampPartialCleanInterval(settings.partial_clean_interval)));
     saveDashboardLayout(settings.dashboard_layout);
+    saveMarketLayout(settings.market_layout);
     preferences_.putFloat("comfort_t_min",
                           settings.comfort_settings.min_temperature);
     preferences_.putFloat("comfort_t_max",
@@ -193,6 +240,27 @@ void SettingsStore::saveDashboardLayout(
         preferences_.putShort((key_prefix + "_x").c_str(), item.x);
         preferences_.putShort((key_prefix + "_y").c_str(), item.y);
         preferences_.putBool((key_prefix + "_v").c_str(), item.visible);
+    }
+}
+
+void SettingsStore::saveMarketLayout(
+    const std::vector<MarketLayoutItem>& market_layout) {
+    if (!started_) {
+        return;
+    }
+    const uint8_t count =
+        market_layout.size() > kMaxSavedMarketLayoutItems
+            ? kMaxSavedMarketLayoutItems
+            : static_cast<uint8_t>(market_layout.size());
+    preferences_.putUChar("market_count", count);
+    for (uint8_t i = 0; i < count; ++i) {
+        const String prefix = "market_" + String(i);
+        const MarketLayoutItem& item = market_layout[i];
+        preferences_.putString((prefix + "_id").c_str(), item.instance_id);
+        preferences_.putString((prefix + "_sym").c_str(), item.symbol);
+        preferences_.putShort((prefix + "_x").c_str(), item.x);
+        preferences_.putShort((prefix + "_y").c_str(), item.y);
+        preferences_.putBool((prefix + "_v").c_str(), item.visible);
     }
 }
 

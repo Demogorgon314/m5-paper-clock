@@ -1660,6 +1660,13 @@ void ClockApp::resetClockRenderState() {
     last_dashboard_summary_title_rendered_ = "";
     last_dashboard_summary_price_rendered_ = "";
     last_dashboard_summary_bottom_rendered_ = "";
+    for (MarketRenderState& state : market_render_states_) {
+        state.last_signature = "";
+        state.last_title = "";
+        state.last_price = "";
+        state.last_bottom = "";
+        state.last_valid = false;
+    }
     last_date_text_rendered_ = "";
     last_holiday_display_rendered_ = "";
     last_weekday_rendered_ = 255;
@@ -1754,6 +1761,11 @@ void ClockApp::updateDashboardDateComponents() {
 }
 
 void ClockApp::updateDashboardSensorComponents() {
+    if (!dashboardComponentVisible(logic::DashboardComponentId::Climate) &&
+        !dashboardComponentVisible(logic::DashboardComponentId::ClassicInfo)) {
+        last_sensor_read_ms_ = millis();
+        return;
+    }
     updateLayoutComponents(logic::kSensorComponents.ids,
                            logic::kSensorComponents.count,
                            false);
@@ -2199,11 +2211,14 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     const ConfigConnectionIcon config_connection_icon =
         activeConfigConnectionIcon();
     const bool status_forced_dirty = battery_status_dirty_;
-    if (!full_refresh && !status_forced_dirty &&
-        battery == last_battery_percentage_ &&
-        wifi_connected == last_wifi_connected_ &&
-        wifi_signal_level == last_wifi_signal_level_ &&
-        config_connection_icon == last_config_connection_icon_) {
+    const bool battery_changed = battery != last_battery_percentage_;
+    const bool wifi_changed = wifi_connected != last_wifi_connected_ ||
+                              wifi_signal_level != last_wifi_signal_level_;
+    const bool transport_changed =
+        config_connection_icon != last_config_connection_icon_;
+    if (!full_refresh && !battery_changed && !wifi_changed &&
+        !transport_changed) {
+        battery_status_dirty_ = false;
         return;
     }
     battery_status_dirty_ = false;
@@ -2267,11 +2282,6 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
         battery_partial_count_ = 0;
     } else {
         DirtyRect dirty;
-        const bool battery_changed = battery != last_battery_percentage_;
-        const bool wifi_changed = wifi_connected != last_wifi_connected_ ||
-                                  wifi_signal_level != last_wifi_signal_level_;
-        const bool transport_changed =
-            config_connection_icon != last_config_connection_icon_;
         if (battery_changed) {
             DirtyRect rect;
             rect.x = max<int16_t>(0, label_right - 72);
@@ -2312,6 +2322,7 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
         if (dirty.valid) {
             updateAlignedArea(battery_x + dirty.x, battery_y + dirty.y,
                               dirty.w, dirty.h, mode);
+            ++battery_partial_count_;
         }
     }
     last_battery_percentage_ = battery;
@@ -2493,16 +2504,27 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
 
 void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
                                             bool allow_fetch) {
-    if (!dashboardComponentVisible(logic::DashboardComponentId::Summary)) {
-        return;
+    syncMarketRenderStates();
+    for (const MarketLayoutItem& item : settings_.market_layout) {
+        if (!item.visible) {
+            continue;
+        }
+        MarketRenderState& state = marketRenderStateFor(item);
+        updateDashboardMarketInstance(item, state, full_refresh, allow_fetch);
     }
+}
 
+void ClockApp::updateDashboardMarketInstance(const MarketLayoutItem& item,
+                                             MarketRenderState& state,
+                                             bool full_refresh,
+                                             bool allow_fetch) {
     if (allow_fetch) {
-        refreshMarketQuote(full_refresh);
-    } else if (connectivity_.isConnected() &&
-               (!market_quote_.valid ||
-                millis() - last_market_fetch_ms_ > kDashboardMarketIntervalMs)) {
-        pending_market_refresh_ = true;
+        refreshMarketQuote(state, full_refresh);
+        if (state.last_fetch_ms != 0 &&
+            (last_market_fetch_ms_ == 0 ||
+             state.last_fetch_ms > last_market_fetch_ms_)) {
+            last_market_fetch_ms_ = state.last_fetch_ms;
+        }
     }
     const bool wifi_connected = connectivity_.isConnected();
     rtc_date_t current_date;
@@ -2512,9 +2534,23 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
     const bool market_open = logic::IsCnAShareMarketOpen(
         current_date.year, current_date.mon, current_date.day, current_time.hour,
         current_time.min);
+    const bool market_refresh_due =
+        state.last_fetch_ms == 0 ||
+        millis() - state.last_fetch_ms > kDashboardMarketIntervalMs;
+    if (!allow_fetch && wifi_connected && market_refresh_due) {
+        if (!market_open && state.quote.valid) {
+            state.last_fetch_ms = millis();
+            if (last_market_fetch_ms_ == 0 ||
+                state.last_fetch_ms > last_market_fetch_ms_) {
+                last_market_fetch_ms_ = state.last_fetch_ms;
+            }
+        } else {
+            pending_market_refresh_ = true;
+        }
+    }
     const String summary_signature =
-        marketSummarySignature(market_quote_, wifi_connected);
-    if (!full_refresh && summary_signature == last_market_summary_rendered_) {
+        marketSummarySignature(state.quote, wifi_connected);
+    if (!full_refresh && summary_signature == state.last_signature) {
         return;
     }
 
@@ -2537,8 +2573,8 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
     active_summary_canvas.setTextColor(kText);
     setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
     const String market_title =
-        marketDisplayLabel(market_quote_, use_summary_cjk);
-    const bool summary_valid = market_quote_.valid;
+        marketDisplayLabel(state.quote, use_summary_cjk);
+    const bool summary_valid = state.quote.valid;
     String summary_price;
     String summary_bottom;
     String change_value;
@@ -2546,19 +2582,19 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
     String status_label;
     String status_detail;
     if (summary_valid) {
-        summary_price = market_quote_.price;
-        const String change_prefix = market_quote_.positive ? "+" : "";
-        change_value = change_prefix + market_quote_.change;
-        percent_value = change_prefix + market_quote_.change_percent + "%";
+        summary_price = state.quote.price;
+        const String change_prefix = state.quote.positive ? "+" : "";
+        change_value = change_prefix + state.quote.change;
+        percent_value = change_prefix + state.quote.change_percent + "%";
         status_label =
-            marketStatusLabel(market_quote_, market_open, use_summary_cjk);
+            marketStatusLabel(state.quote, market_open, use_summary_cjk);
         summary_bottom = change_value + "|" + percent_value + "|" +
                          status_label + "|" +
-                         (market_quote_.positive ? "1" : "0");
+                         (state.quote.positive ? "1" : "0");
     } else {
         status_detail =
-            !market_quote_.error_message.isEmpty()
-                ? market_quote_.error_message
+            !state.quote.error_message.isEmpty()
+                ? state.quote.error_message
                 : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
         summary_bottom = status_detail;
     }
@@ -2592,7 +2628,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         const int16_t change_left = change_right - change_width;
         const int16_t arrow_center_x = change_left - kDashboardSummaryArrowGap;
         const int16_t arrow_center_y = kDashboardSummaryBottomY + 5;
-        if (market_quote_.positive) {
+        if (state.quote.positive) {
             active_summary_canvas.fillTriangle(arrow_center_x - 8,
                                                arrow_center_y + 6,
                                                arrow_center_x,
@@ -2628,23 +2664,21 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         active_summary_canvas.drawString(status_detail, 16, 62);
     }
 
-    const int16_t summary_x =
-        dashboardComponentX(logic::DashboardComponentId::Summary);
-    const int16_t summary_y =
-        dashboardComponentY(logic::DashboardComponentId::Summary);
+    const int16_t summary_x = item.x;
+    const int16_t summary_y = item.y;
     active_summary_canvas.pushCanvas(summary_x, summary_y, UPDATE_MODE_NONE);
     if (full_refresh) {
-        dashboard_summary_partial_count_ = 0;
+        state.partial_count = 0;
     } else {
         DirtyRect dirty;
-        if (summary_valid != last_dashboard_summary_valid_) {
+        if (summary_valid != state.last_valid) {
             dirty.x = 0;
             dirty.y = 0;
             dirty.w = kDashboardSummaryW;
             dirty.h = kDashboardSummaryH;
             dirty.valid = true;
         } else {
-            if (market_title != last_dashboard_summary_title_rendered_) {
+            if (market_title != state.last_title) {
                 DirtyRect rect;
                 rect.x = kDashboardSummaryTitleAreaX;
                 rect.y = kDashboardSummaryTitleAreaY;
@@ -2653,7 +2687,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
                 rect.valid = true;
                 includeDirtyRect(dirty, rect);
             }
-            if (summary_price != last_dashboard_summary_price_rendered_) {
+            if (summary_price != state.last_price) {
                 DirtyRect rect;
                 rect.x = kDashboardSummaryPriceAreaX;
                 rect.y = kDashboardSummaryPriceAreaY;
@@ -2662,7 +2696,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
                 rect.valid = true;
                 includeDirtyRect(dirty, rect);
             }
-            if (summary_bottom != last_dashboard_summary_bottom_rendered_) {
+            if (summary_bottom != state.last_bottom) {
                 DirtyRect rect;
                 rect.x = kDashboardSummaryBottomAreaX;
                 rect.y = kDashboardSummaryBottomAreaY;
@@ -2673,7 +2707,7 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
             }
         }
         const m5epd_update_mode_t mode =
-            nextPartialMode(dashboard_summary_partial_count_,
+            nextPartialMode(state.partial_count,
                             settings_.partial_clean_interval);
         if (dirty.valid) {
             updateAlignedArea(summary_x + dirty.x, summary_y + dirty.y,
@@ -2681,12 +2715,22 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         }
         ++partial_refresh_count_;
     }
-    last_market_summary_rendered_ = fast_ascii_only ? String("") : summary_signature;
-    last_dashboard_summary_title_rendered_ = fast_ascii_only ? String("") : market_title;
-    last_dashboard_summary_price_rendered_ = fast_ascii_only ? String("") : summary_price;
-    last_dashboard_summary_bottom_rendered_ =
-        fast_ascii_only ? String("") : summary_bottom;
-    last_dashboard_summary_valid_ = !fast_ascii_only && summary_valid;
+    state.last_signature = fast_ascii_only ? String("") : summary_signature;
+    state.last_title = fast_ascii_only ? String("") : market_title;
+    state.last_price = fast_ascii_only ? String("") : summary_price;
+    state.last_bottom = fast_ascii_only ? String("") : summary_bottom;
+    state.last_valid = !fast_ascii_only && summary_valid;
+
+    if (item.instance_id == "market-1") {
+        market_quote_ = state.quote;
+        last_market_fetch_ms_ = state.last_fetch_ms;
+        last_market_summary_rendered_ = state.last_signature;
+        last_dashboard_summary_title_rendered_ = state.last_title;
+        last_dashboard_summary_price_rendered_ = state.last_price;
+        last_dashboard_summary_bottom_rendered_ = state.last_bottom;
+        dashboard_summary_partial_count_ = state.partial_count;
+        last_dashboard_summary_valid_ = state.last_valid;
+    }
 }
 
 void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
@@ -2796,12 +2840,51 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
 }
 
 bool ClockApp::refreshMarketQuote(bool force) {
-    if (!force && millis() - last_market_fetch_ms_ < kDashboardMarketIntervalMs) {
-        return market_quote_.valid;
+    syncMarketRenderStates();
+    bool any_valid = false;
+    uint32_t latest_fetch_ms = 0;
+    for (const MarketLayoutItem& item : settings_.market_layout) {
+        if (!item.visible) {
+            continue;
+        }
+        MarketRenderState& state = marketRenderStateFor(item);
+        any_valid = refreshMarketQuote(state, force) || any_valid;
+        if (state.last_fetch_ms > latest_fetch_ms) {
+            latest_fetch_ms = state.last_fetch_ms;
+        }
+    }
+    if (!market_render_states_.empty()) {
+        for (const MarketLayoutItem& item : settings_.market_layout) {
+            if (!item.visible) {
+                continue;
+            }
+            MarketRenderState& state = marketRenderStateFor(item);
+            market_quote_ = state.quote;
+            break;
+        }
+    }
+    if (latest_fetch_ms != 0) {
+        last_market_fetch_ms_ = latest_fetch_ms;
+    }
+    return any_valid;
+}
+
+bool ClockApp::refreshMarketQuote(MarketRenderState& state, bool force) {
+    if (!force && millis() - state.last_fetch_ms < kDashboardMarketIntervalMs) {
+        return state.quote.valid;
     }
 
+    auto mark_checked = [&]() {
+        state.last_fetch_ms = millis();
+        if (last_market_fetch_ms_ == 0 ||
+            state.last_fetch_ms > last_market_fetch_ms_) {
+            last_market_fetch_ms_ = state.last_fetch_ms;
+        }
+    };
+
     if (!connectivity_.isConnected()) {
-        return market_quote_.valid;
+        mark_checked();
+        return state.quote.valid;
     }
 
     rtc_date_t current_date;
@@ -2812,25 +2895,23 @@ bool ClockApp::refreshMarketQuote(bool force) {
     const bool market_open = logic::IsCnAShareMarketOpen(
         current_date.year, current_date.mon, current_date.day, current_time.hour,
         current_time.min);
-    if (!force && !market_open && market_quote_.valid) {
+    if (!force && !market_open && state.quote.valid) {
+        mark_checked();
         return true;
     }
 
-    last_market_fetch_ms_ = millis();
+    mark_checked();
 
-    const MarketQuote fetched = market_.fetchQuote(settings_.market_symbol);
+    const MarketQuote fetched = market_.fetchQuote(state.symbol);
     if (!fetched.valid) {
-        if (!market_quote_.valid) {
-            seedMarketQuoteFromSettings();
-            market_quote_.error_message = fetched.error_message;
+        if (!state.quote.valid) {
+            seedMarketQuoteFromSettings(state, state.symbol);
+            state.quote.error_message = fetched.error_message;
         }
-        return market_quote_.valid;
+        return state.quote.valid;
     }
 
-    market_quote_ = fetched;
-    if (!settings_.market_name.isEmpty()) {
-        market_quote_.display_name = settings_.market_name;
-    }
+    state.quote = fetched;
     return true;
 }
 
@@ -5027,6 +5108,31 @@ void ClockApp::populateLayoutPreviewState(JsonObject data) const {
         : (!market_quote_.error_message.isEmpty()
                ? market_quote_.error_message
                : (wifi_connected ? String(u8"数据不可用") : String(u8"Wi-Fi 离线")));
+    JsonArray markets = render_data.createNestedArray("markets");
+    for (const MarketLayoutItem& item : settings_.market_layout) {
+        if (!item.visible) {
+            continue;
+        }
+        MarketRenderState& state =
+            const_cast<ClockApp*>(this)->marketRenderStateFor(item);
+        JsonObject market_item = markets.createNestedObject();
+        market_item["id"] = item.instance_id;
+        market_item["requestSymbol"] = state.symbol;
+        market_item["code"] = state.quote.symbol;
+        market_item["displayName"] = marketDisplayLabel(state.quote, true);
+        market_item["valid"] = state.quote.valid;
+        market_item["price"] = state.quote.valid ? state.quote.price : "--";
+        market_item["change"] = state.quote.valid ? state.quote.change : "";
+        market_item["changePercent"] =
+            state.quote.valid ? state.quote.change_percent : "";
+        market_item["positive"] = state.quote.positive;
+        market_item["statusLabel"] = state.quote.valid
+            ? marketStatusLabel(state.quote, market_open, true)
+            : (!state.quote.error_message.isEmpty()
+                   ? state.quote.error_message
+                   : (wifi_connected ? String(u8"数据不可用")
+                                     : String(u8"Wi-Fi 离线")));
+    }
 
     JsonObject climate = render_data.createNestedObject("climate");
     climate["valid"] = last_environment_.valid;
@@ -5111,6 +5217,9 @@ void ClockApp::populateClassicLayoutComponents(JsonArray components) const {
 
 void ClockApp::populateLayoutComponents(JsonArray components) const {
     for (const logic::DashboardLayoutItem& item : settings_.dashboard_layout) {
+        if (item.id == logic::DashboardComponentId::Summary) {
+            continue;
+        }
         JsonObject component = components.createNestedObject();
         component["id"] = item.instance_id;
         component["type"] = item.type;
@@ -5127,8 +5236,6 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
             props["weekdayFormat"] = settings_.weekday_format;
             props["showHoliday"] = settings_.show_holiday;
             props["layoutStyle"] = settings_.date_layout;
-        } else if (item.id == logic::DashboardComponentId::Summary) {
-            props["symbol"] = settings_.market_symbol;
         } else if (item.id == logic::DashboardComponentId::Climate ||
                    item.id == logic::DashboardComponentId::ClassicInfo) {
             props["comfortTemperatureMin"] =
@@ -5140,6 +5247,20 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
             props["comfortHumidityMax"] =
                 settings_.comfort_settings.max_humidity;
         }
+    }
+    for (const MarketLayoutItem& item : settings_.market_layout) {
+        JsonObject component = components.createNestedObject();
+        component["id"] = item.instance_id;
+        component["type"] = "market";
+        component["x"] = item.x;
+        component["y"] = item.y;
+        component["w"] = kDashboardSummaryW;
+        component["h"] = kDashboardSummaryH;
+        component["visible"] = item.visible;
+        component["lockedSize"] = true;
+        JsonObject props = component.createNestedObject("props");
+        props["variant"] = "summary-card";
+        props["symbol"] = item.symbol;
     }
 }
 
@@ -5263,6 +5384,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
     }
 
     logic::DashboardLayout next_layout = settings_.dashboard_layout;
+    std::vector<MarketLayoutItem> next_market_layout;
     String next_market_symbol = settings_.market_symbol;
     String next_date_format = settings_.date_format;
     String next_weekday_format = settings_.weekday_format;
@@ -5276,6 +5398,45 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         JsonObjectConst component = value.as<JsonObjectConst>();
         const char* id_key = component["id"] | "";
         const char* type_key = component["type"] | "";
+        const bool is_market_component =
+            String(type_key) == "market" || String(id_key).startsWith("market-");
+        if (is_market_component) {
+            MarketLayoutItem item;
+            item.instance_id = String(id_key).isEmpty()
+                                   ? "market-" + String(next_market_layout.size() + 1)
+                                   : String(id_key);
+            JsonObjectConst props = component["props"].as<JsonObjectConst>();
+            item.symbol = settings_.market_symbol;
+            if (!props.isNull()) {
+                const String prop_symbol = String(props["symbol"] | "");
+                if (!prop_symbol.isEmpty()) {
+                    item.symbol = prop_symbol;
+                }
+            }
+            item.x = component["x"] | 72;
+            item.y = component["y"] | 392;
+            item.visible = component["visible"] | true;
+            if (item.x < 0) {
+                item.x = 0;
+            } else if (item.x > logic::kLayoutScreenWidth - kDashboardSummaryW) {
+                item.x = logic::kLayoutScreenWidth - kDashboardSummaryW;
+            }
+            if (item.y < 0) {
+                item.y = 0;
+            } else if (item.y > logic::kLayoutScreenHeight - kDashboardSummaryH) {
+                item.y = logic::kLayoutScreenHeight - kDashboardSummaryH;
+            }
+            if (item.symbol.isEmpty()) {
+                item.symbol = "sh000001";
+            }
+            next_market_layout.push_back(item);
+            if (next_market_layout.size() == 1) {
+                next_market_symbol = item.symbol;
+            }
+            seen[logic::DashboardComponentIndex(
+                logic::DashboardComponentId::Summary)] = true;
+            continue;
+        }
         bool found = false;
         logic::DashboardComponentId id =
             logic::DashboardComponentIdFromKey(id_key, found);
@@ -5364,8 +5525,23 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         }
     }
 
+    logic::DashboardLayoutItem& summary_item =
+        next_layout[logic::DashboardComponentIndex(
+            logic::DashboardComponentId::Summary)];
+    bool any_market_visible = false;
+    for (const MarketLayoutItem& item : next_market_layout) {
+        any_market_visible = any_market_visible || item.visible;
+    }
+    summary_item.visible = any_market_visible;
+    if (!next_market_layout.empty()) {
+        summary_item.x = next_market_layout.front().x;
+        summary_item.y = next_market_layout.front().y;
+    }
     settings_.dashboard_layout = next_layout;
     store_.saveDashboardLayout(settings_.dashboard_layout);
+    settings_.market_layout = next_market_layout;
+    store_.saveMarketLayout(settings_.market_layout);
+    syncMarketRenderStates();
     if (!next_market_symbol.isEmpty() &&
         next_market_symbol != settings_.market_symbol) {
         settings_.market_symbol = next_market_symbol;
@@ -5424,6 +5600,67 @@ String ClockApp::currentMarketDisplayName() const {
     return currentMarketCode();
 }
 
+ClockApp::MarketRenderState& ClockApp::marketRenderStateFor(
+    const MarketLayoutItem& item) {
+    for (MarketRenderState& state : market_render_states_) {
+        if (state.instance_id == item.instance_id) {
+            if (state.symbol != item.symbol) {
+                state.symbol = item.symbol;
+                seedMarketQuoteFromSettings(state, item.symbol);
+                state.last_fetch_ms = 0;
+                state.last_signature = "";
+            }
+            return state;
+        }
+    }
+
+    MarketRenderState state;
+    state.instance_id = item.instance_id;
+    state.symbol = item.symbol.isEmpty() ? String("sh000001") : item.symbol;
+    seedMarketQuoteFromSettings(state, state.symbol);
+    market_render_states_.push_back(state);
+    return market_render_states_.back();
+}
+
+void ClockApp::syncMarketRenderStates() {
+    for (const MarketLayoutItem& item : settings_.market_layout) {
+        marketRenderStateFor(item);
+    }
+    for (auto it = market_render_states_.begin();
+         it != market_render_states_.end();) {
+        bool found = false;
+        for (const MarketLayoutItem& item : settings_.market_layout) {
+            if (item.instance_id == it->instance_id) {
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            ++it;
+        } else {
+            it = market_render_states_.erase(it);
+        }
+    }
+}
+
+void ClockApp::seedMarketQuoteFromSettings(MarketRenderState& state,
+                                           const String& symbol,
+                                           const String& display_name) {
+    state.quote = MarketQuote {};
+    state.symbol = symbol.isEmpty() ? String("sh000001") : symbol;
+    state.quote.request_symbol = state.symbol;
+    state.quote.symbol = marketCodeFromRequestSymbol(state.symbol);
+    if (!display_name.isEmpty()) {
+        state.quote.display_name = display_name;
+        return;
+    }
+    const std::string fallback_name =
+        logic::KnownMarketDisplayName(std::string(state.quote.symbol.c_str()));
+    state.quote.display_name = fallback_name.empty()
+                                   ? state.quote.symbol
+                                   : String(fallback_name.c_str());
+}
+
 void ClockApp::seedMarketQuoteFromSettings() {
     market_quote_ = MarketQuote {};
     market_quote_.request_symbol = settings_.market_symbol.isEmpty()
@@ -5441,6 +5678,13 @@ void ClockApp::seedMarketQuoteFromSettings() {
     market_quote_.display_name = fallback_name.empty()
                                      ? market_quote_.symbol
                                      : String(fallback_name.c_str());
+    syncMarketRenderStates();
+    if (!market_render_states_.empty()) {
+        MarketRenderState& first = market_render_states_.front();
+        seedMarketQuoteFromSettings(first, settings_.market_symbol,
+                                    settings_.market_name);
+        market_quote_ = first.quote;
+    }
 }
 
 String ClockApp::timezoneLabel() const {
@@ -5491,7 +5735,39 @@ uint8_t ClockApp::batteryPercentage() const {
     if (battery > 1.0f) {
         battery = 1.0f;
     }
-    return static_cast<uint8_t>(battery * 100.0f);
+    const uint8_t raw_percentage =
+        static_cast<uint8_t>(battery * 100.0f);
+    if (stable_battery_percentage_ == 255) {
+        stable_battery_percentage_ = raw_percentage;
+        battery_candidate_percentage_ = raw_percentage;
+        battery_candidate_count_ = 0;
+        return stable_battery_percentage_;
+    }
+    const int delta = static_cast<int>(raw_percentage) -
+                      static_cast<int>(stable_battery_percentage_);
+    if (delta >= 2 || delta <= -2) {
+        stable_battery_percentage_ = raw_percentage;
+        battery_candidate_percentage_ = raw_percentage;
+        battery_candidate_count_ = 0;
+        return stable_battery_percentage_;
+    }
+    if (delta == 0) {
+        battery_candidate_percentage_ = raw_percentage;
+        battery_candidate_count_ = 0;
+        return stable_battery_percentage_;
+    }
+    if (battery_candidate_percentage_ != raw_percentage) {
+        battery_candidate_percentage_ = raw_percentage;
+        battery_candidate_count_ = 1;
+        return stable_battery_percentage_;
+    }
+    if (battery_candidate_count_ < 3) {
+        ++battery_candidate_count_;
+        return stable_battery_percentage_;
+    }
+    stable_battery_percentage_ = raw_percentage;
+    battery_candidate_count_ = 0;
+    return stable_battery_percentage_;
 }
 
 String ClockApp::maskedPassword() const {

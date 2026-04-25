@@ -2,10 +2,19 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <vector>
 
 #include "logic/ComfortLogic.h"
 #include "logic/LayoutLogic.h"
 #include "logic/UiLogic.h"
+
+struct MarketLayoutItem {
+    String instance_id = "market-1";
+    String symbol = "sh000001";
+    int16_t x = 72;
+    int16_t y = 392;
+    bool visible = true;
+};
 
 struct AppSettings {
     String ssid;
@@ -23,6 +32,7 @@ struct AppSettings {
     logic::ComfortSettings comfort_settings;
     uint8_t partial_clean_interval = logic::kDefaultPartialCleanInterval;
     logic::DashboardLayout dashboard_layout = logic::DefaultDashboardLayout();
+    std::vector<MarketLayoutItem> market_layout = {MarketLayoutItem {}};
 };
 
 class SettingsStore {
@@ -42,6 +52,7 @@ public:
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
     void savePartialCleanInterval(uint8_t partial_clean_interval);
     void saveDashboardLayout(const logic::DashboardLayout& dashboard_layout);
+    void saveMarketLayout(const std::vector<MarketLayoutItem>& market_layout);
     void saveBlePairingToken(const String& token);
 
 private:

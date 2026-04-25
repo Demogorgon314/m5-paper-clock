@@ -721,6 +721,32 @@ function currentDashboardPreviewSample() {
   };
 }
 
+function previewMarketSampleForItem(item) {
+  const markets = state.layoutPreviewState?.renderData?.markets;
+  const deviceMarket = Array.isArray(markets)
+    ? markets.find((market) => market.id === item.id)
+    : null;
+  const sample = currentDashboardPreviewSample();
+  if (!deviceMarket) {
+    return sample;
+  }
+  const marketPositive = Boolean(deviceMarket.positive);
+  const changePrefix = marketPositive ? "+" : "";
+  return {
+    ...sample,
+    marketNameZh: deviceMarket.displayName || sample.marketNameZh,
+    marketValue: deviceMarket.price || sample.marketValue,
+    marketStatusZh: deviceMarket.statusLabel || sample.marketStatusZh,
+    marketChangeValue: deviceMarket.change
+      ? `${changePrefix}${deviceMarket.change}`
+      : sample.marketChangeValue,
+    marketChangePercent: deviceMarket.changePercent
+      ? `${changePrefix}${deviceMarket.changePercent}%`
+      : sample.marketChangePercent,
+    marketPositive,
+  };
+}
+
 function detectInitialLocale() {
   const savedLocale = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
   if (SUPPORTED_LOCALES.includes(savedLocale)) {
@@ -980,12 +1006,13 @@ function loadLayoutPresets() {
 }
 
 function dashboardLayoutWithLabels(layout) {
-  return Object.values(COMPONENT_REGISTRY).map((definition) => {
+  const normalized = (layout || []).map((savedItem) => {
+    const definition = COMPONENT_REGISTRY[savedItem.type] || Object.values(COMPONENT_REGISTRY)
+      .find((candidate) => candidate.defaultItem.id === savedItem.id);
+    if (!definition) {
+      return null;
+    }
     const defaultItem = definition.defaultItem;
-    const savedItem =
-      layout.find(
-        (item) => item.id === defaultItem.id || item.type === defaultItem.type,
-      ) || {};
     const hasSavedVisibility = Object.prototype.hasOwnProperty.call(
       savedItem,
       "visible",
@@ -1005,7 +1032,25 @@ function dashboardLayoutWithLabels(layout) {
         ? savedItem.visible !== false
         : defaultItem.visible !== false,
     };
-  });
+  }).filter(Boolean);
+
+  for (const definition of Object.values(COMPONENT_REGISTRY)) {
+    if (definition.type === "market") {
+      continue;
+    }
+    const defaultItem = definition.defaultItem;
+    if (normalized.some((item) => item.id === defaultItem.id || item.type === defaultItem.type)) {
+      continue;
+    }
+    normalized.push({
+      ...defaultItem,
+      labelKey: definition.labelKey,
+      type: defaultItem.type,
+      props: { ...defaultItem.props },
+      visible: false,
+    });
+  }
+  return normalized;
 }
 
 function activeLayoutFromDocument(document) {
@@ -1018,6 +1063,22 @@ function activeLayoutFromDocument(document) {
     document.layouts[0] ||
     null
   );
+}
+
+function shouldAdoptDeviceLayout(deviceLayoutId) {
+  if (state.layoutDirty) {
+    return false;
+  }
+  const currentLayoutExists = state.dashboardLayouts.some(
+    (layout) => layout.id === state.activeLayoutId,
+  );
+  if (!currentLayoutExists) {
+    return true;
+  }
+  if (!state.activeLayoutId || state.activeLayoutId === deviceLayoutId) {
+    return true;
+  }
+  return isBuiltInLayoutId(state.activeLayoutId);
 }
 
 function layoutDocumentFromComponents(components) {
@@ -2014,7 +2075,7 @@ function drawPreviewTime(canvas) {
 }
 
 function drawPreviewMarket(canvas, item) {
-  const sample = currentDashboardPreviewSample();
+  const sample = previewMarketSampleForItem(item);
   drawComponentFrame(canvas, item);
   const name = sample.marketNameZh;
   const status = sample.marketStatusZh;
@@ -2319,7 +2380,13 @@ function currentMarketLayoutItem() {
   const activeLayout =
     state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
     activeLayoutPreset();
-  return activeLayout?.components?.find((item) => item.type === "market") || null;
+  return (
+    activeLayout?.components?.find(
+      (item) => item.id === state.selectedLayoutId && item.type === "market",
+    ) ||
+    activeLayout?.components?.find((item) => item.type === "market") ||
+    null
+  );
 }
 
 function updateMarketSymbolInActiveLayout(symbol) {
@@ -2336,7 +2403,8 @@ function updateMarketSymbolInActiveLayout(symbol) {
 
   let updated = false;
   const nextComponents = activeLayout.components.map((item) => {
-    if (item.type !== "market") {
+    const targetMarket = currentMarketLayoutItem();
+    if (item.type !== "market" || (targetMarket && item.id !== targetMarket.id)) {
       return item;
     }
     updated = true;
@@ -3005,7 +3073,8 @@ function renderDashboardComponentLibrary() {
       if (item.id === state.selectedLayoutId) {
         button.classList.add("is-selected");
       }
-      button.textContent = t(item.labelKey);
+      button.textContent =
+        item.type === "market" ? `${t(item.labelKey)} · ${item.id}` : t(item.labelKey);
       button.addEventListener("click", () => selectDashboardLayoutItem(item.id));
       visibleList.appendChild(button);
     });
@@ -3031,6 +3100,12 @@ function renderDashboardComponentLibrary() {
     empty.textContent = t("layout.noHiddenComponents");
     hiddenList.appendChild(empty);
   }
+  const addMarketButton = document.createElement("button");
+  addMarketButton.type = "button";
+  addMarketButton.className = "layout-chip layout-chip-add";
+  addMarketButton.textContent = `+ ${t("layout.component.summary")}`;
+  addMarketButton.addEventListener("click", () => addDashboardLayoutItem("market"));
+  hiddenList.appendChild(addMarketButton);
 
   elements.layoutComponentList.appendChild(panel);
 }
@@ -3498,7 +3573,42 @@ function handleLayoutKeyboardNudge(event) {
   event.preventDefault();
 }
 
+function nextDashboardMarketId() {
+  const indexes = state.dashboardLayout
+    .filter((item) => item.type === "market")
+    .map((item) => /^market-(\d+)$/.exec(item.id))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+  let index = 1;
+  while (indexes.includes(index)) {
+    index += 1;
+  }
+  return `market-${index}`;
+}
+
 function addDashboardLayoutItem(id) {
+  if (id === "market") {
+    const definition = COMPONENT_REGISTRY.market;
+    const defaultItem = definition.defaultItem;
+    const marketCount = state.dashboardLayout.filter((item) => item.type === "market").length;
+    const nextItem = clampDashboardLayoutItem({
+      ...defaultItem,
+      id: nextDashboardMarketId(),
+      x: Math.min(
+        DASHBOARD_PREVIEW.width - defaultItem.w,
+        defaultItem.x + (marketCount % 2) * 356,
+      ),
+      y: Math.min(
+        DASHBOARD_PREVIEW.height - defaultItem.h,
+        defaultItem.y + Math.floor(marketCount / 2) * 100,
+      ),
+      props: { ...defaultItem.props },
+      visible: true,
+    });
+    state.selectedLayoutId = nextItem.id;
+    setDashboardLayout([...state.dashboardLayout, nextItem], { dirty: true });
+    return;
+  }
   const defaultItem = Object.values(COMPONENT_REGISTRY)
     .find((definition) => definition.defaultItem.id === id)
     ?.defaultItem;
@@ -3522,9 +3632,13 @@ function removeDashboardLayoutItem(id) {
   const nextSelected =
     visibleItems.find((item) => item.id !== id)?.id || null;
   state.selectedLayoutId = nextSelected;
-  const nextLayout = state.dashboardLayout.map((item) =>
-    item.id === id ? { ...item, visible: false } : item,
-  );
+  const currentItem = state.dashboardLayout.find((item) => item.id === id);
+  const nextLayout =
+    currentItem?.type === "market"
+      ? state.dashboardLayout.filter((item) => item.id !== id)
+      : state.dashboardLayout.map((item) =>
+          item.id === id ? { ...item, visible: false } : item,
+        );
   setDashboardLayout(nextLayout, { dirty: true });
 }
 
@@ -3777,7 +3891,7 @@ function updateStatus(status) {
       status.partialCleanInterval ??
       DEFAULT_REFRESH_SETTINGS.partialCleanInterval,
   });
-  if (!state.layoutDirty) {
+  if (shouldAdoptDeviceLayout(statusLayoutId)) {
     const activeLayout = activeLayoutFromDocument(status.layoutDocument);
     if (activeLayout?.components) {
       const normalized = normalizeDashboardLayoutPreset(activeLayout);
@@ -3816,7 +3930,8 @@ function updateLayoutPreviewState(previewState) {
     return;
   }
   state.layoutPreviewState = previewState;
-  if (!state.layoutDirty) {
+  const previewLayoutId = String(previewState.activeLayoutId || "");
+  if (shouldAdoptDeviceLayout(previewLayoutId)) {
     const activeLayout = activeLayoutFromDocument(previewState.layoutDocument);
     if (activeLayout?.components) {
       const normalized = normalizeDashboardLayoutPreset(activeLayout);

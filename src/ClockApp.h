@@ -146,7 +146,29 @@ private:
     void updateDashboardSummaryCanvas(bool full_refresh,
                                       bool allow_fetch = true);
     void updateDashboardClimateCanvas(bool full_refresh);
+    struct MarketRenderState {
+        String instance_id;
+        String symbol;
+        MarketQuote quote;
+        uint32_t last_fetch_ms = 0;
+        String last_signature;
+        String last_title;
+        String last_price;
+        String last_bottom;
+        uint8_t partial_count = 0;
+        bool last_valid = false;
+    };
+    MarketRenderState& marketRenderStateFor(const MarketLayoutItem& item);
+    void syncMarketRenderStates();
+    void seedMarketQuoteFromSettings(MarketRenderState& state,
+                                     const String& symbol,
+                                     const String& display_name = String());
+    bool refreshMarketQuote(MarketRenderState& state, bool force);
     bool refreshMarketQuote(bool force);
+    void updateDashboardMarketInstance(const MarketLayoutItem& item,
+                                       MarketRenderState& state,
+                                       bool full_refresh,
+                                       bool allow_fetch);
     void updatePasswordFieldCanvas(m5epd_update_mode_t mode);
     void updatePasswordStatusCanvas(m5epd_update_mode_t mode);
     void updateSettingsStatusCanvas(m5epd_update_mode_t mode);
@@ -271,6 +293,7 @@ private:
     AppSettings settings_;
     EnvironmentReading last_environment_;
     MarketQuote market_quote_;
+    std::vector<MarketRenderState> market_render_states_;
     rtc_time_t last_time_ {};
     rtc_date_t last_date_ {};
 
@@ -367,6 +390,9 @@ private:
     String last_holiday_display_rendered_;
     uint8_t last_weekday_rendered_ = 255;
     uint8_t last_battery_percentage_ = 255;
+    mutable uint8_t stable_battery_percentage_ = 255;
+    mutable uint8_t battery_candidate_percentage_ = 255;
+    mutable uint8_t battery_candidate_count_ = 0;
     bool last_wifi_connected_ = false;
     uint8_t last_wifi_signal_level_ = 255;
     ConfigConnectionIcon last_config_connection_icon_ =
