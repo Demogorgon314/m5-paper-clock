@@ -26,7 +26,14 @@ const LAYOUT_PRESETS_STORAGE_KEY = "m5-paper-clock.layoutPresets";
 const MAX_LAYOUT_PRESETS = 5;
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
-const MARKET_SEARCH_API_PATH = "/api/market-search";
+const MARKET_SEARCH_JSONP_URL =
+  "https://searchapi.eastmoney.com/api/suggest/get";
+const MARKET_SEARCH_LIMIT = 20;
+const MARKET_SEARCH_TIMEOUT_MS = 8000;
+const MARKET_SEARCH_CLASSIFY = Object.freeze({
+  AStock: "stock",
+  Index: "index",
+});
 const DEFAULT_OTA_MANIFEST_URL =
   "https://github.com/Demogorgon314/m5-paper-clock/releases/latest/download/ota.json";
 const DEFAULT_WEB_FLASH_MANIFEST_URL =
@@ -2638,40 +2645,111 @@ function dedupeMarkets(items) {
   });
 }
 
+function requestSymbolFromQuoteId(quoteId, code) {
+  const [marketPrefix, rawCode] = String(quoteId || "").split(".");
+  const finalCode = String(rawCode || code || "").trim();
+  if (!marketPrefix || !finalCode) {
+    return "";
+  }
+  if (marketPrefix === "1") {
+    return `sh${finalCode}`;
+  }
+  if (marketPrefix === "0") {
+    return `sz${finalCode}`;
+  }
+  return "";
+}
+
+function fetchJsonp(url, callbackParam = "cb", timeoutMs = MARKET_SEARCH_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const callbackName =
+      `__m5PaperClockJsonp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const requestUrl = new URL(url);
+    let settled = false;
+
+    function cleanup() {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeoutId);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    window[callbackName] = (payload) => {
+      cleanup();
+      resolve(payload);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          state.locale === "en"
+            ? "Market search timed out"
+            : "行情搜索超时",
+        ),
+      );
+    }, timeoutMs);
+
+    script.onerror = () => {
+      cleanup();
+      reject(
+        new Error(
+          state.locale === "en"
+            ? "Market search failed"
+            : "行情搜索失败",
+        ),
+      );
+    };
+
+    requestUrl.searchParams.set(callbackParam, callbackName);
+    script.src = requestUrl.toString();
+    script.async = true;
+    document.head.appendChild(script);
+  });
+}
+
 async function fetchMarketSearchResults(query) {
   const searchKey = normalizeMarketSearchKey(query);
   if (!searchKey) {
     return [];
   }
 
-  const url = new URL(MARKET_SEARCH_API_PATH, window.location.origin);
-  url.searchParams.set("q", searchKey);
+  const url = new URL(MARKET_SEARCH_JSONP_URL);
+  url.searchParams.set("input", searchKey);
+  url.searchParams.set("type", "14");
+  url.searchParams.set("count", String(MARKET_SEARCH_LIMIT));
 
-  const response = await fetch(url.toString(), {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(
-      state.locale === "en"
-        ? `Market search failed (HTTP ${response.status})`
-        : `行情搜索失败（HTTP ${response.status}）`,
-    );
-  }
-
-  const data = await response.json();
-  if (!data?.ok) {
-    throw new Error(
-      data?.error || (state.locale === "en" ? "Market search failed" : "行情搜索失败"),
-    );
-  }
-
-  return Array.isArray(data.results)
-    ? data.results.map((item) => ({
-        requestSymbol: String(item.requestSymbol || ""),
-        code: String(item.code || ""),
-        displayName: String(item.displayName || item.code || ""),
-        kind: String(item.kind || "stock"),
-      }))
+  const data = await fetchJsonp(url.toString());
+  const rows = data?.QuotationCodeTable?.Data;
+  return Array.isArray(rows)
+    ? rows
+        .map((row) => {
+          const kind = MARKET_SEARCH_CLASSIFY[String(row?.Classify || "").trim()];
+          const code = String(row?.Code || "").trim();
+          const requestSymbol = requestSymbolFromQuoteId(row?.QuoteID, code);
+          if (!kind || !code || !requestSymbol) {
+            return null;
+          }
+          const normalizedQuery = normalizeMarketQuery(query);
+          if (
+            normalizedQuery &&
+            !normalizeMarketQuery(code).startsWith(normalizedQuery) &&
+            !normalizeMarketQuery(requestSymbol).startsWith(normalizedQuery)
+          ) {
+            return null;
+          }
+          return {
+            requestSymbol,
+            code,
+            displayName: String(row?.Name || code).trim() || code,
+            kind,
+          };
+        })
+        .filter(Boolean)
     : [];
 }
 
