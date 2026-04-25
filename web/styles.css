@@ -1011,6 +1011,12 @@ button:focus {
   min-width: 0;
 }
 
+.layout-property-fields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 .layout-position-row label {
   display: grid;
   gap: 4px;

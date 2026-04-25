@@ -1,3 +1,9 @@
+import {
+  COMPONENT_REGISTRY,
+  DEFAULT_CLASSIC_LAYOUT,
+  DEFAULT_DASHBOARD_LAYOUT,
+} from "./components/registry.js";
+
 const CFG_PREFIX = "@cfg:";
 const DEFAULT_BAUD_RATE = 1500000;
 const FALLBACK_BAUD_RATE = 115200;
@@ -58,23 +64,6 @@ const DEFAULT_LAYOUT_NAME = "仪表盘";
 const BUILT_IN_LAYOUT_IDS = Object.freeze([
   DEFAULT_CLASSIC_LAYOUT_ID,
   DEFAULT_LAYOUT_ID,
-]);
-const DEFAULT_LAYOUT_COMPONENTS = Object.freeze([
-  { id: "date-main", type: "date", labelKey: "layout.component.date", x: 24, y: 20, w: 744, h: 44, props: { variant: "header" } },
-  { id: "battery-main", type: "battery", labelKey: "layout.component.battery", x: 768, y: 20, w: 176, h: 44, props: { variant: "status" } },
-  { id: "calendar-main", type: "calendar", labelKey: "layout.component.calendar", x: 72, y: 106, w: 304, h: 232, props: { variant: "month-grid" } },
-  { id: "time-main", type: "time", labelKey: "layout.component.time", x: 412, y: 104, w: 472, h: 236, props: { variant: "large-digits" } },
-  { id: "market-1", type: "market", labelKey: "layout.component.summary", x: 72, y: 392, w: 332, h: 86, props: { variant: "summary-card", symbol: "sh000001" } },
-  { id: "climate-main", type: "climate", labelKey: "layout.component.climate", x: 428, y: 392, w: 456, h: 86, props: { variant: "compact-card" } },
-  { id: "classic-time", type: "classic-time", labelKey: "layout.component.classicTime", x: 100, y: 72, w: 760, h: 300, visible: false, props: { variant: "large-digits" } },
-  { id: "classic-info", type: "classic-info", labelKey: "layout.component.classicInfo", x: 100, y: 378, w: 760, h: 120, visible: false, props: { variant: "metrics" } },
-]);
-const DEFAULT_DASHBOARD_LAYOUT = DEFAULT_LAYOUT_COMPONENTS;
-const DEFAULT_CLASSIC_LAYOUT = Object.freeze([
-  { id: "classic-date", type: "date", labelKey: "layout.component.date", x: 24, y: 20, w: 744, h: 44, props: { variant: "classic-header" } },
-  { id: "classic-battery", type: "battery", labelKey: "layout.component.battery", x: 768, y: 20, w: 176, h: 44, props: { variant: "classic-status" } },
-  { id: "classic-time", type: "classic-time", labelKey: "layout.component.time", x: 100, y: 72, w: 760, h: 300, props: { variant: "large-digits" } },
-  { id: "classic-info", type: "classic-info", labelKey: "layout.component.climate", x: 100, y: 378, w: 760, h: 120, props: { variant: "metrics" } },
 ]);
 const DASHBOARD_PREVIEW_SAMPLE = Object.freeze({
   date: "2026-04-24",
@@ -166,6 +155,7 @@ const I18N = Object.freeze({
     "layout.preset": "布局预设",
     "layout.preview": "一比一预览",
     "layout.position": "位置",
+    "layout.properties": "属性",
     "layout.components": "组件",
     "layout.addComponent": "添加组件",
     "layout.removeComponent": "删除组件",
@@ -192,6 +182,9 @@ const I18N = Object.freeze({
     "layout.component.climate": "温湿度",
     "layout.component.classicTime": "经典大时间",
     "layout.component.classicInfo": "经典温湿度",
+    "layout.prop.symbol": "行情代码",
+    "layout.prop.symbolPlaceholder": "例如 sh000001",
+    "layout.noProperties": "这个组件暂时没有可配置属性。",
     "layout.nudge": "微调",
     "layout.resetComponent": "重置此组件",
     "hint.serial": "Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。",
@@ -333,6 +326,7 @@ const I18N = Object.freeze({
     "layout.preset": "Layout preset",
     "layout.preview": "1:1 Preview",
     "layout.position": "Position",
+    "layout.properties": "Properties",
     "layout.components": "Components",
     "layout.addComponent": "Add component",
     "layout.removeComponent": "Remove component",
@@ -359,6 +353,9 @@ const I18N = Object.freeze({
     "layout.component.climate": "Climate",
     "layout.component.classicTime": "Classic Time",
     "layout.component.classicInfo": "Classic Climate",
+    "layout.prop.symbol": "Market symbol",
+    "layout.prop.symbolPlaceholder": "For example sh000001",
+    "layout.noProperties": "This component has no configurable properties yet.",
     "layout.nudge": "Nudge",
     "layout.resetComponent": "Reset component",
     "hint.serial": "Chrome remembers authorized serial ports and can reconnect when the page opens.",
@@ -896,7 +893,8 @@ function loadLayoutPresets() {
 }
 
 function dashboardLayoutWithLabels(layout) {
-  return DEFAULT_LAYOUT_COMPONENTS.map((defaultItem) => {
+  return Object.values(COMPONENT_REGISTRY).map((definition) => {
+    const defaultItem = definition.defaultItem;
     const savedItem =
       layout.find(
         (item) => item.id === defaultItem.id || item.type === defaultItem.type,
@@ -910,7 +908,7 @@ function dashboardLayoutWithLabels(layout) {
       ...savedItem,
       w: defaultItem.w,
       h: defaultItem.h,
-      labelKey: defaultItem.labelKey,
+      labelKey: definition.labelKey,
       type: defaultItem.type,
       props: {
         ...defaultItem.props,
@@ -2657,6 +2655,7 @@ function renderDashboardLayoutEditor() {
     });
   });
   elements.layoutComponentList.appendChild(row);
+  elements.layoutComponentList.appendChild(renderComponentPropertiesPanel(selectedItem));
 }
 
 function showLayoutContextMenu(id, clientX, clientY) {
@@ -2847,6 +2846,22 @@ function updateDashboardLayoutItem(id, patch) {
   setDashboardLayout(nextLayout, { dirty: true });
 }
 
+function updateDashboardLayoutItemProps(id, patch) {
+  state.selectedLayoutId = id;
+  const nextLayout = state.dashboardLayout.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          props: {
+            ...(item.props || {}),
+            ...patch,
+          },
+        }
+      : item,
+  );
+  setDashboardLayout(nextLayout, { dirty: true });
+}
+
 function selectDashboardLayoutItem(id) {
   const item = state.dashboardLayout.find(
     (layoutItem) => layoutItem.id === id && layoutItem.visible !== false,
@@ -2866,6 +2881,48 @@ function focusSelectedLayoutComponent() {
     const selector = `.layout-component[data-id="${CSS.escape(state.selectedLayoutId)}"]`;
     elements.layoutPreview.querySelector(selector)?.focus({ preventScroll: true });
   });
+}
+
+function renderComponentPropertiesPanel(item) {
+  const panel = document.createElement("div");
+  panel.className = "layout-position-row layout-properties-row";
+  const definition = COMPONENT_REGISTRY[item.type];
+  const schema = definition?.propsSchema || [];
+  const fields = schema.map((field) => {
+    const value = item.props?.[field.key] ?? "";
+    if (field.type === "text") {
+      return `
+        <label>
+          <span>${escapeHtml(t(field.labelKey))}</span>
+          <input
+            type="text"
+            data-prop="${escapeHtml(field.key)}"
+            data-id="${escapeHtml(item.id)}"
+            value="${escapeHtml(value)}"
+            placeholder="${escapeHtml(t(field.placeholderKey))}"
+          />
+        </label>
+      `;
+    }
+    return "";
+  }).join("");
+
+  panel.innerHTML = `
+    <div class="layout-position-section-title">${escapeHtml(t("layout.properties"))}</div>
+    ${
+      fields
+        ? `<div class="layout-property-fields">${fields}</div>`
+        : `<p class="layout-position-hint">${escapeHtml(t("layout.noProperties"))}</p>`
+    }
+  `;
+  panel.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("change", () => {
+      updateDashboardLayoutItemProps(input.dataset.id, {
+        [input.dataset.prop]: input.value.trim(),
+      });
+    });
+  });
+  return panel;
 }
 
 function isEditableTextTarget(target) {
@@ -2908,7 +2965,9 @@ function handleLayoutKeyboardNudge(event) {
 }
 
 function addDashboardLayoutItem(id) {
-  const defaultItem = DEFAULT_LAYOUT_COMPONENTS.find((item) => item.id === id);
+  const defaultItem = Object.values(COMPONENT_REGISTRY)
+    .find((definition) => definition.defaultItem.id === id)
+    ?.defaultItem;
   state.selectedLayoutId = id;
   const nextLayout = state.dashboardLayout.map((item) => {
     if (item.id !== id) {
@@ -2949,7 +3008,9 @@ function nudgeDashboardLayoutItem(id, dx, dy) {
 }
 
 function resetDashboardLayoutItem(id) {
-  const defaultItem = DEFAULT_LAYOUT_COMPONENTS.find((item) => item.id === id);
+  const defaultItem = Object.values(COMPONENT_REGISTRY)
+    .find((definition) => definition.defaultItem.id === id)
+    ?.defaultItem;
   if (!defaultItem) {
     return;
   }

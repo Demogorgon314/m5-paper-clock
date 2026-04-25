@@ -1,68 +1,8 @@
 #pragma once
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
+#include "logic/ComponentRegistry.h"
 
 namespace logic {
-
-static constexpr int16_t kLayoutScreenWidth = 960;
-static constexpr int16_t kLayoutScreenHeight = 540;
-static constexpr const char* kClassicLayoutId = "classic-default";
-static constexpr const char* kClassicLayoutName = "经典数字";
-static constexpr const char* kDefaultLayoutId = "dashboard-default";
-static constexpr const char* kDefaultLayoutName = "仪表盘";
-
-enum class DashboardComponentId : uint8_t {
-    Date = 0,
-    Battery,
-    Calendar,
-    Time,
-    Summary,
-    Climate,
-    ClassicTime,
-    ClassicInfo,
-    Count
-};
-
-struct DashboardLayoutItem {
-    DashboardComponentId id;
-    const char* instance_id;
-    const char* type;
-    int16_t x;
-    int16_t y;
-    int16_t w;
-    int16_t h;
-    bool visible;
-    const char* variant;
-};
-
-static constexpr size_t kDashboardComponentCount =
-    static_cast<size_t>(DashboardComponentId::Count);
-
-using DashboardLayout =
-    std::array<DashboardLayoutItem, kDashboardComponentCount>;
-
-inline DashboardLayout DefaultDashboardLayout() {
-    return {{
-        {DashboardComponentId::Date, "date-main", "date", 24, 20, 744, 44,
-         true, "header"},
-        {DashboardComponentId::Battery, "battery-main", "battery", 768, 20,
-         176, 44, true, "status"},
-        {DashboardComponentId::Calendar, "calendar-main", "calendar", 72, 106,
-         304, 232, true, "month-grid"},
-        {DashboardComponentId::Time, "time-main", "time", 412, 104, 472, 236,
-         true, "large-digits"},
-        {DashboardComponentId::Summary, "market-1", "market", 72, 392, 332,
-         86, true, "summary-card"},
-        {DashboardComponentId::Climate, "climate-main", "climate", 428, 392,
-         456, 86, true, "compact-card"},
-        {DashboardComponentId::ClassicTime, "classic-time", "classic-time",
-         100, 72, 760, 300, false, "large-digits"},
-        {DashboardComponentId::ClassicInfo, "classic-info", "classic-info",
-         100, 378, 760, 120, false, "metrics"},
-    }};
-}
 
 inline int DashboardComponentIndex(DashboardComponentId id) {
     return static_cast<int>(id);

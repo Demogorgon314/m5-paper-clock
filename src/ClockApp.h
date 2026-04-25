@@ -125,6 +125,17 @@ private:
     void renderClockPage(bool full_refresh);
     void renderClassicClockPage(bool full_refresh);
     void renderDashboardClockPage(bool full_refresh);
+    void resetClockRenderState();
+    void updateLayoutComponent(logic::DashboardComponentId id,
+                               bool full_refresh, bool allow_fetch = true);
+    void updateLayoutComponents(const logic::DashboardComponentId* ids,
+                                size_t count, bool full_refresh,
+                                bool allow_fetch = true);
+    void updateDashboardLayoutComponents(bool full_refresh);
+    void updateDashboardMinuteComponents();
+    void updateDashboardDateComponents();
+    void updateDashboardSensorComponents();
+    void updateDashboardMarketComponents();
     void updateClockPage();
     void updateTimeCanvas(bool full_refresh);
     void updateInfoCanvas(bool full_refresh);

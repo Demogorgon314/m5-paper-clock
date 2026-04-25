@@ -1461,38 +1461,7 @@ void ClockApp::renderClassicClockPage(bool full_refresh) {
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
 
-    last_time_text_rendered_ = "";
-    last_dashboard_time_text_rendered_ = "";
-    last_humidity_text_rendered_ = "";
-    last_temperature_text_rendered_ = "";
-    last_comfort_face_rendered_ = "";
-    last_dashboard_humidity_text_rendered_ = "";
-    last_dashboard_temperature_text_rendered_ = "";
-    last_dashboard_comfort_face_rendered_ = "";
-    last_market_summary_rendered_ = "";
-    last_dashboard_summary_title_rendered_ = "";
-    last_dashboard_summary_price_rendered_ = "";
-    last_dashboard_summary_bottom_rendered_ = "";
-    last_date_text_rendered_ = "";
-    last_holiday_display_rendered_ = "";
-    last_weekday_rendered_ = 255;
-    last_battery_percentage_ = 255;
-    last_wifi_connected_ = false;
-    last_wifi_signal_level_ = 255;
-    time_digit_partial_counts_.fill(0);
-    humidity_digit_partial_counts_.fill(0);
-    temperature_digit_partial_counts_.fill(0);
-    battery_partial_count_ = 0;
-    classic_time_partial_count_ = 0;
-    classic_humidity_partial_count_ = 0;
-    classic_temperature_partial_count_ = 0;
-    classic_comfort_partial_count_ = 0;
-    date_partial_count_ = 0;
-    dashboard_calendar_partial_count_ = 0;
-    dashboard_summary_partial_count_ = 0;
-    dashboard_time_partial_count_ = 0;
-    dashboard_climate_partial_count_ = 0;
-    last_dashboard_summary_valid_ = false;
+    resetClockRenderState();
 
     uint32_t step_started_ms = millis();
     updateTimeCanvas(true);
@@ -1528,6 +1497,23 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     page_canvas_.fillCanvas(kWhite);
     page_canvas_.pushCanvas(0, 0, UPDATE_MODE_NONE);
 
+    resetClockRenderState();
+    const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
+    updateDashboardLayoutComponents(true);
+    const m5epd_update_mode_t mode =
+        full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
+    M5.EPD.UpdateFull(mode);
+    partial_refresh_count_ = 0;
+    if (fast_entry) {
+        pending_dashboard_date_cjk_render_ = true;
+        pending_dashboard_calendar_cjk_render_ = true;
+    }
+    fast_dashboard_entry_render_ = false;
+    logPerf("[perf] renderDashboardClockPage total=%lu\n",
+                  millis() - render_started_ms);
+}
+
+void ClockApp::resetClockRenderState() {
     last_time_text_rendered_ = "";
     last_dashboard_time_text_rendered_ = "";
     last_humidity_text_rendered_ = "";
@@ -1560,54 +1546,114 @@ void ClockApp::renderDashboardClockPage(bool full_refresh) {
     dashboard_time_partial_count_ = 0;
     dashboard_climate_partial_count_ = 0;
     last_dashboard_summary_valid_ = false;
-    const bool fast_entry = full_refresh && fast_dashboard_entry_render_;
+}
 
+void ClockApp::updateLayoutComponent(logic::DashboardComponentId id,
+                                     bool full_refresh, bool allow_fetch) {
     uint32_t step_started_ms = millis();
-    updateDateCanvas(true);
-    logPerf("[perf] dashboard updateDateCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateBatteryCanvas(true);
-    logPerf("[perf] dashboard updateBatteryCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateDashboardCalendarCanvas(true);
-    logPerf("[perf] dashboard updateDashboardCalendarCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateDashboardTimeCanvas(true);
-    logPerf("[perf] dashboard updateDashboardTimeCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateTimeCanvas(true);
-    logPerf("[perf] dashboard updateClassicTimeCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateDashboardSummaryCanvas(true, false);
-    logPerf("[perf] dashboard updateDashboardSummaryCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateDashboardClimateCanvas(true);
-    logPerf("[perf] dashboard updateDashboardClimateCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    updateInfoCanvas(true);
-    logPerf("[perf] dashboard updateClassicInfoCanvas took=%lu\n",
-                  millis() - step_started_ms);
-    step_started_ms = millis();
-    const m5epd_update_mode_t mode =
-        full_refresh ? UPDATE_MODE_GC16 : UPDATE_MODE_GL16;
-    M5.EPD.UpdateFull(mode);
-    logPerf("[perf] dashboard UpdateFull mode=%d took=%lu\n",
-                  static_cast<int>(mode), millis() - step_started_ms);
-    partial_refresh_count_ = 0;
-    if (fast_entry) {
-        pending_dashboard_date_cjk_render_ = true;
-        pending_dashboard_calendar_cjk_render_ = true;
+    const char* label = "unknown";
+    switch (id) {
+        case logic::DashboardComponentId::Date:
+            label = "date";
+            updateDateCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::Battery:
+            label = "battery";
+            updateBatteryCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::Calendar:
+            label = "calendar";
+            updateDashboardCalendarCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::Time:
+            label = "time";
+            updateDashboardTimeCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::Summary:
+            label = "summary";
+            updateDashboardSummaryCanvas(full_refresh, allow_fetch);
+            break;
+        case logic::DashboardComponentId::Climate:
+            label = "climate";
+            updateDashboardClimateCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::ClassicTime:
+            label = "classic-time";
+            updateTimeCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::ClassicInfo:
+            label = "classic-info";
+            updateInfoCanvas(full_refresh);
+            break;
+        case logic::DashboardComponentId::Count:
+            break;
     }
-    fast_dashboard_entry_render_ = false;
-    logPerf("[perf] renderDashboardClockPage total=%lu\n",
-                  millis() - render_started_ms);
+    logPerf("[perf] dashboard update %s took=%lu\n", label,
+                  millis() - step_started_ms);
+}
+
+void ClockApp::updateLayoutComponents(const logic::DashboardComponentId* ids,
+                                      size_t count, bool full_refresh,
+                                      bool allow_fetch) {
+    for (size_t index = 0; index < count; ++index) {
+        updateLayoutComponent(ids[index], full_refresh, allow_fetch);
+    }
+}
+
+void ClockApp::updateDashboardLayoutComponents(bool full_refresh) {
+    constexpr logic::DashboardComponentId kFullRefreshComponents[] = {
+        logic::DashboardComponentId::Date,
+        logic::DashboardComponentId::Battery,
+        logic::DashboardComponentId::Calendar,
+        logic::DashboardComponentId::Time,
+        logic::DashboardComponentId::ClassicTime,
+        logic::DashboardComponentId::Summary,
+        logic::DashboardComponentId::Climate,
+        logic::DashboardComponentId::ClassicInfo,
+    };
+    updateLayoutComponents(kFullRefreshComponents,
+                           sizeof(kFullRefreshComponents) /
+                               sizeof(kFullRefreshComponents[0]),
+                           full_refresh,
+                           false);
+}
+
+void ClockApp::updateDashboardMinuteComponents() {
+    constexpr logic::DashboardComponentId kMinuteComponents[] = {
+        logic::DashboardComponentId::Time,
+        logic::DashboardComponentId::ClassicTime,
+    };
+    updateLayoutComponents(kMinuteComponents,
+                           sizeof(kMinuteComponents) /
+                               sizeof(kMinuteComponents[0]),
+                           false);
+}
+
+void ClockApp::updateDashboardDateComponents() {
+    constexpr logic::DashboardComponentId kDateComponents[] = {
+        logic::DashboardComponentId::Date,
+        logic::DashboardComponentId::Calendar,
+        logic::DashboardComponentId::Summary,
+    };
+    updateLayoutComponents(kDateComponents,
+                           sizeof(kDateComponents) /
+                               sizeof(kDateComponents[0]),
+                           false);
+}
+
+void ClockApp::updateDashboardSensorComponents() {
+    constexpr logic::DashboardComponentId kSensorComponents[] = {
+        logic::DashboardComponentId::Climate,
+        logic::DashboardComponentId::ClassicInfo,
+    };
+    updateLayoutComponents(kSensorComponents,
+                           sizeof(kSensorComponents) /
+                               sizeof(kSensorComponents[0]),
+                           false);
+}
+
+void ClockApp::updateDashboardMarketComponents() {
+    updateLayoutComponent(logic::DashboardComponentId::Summary, false);
 }
 
 void ClockApp::updateClockPage() {
@@ -1638,23 +1684,19 @@ void ClockApp::updateClockPage() {
 
     if (usesDashboardLayout()) {
         if (minute_changed) {
-            updateDashboardTimeCanvas(false);
-            updateTimeCanvas(false);
+            updateDashboardMinuteComponents();
         }
         if (date_changed) {
-            updateDateCanvas(false);
-            updateDashboardCalendarCanvas(false);
-            updateDashboardSummaryCanvas(false);
+            updateDashboardDateComponents();
         }
         if (time_for_market) {
-            updateDashboardSummaryCanvas(false);
+            updateDashboardMarketComponents();
         }
         if (minute_changed || time_for_sensor) {
             updateBatteryCanvas(false);
         }
         if (time_for_sensor) {
-            updateDashboardClimateCanvas(false);
-            updateInfoCanvas(false);
+            updateDashboardSensorComponents();
         }
     } else {
         if (minute_changed) {
