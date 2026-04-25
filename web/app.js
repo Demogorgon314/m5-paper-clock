@@ -29,6 +29,7 @@ const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_JSONP_URL =
   "https://searchapi.eastmoney.com/api/suggest/get";
 const MARKET_SEARCH_LIMIT = 20;
+const MARKET_SEARCH_DEBOUNCE_MS = 350;
 const MARKET_SEARCH_TIMEOUT_MS = 8000;
 const MARKET_SEARCH_CLASSIFY = Object.freeze({
   AStock: "stock",
@@ -244,9 +245,9 @@ const I18N = Object.freeze({
     "market.heading": "行情标的",
     "market.helper": "支持大盘指数和 A 股股票，按代码搜索后直接设为首页行情卡片。",
     "market.current": "当前标的",
-    "market.searchCode": "代码搜索",
-    "market.searchPlaceholder": "输入 600519 / 000001 / 399001 / sh000300",
-    "market.searchHelper": "热门标的在下方；输入代码后右侧显示搜索结果。",
+    "market.searchCode": "代码或名称搜索",
+    "market.searchPlaceholder": "输入 茅台 / 上证 / 600519 / sh000300",
+    "market.searchHelper": "热门标的在下方；输入代码、名称或拼音后右侧显示搜索结果。",
     "market.hot": "热门标的",
     "market.hotGroup": "热门{kind}",
     "market.results": "搜索结果",
@@ -433,9 +434,9 @@ const I18N = Object.freeze({
     "market.heading": "Market Symbol",
     "market.helper": "Supports major indexes and China A-shares. Search by code and set the home market card directly.",
     "market.current": "Current symbol",
-    "market.searchCode": "Code search",
-    "market.searchPlaceholder": "Enter 600519 / 000001 / 399001 / sh000300",
-    "market.searchHelper": "Popular symbols are below; search results appear on the right.",
+    "market.searchCode": "Code or name search",
+    "market.searchPlaceholder": "Enter Moutai / GZMT / 600519 / sh000300",
+    "market.searchHelper": "Popular symbols are below; search by code, name, or pinyin.",
     "market.hot": "Popular Symbols",
     "market.hotGroup": "Popular {kind}",
     "market.results": "Search Results",
@@ -656,6 +657,8 @@ const state = {
   localOtaFile: null,
   localOtaLoggedWritten: 0,
   marketSearchQuery: "",
+  marketSearchTimer: null,
+  marketSearchRequestId: 0,
   marketResultsVisible: false,
   marketResults: [],
   activeLayoutId: DEFAULT_LAYOUT_ID,
@@ -2384,6 +2387,22 @@ function setLocale(locale) {
   renderDashboardLayoutEditor();
 }
 
+function clearMarketSearchTimer() {
+  if (!state.marketSearchTimer) {
+    return;
+  }
+  window.clearTimeout(state.marketSearchTimer);
+  state.marketSearchTimer = null;
+}
+
+function scheduleMarketSearch(query) {
+  clearMarketSearchTimer();
+  state.marketSearchTimer = window.setTimeout(() => {
+    state.marketSearchTimer = null;
+    void withBusyWork(() => searchMarkets(query)).catch(handleActionError);
+  }, MARKET_SEARCH_DEBOUNCE_MS);
+}
+
 function normalizeMarketQuery(value) {
   return String(value || "")
     .replace(/\s+/g, "")
@@ -2618,10 +2637,15 @@ function readRefreshSettingsFromInputs() {
 
 function localMarketMatches(item, query) {
   const normalizedQuery = normalizeMarketQuery(query);
-  return (
-    !normalizedQuery ||
-    normalizeMarketQuery(item.code).startsWith(normalizedQuery) ||
-    normalizeMarketQuery(item.requestSymbol).startsWith(normalizedQuery)
+  return marketSearchMatches(
+    {
+      code: item.code,
+      requestSymbol: item.requestSymbol,
+      displayName: item.displayName,
+      displayNameEn: item.displayNameEn,
+      pinyin: item.pinyin,
+    },
+    normalizedQuery,
   );
 }
 
@@ -2658,6 +2682,24 @@ function requestSymbolFromQuoteId(quoteId, code) {
     return `sz${finalCode}`;
   }
   return "";
+}
+
+function marketSearchMatches(item, normalizedQuery) {
+  if (!normalizedQuery) {
+    return true;
+  }
+  const code = normalizeMarketQuery(item.code);
+  const requestSymbol = normalizeMarketQuery(item.requestSymbol);
+  const displayName = normalizeMarketQuery(item.displayName);
+  const displayNameEn = normalizeMarketQuery(item.displayNameEn);
+  const pinyin = normalizeMarketQuery(item.pinyin);
+  return (
+    code.startsWith(normalizedQuery) ||
+    requestSymbol.startsWith(normalizedQuery) ||
+    displayName.includes(normalizedQuery) ||
+    displayNameEn.includes(normalizedQuery) ||
+    pinyin.includes(normalizedQuery)
+  );
 }
 
 function fetchJsonp(url, callbackParam = "cb", timeoutMs = MARKET_SEARCH_TIMEOUT_MS) {
@@ -2731,21 +2773,19 @@ async function fetchMarketSearchResults(query) {
           const kind = MARKET_SEARCH_CLASSIFY[String(row?.Classify || "").trim()];
           const code = String(row?.Code || "").trim();
           const requestSymbol = requestSymbolFromQuoteId(row?.QuoteID, code);
+          const displayName = String(row?.Name || code).trim() || code;
+          const pinyin = String(row?.PinYin || "").trim();
           if (!kind || !code || !requestSymbol) {
             return null;
           }
           const normalizedQuery = normalizeMarketQuery(query);
-          if (
-            normalizedQuery &&
-            !normalizeMarketQuery(code).startsWith(normalizedQuery) &&
-            !normalizeMarketQuery(requestSymbol).startsWith(normalizedQuery)
-          ) {
+          if (!marketSearchMatches({ code, requestSymbol, displayName, pinyin }, normalizedQuery)) {
             return null;
           }
           return {
             requestSymbol,
             code,
-            displayName: String(row?.Name || code).trim() || code,
+            displayName,
             kind,
           };
         })
@@ -3604,18 +3644,33 @@ function renderMarketPropertiesPanel(item) {
 
   const searchInput = panel.querySelector("[data-market-search-input]");
   const searchButton = panel.querySelector("[data-market-search-button]");
+  let composingSearchText = false;
   searchButton.disabled = state.busyCount > 0;
+  searchInput.addEventListener("compositionstart", () => {
+    composingSearchText = true;
+    clearMarketSearchTimer();
+  });
+  searchInput.addEventListener("compositionend", () => {
+    composingSearchText = false;
+    state.marketSearchQuery = searchInput.value;
+    scheduleMarketSearch(searchInput.value);
+  });
   searchInput.addEventListener("input", () => {
     state.marketSearchQuery = searchInput.value;
+    if (!composingSearchText) {
+      scheduleMarketSearch(searchInput.value);
+    }
   });
   searchInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
+    clearMarketSearchTimer();
     void withBusyWork(() => searchMarkets(searchInput.value)).catch(handleActionError);
   });
   searchButton.addEventListener("click", () => {
+    clearMarketSearchTimer();
     void withBusyWork(() => searchMarkets(searchInput.value)).catch(handleActionError);
   });
 
@@ -3803,6 +3858,7 @@ function stopDashboardLayoutDrag() {
 }
 
 function renderMarketHotList(container) {
+  container = container || document.querySelector("[data-market-hot-list]");
   if (!container) {
     return;
   }
@@ -3847,6 +3903,8 @@ function renderMarketHotList(container) {
 }
 
 function renderMarketResults(container, countElement) {
+  container = container || document.querySelector("[data-market-results]");
+  countElement = countElement || document.querySelector("[data-market-result-count]");
   if (!container || !countElement) {
     return;
   }
@@ -4616,6 +4674,7 @@ async function scanWifi() {
 
 async function searchMarkets(queryOverride, options = {}) {
   const { silent = false } = options;
+  const requestId = ++state.marketSearchRequestId;
   const query = normalizeMarketQuery(
     queryOverride ?? state.marketSearchQuery,
   );
@@ -4627,7 +4686,7 @@ async function searchMarkets(queryOverride, options = {}) {
   if (!query) {
     state.marketResults = [];
     state.marketResultsVisible = false;
-    renderDashboardLayoutEditor();
+    renderMarketResults();
     if (!silent) {
       setMessage(
         state.connected
@@ -4651,13 +4710,19 @@ async function searchMarkets(queryOverride, options = {}) {
 
   try {
     const remoteMatches = await fetchMarketSearchResults(query);
+    if (requestId !== state.marketSearchRequestId) {
+      return;
+    }
     state.marketResults = dedupeMarkets([
       ...localMatches,
       ...remoteMatches,
     ]);
   } catch (error) {
+    if (requestId !== state.marketSearchRequestId) {
+      return;
+    }
     state.marketResults = dedupeMarkets(localMatches);
-    renderDashboardLayoutEditor();
+    renderMarketResults();
     if (state.marketResults.length) {
       if (!silent) {
         setMessage(
@@ -4672,7 +4737,7 @@ async function searchMarkets(queryOverride, options = {}) {
     throw error;
   }
 
-  renderDashboardLayoutEditor();
+  renderMarketResults();
   if (!silent) {
     setMessage(
       state.marketResults.length
