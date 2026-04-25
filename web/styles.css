@@ -70,11 +70,46 @@ code {
   font-weight: 700;
 }
 
+.intro-meta-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 10px;
+}
+
 .intro-title-row {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+}
+
+.intro-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.github-link:hover {
+  opacity: 0.82;
+}
+
+.github-link img {
+  display: block;
+  width: auto;
+  height: 20px;
 }
 
 .language-switch {
@@ -97,7 +132,7 @@ code {
 }
 
 .eyebrow {
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--accent-strong);
   font-size: 14px;
   font-weight: 700;
@@ -1421,6 +1456,10 @@ button:focus {
 
   .language-switch {
     width: min(100%, 220px);
+  }
+
+  .intro-toolbar {
+    justify-content: flex-start;
   }
 
   .status-grid {
