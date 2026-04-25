@@ -9,8 +9,13 @@ export const climateComponent = Object.freeze({
     y: 392,
     w: 456,
     h: 86,
-    props: Object.freeze({ variant: "compact-card" }),
+    props: Object.freeze({
+      variant: "compact-card",
+      comfortTemperatureMin: 19,
+      comfortTemperatureMax: 27,
+      comfortHumidityMin: 20,
+      comfortHumidityMax: 85,
+    }),
   }),
   propsSchema: Object.freeze([]),
 });
-

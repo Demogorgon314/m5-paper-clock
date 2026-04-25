@@ -10,8 +10,13 @@ export const classicInfoComponent = Object.freeze({
     w: 760,
     h: 120,
     visible: false,
-    props: Object.freeze({ variant: "metrics" }),
+    props: Object.freeze({
+      variant: "metrics",
+      comfortTemperatureMin: 19,
+      comfortTemperatureMax: 27,
+      comfortHumidityMin: 20,
+      comfortHumidityMax: 85,
+    }),
   }),
   propsSchema: Object.freeze([]),
 });
-

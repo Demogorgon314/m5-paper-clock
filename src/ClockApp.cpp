@@ -4832,6 +4832,16 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
         props["variant"] = item.variant;
         if (item.id == logic::DashboardComponentId::Summary) {
             props["symbol"] = settings_.market_symbol;
+        } else if (item.id == logic::DashboardComponentId::Climate ||
+                   item.id == logic::DashboardComponentId::ClassicInfo) {
+            props["comfortTemperatureMin"] =
+                settings_.comfort_settings.min_temperature;
+            props["comfortTemperatureMax"] =
+                settings_.comfort_settings.max_temperature;
+            props["comfortHumidityMin"] =
+                settings_.comfort_settings.min_humidity;
+            props["comfortHumidityMax"] =
+                settings_.comfort_settings.max_humidity;
         }
     }
 }
@@ -4957,6 +4967,8 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
 
     logic::DashboardLayout next_layout = settings_.dashboard_layout;
     String next_market_symbol = settings_.market_symbol;
+    logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
+    bool comfort_settings_changed = false;
     std::array<bool, logic::kDashboardComponentCount> seen {};
     for (JsonVariantConst value : components) {
         JsonObjectConst component = value.as<JsonObjectConst>();
@@ -4993,6 +5005,31 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
                     next_market_symbol = prop_symbol;
                 }
             }
+        } else if (id == logic::DashboardComponentId::Climate ||
+                   id == logic::DashboardComponentId::ClassicInfo) {
+            JsonObjectConst props = component["props"].as<JsonObjectConst>();
+            if (!props.isNull()) {
+                if (props.containsKey("comfortTemperatureMin")) {
+                    next_comfort_settings.min_temperature =
+                        props["comfortTemperatureMin"].as<float>();
+                    comfort_settings_changed = true;
+                }
+                if (props.containsKey("comfortTemperatureMax")) {
+                    next_comfort_settings.max_temperature =
+                        props["comfortTemperatureMax"].as<float>();
+                    comfort_settings_changed = true;
+                }
+                if (props.containsKey("comfortHumidityMin")) {
+                    next_comfort_settings.min_humidity =
+                        props["comfortHumidityMin"].as<float>();
+                    comfort_settings_changed = true;
+                }
+                if (props.containsKey("comfortHumidityMax")) {
+                    next_comfort_settings.max_humidity =
+                        props["comfortHumidityMax"].as<float>();
+                    comfort_settings_changed = true;
+                }
+            }
         }
     }
 
@@ -5018,6 +5055,13 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         last_market_summary_rendered_ = "";
         last_market_fetch_ms_ = 0;
         store_.saveMarket(settings_.market_symbol, settings_.market_name);
+    }
+    if (comfort_settings_changed) {
+        settings_.comfort_settings =
+            logic::NormalizeComfortSettings(next_comfort_settings);
+        last_comfort_face_rendered_ = "";
+        last_dashboard_comfort_face_rendered_ = "";
+        store_.saveComfortSettings(settings_.comfort_settings);
     }
     return true;
 }

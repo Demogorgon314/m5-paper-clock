@@ -556,10 +556,6 @@ const elements = {
   partialCleanIntervalInput: document.querySelector(
     "#partial-clean-interval-input",
   ),
-  comfortTempMinInput: document.querySelector("#comfort-temp-min-input"),
-  comfortTempMaxInput: document.querySelector("#comfort-temp-max-input"),
-  comfortHumidityMinInput: document.querySelector("#comfort-humidity-min-input"),
-  comfortHumidityMaxInput: document.querySelector("#comfort-humidity-max-input"),
   layoutPreview: document.querySelector("#layout-preview"),
   layoutComponentList: document.querySelector("#layout-component-list"),
   layoutEditorStatus: document.querySelector("#layout-editor-status"),
@@ -2258,25 +2254,6 @@ function formatConfigNumber(value, fractionDigits = 1) {
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
 }
 
-function applyComfortInputs(settings = DEFAULT_COMFORT_SETTINGS) {
-  elements.comfortTempMinInput.value = formatConfigNumber(
-    settings.comfortTemperatureMin,
-    1,
-  );
-  elements.comfortTempMaxInput.value = formatConfigNumber(
-    settings.comfortTemperatureMax,
-    1,
-  );
-  elements.comfortHumidityMinInput.value = formatConfigNumber(
-    settings.comfortHumidityMin,
-    0,
-  );
-  elements.comfortHumidityMaxInput.value = formatConfigNumber(
-    settings.comfortHumidityMax,
-    0,
-  );
-}
-
 function applyRefreshInputs(settings = DEFAULT_REFRESH_SETTINGS) {
   elements.partialCleanIntervalInput.value = formatConfigNumber(
     settings.partialCleanInterval,
@@ -2312,32 +2289,23 @@ function readIntegerField(element, label, min, max) {
   return value;
 }
 
-function readComfortSettingsFromInputs() {
-  const comfortTemperatureMin = readNumberField(
-    elements.comfortTempMinInput,
-    t("comfort.tempMin"),
-    COMFORT_LIMITS.temperatureMin,
-    COMFORT_LIMITS.temperatureMax,
-  );
-  const comfortTemperatureMax = readNumberField(
-    elements.comfortTempMaxInput,
-    t("comfort.tempMax"),
-    COMFORT_LIMITS.temperatureMin,
-    COMFORT_LIMITS.temperatureMax,
-  );
-  const comfortHumidityMin = readNumberField(
-    elements.comfortHumidityMinInput,
-    t("comfort.humidityMin"),
-    COMFORT_LIMITS.humidityMin,
-    COMFORT_LIMITS.humidityMax,
-  );
-  const comfortHumidityMax = readNumberField(
-    elements.comfortHumidityMaxInput,
-    t("comfort.humidityMax"),
-    COMFORT_LIMITS.humidityMin,
-    COMFORT_LIMITS.humidityMax,
-  );
-
+function validateComfortSettings(settings) {
+  const comfortTemperatureMin = Number(settings.comfortTemperatureMin);
+  const comfortTemperatureMax = Number(settings.comfortTemperatureMax);
+  const comfortHumidityMin = Number(settings.comfortHumidityMin);
+  const comfortHumidityMax = Number(settings.comfortHumidityMax);
+  if (
+    !Number.isFinite(comfortTemperatureMin) ||
+    !Number.isFinite(comfortTemperatureMax) ||
+    !Number.isFinite(comfortHumidityMin) ||
+    !Number.isFinite(comfortHumidityMax)
+  ) {
+    throw new Error(
+      state.locale === "en"
+        ? "Enter valid comfort thresholds"
+        : "请输入有效的表情条件阈值",
+    );
+  }
   if (comfortTemperatureMin > comfortTemperatureMax) {
     throw new Error(
       state.locale === "en"
@@ -2938,6 +2906,13 @@ function renderComponentPropertiesPanel(item) {
     panel.appendChild(renderMarketPropertiesPanel(item));
     return panel;
   }
+  if (item.type === "climate" || item.type === "classic-info") {
+    panel.innerHTML = `
+      <div class="layout-position-section-title">${escapeHtml(t("layout.properties"))}</div>
+    `;
+    panel.appendChild(renderClimatePropertiesPanel(item));
+    return panel;
+  }
 
   const definition = COMPONENT_REGISTRY[item.type];
   const schema = definition?.propsSchema || [];
@@ -2973,6 +2948,70 @@ function renderComponentPropertiesPanel(item) {
       updateDashboardLayoutItemProps(input.dataset.id, {
         [input.dataset.prop]: input.value.trim(),
       });
+    });
+  });
+  return panel;
+}
+
+function comfortSettingsFromLayoutItem(item) {
+  const props = item.props || {};
+  return {
+    comfortTemperatureMin:
+      props.comfortTemperatureMin ??
+      state.lastStatus?.comfortTemperatureMin ??
+      DEFAULT_COMFORT_SETTINGS.comfortTemperatureMin,
+    comfortTemperatureMax:
+      props.comfortTemperatureMax ??
+      state.lastStatus?.comfortTemperatureMax ??
+      DEFAULT_COMFORT_SETTINGS.comfortTemperatureMax,
+    comfortHumidityMin:
+      props.comfortHumidityMin ??
+      state.lastStatus?.comfortHumidityMin ??
+      DEFAULT_COMFORT_SETTINGS.comfortHumidityMin,
+    comfortHumidityMax:
+      props.comfortHumidityMax ??
+      state.lastStatus?.comfortHumidityMax ??
+      DEFAULT_COMFORT_SETTINGS.comfortHumidityMax,
+  };
+}
+
+function renderClimatePropertiesPanel(item) {
+  const panel = document.createElement("div");
+  panel.className = "climate-properties-panel";
+  const settings = comfortSettingsFromLayoutItem(item);
+  panel.innerHTML = `
+    <p class="helper-text market-helper">${t("comfort.helper")}</p>
+    <div class="field-grid comfort-grid">
+      <label class="field">
+        <span>${escapeHtml(t("comfort.tempMin"))}</span>
+        <input data-comfort-prop="comfortTemperatureMin" data-id="${escapeHtml(item.id)}" type="number" inputmode="decimal" min="-20" max="60" step="0.5" value="${escapeHtml(formatConfigNumber(settings.comfortTemperatureMin, 1))}" />
+      </label>
+      <label class="field">
+        <span>${escapeHtml(t("comfort.tempMax"))}</span>
+        <input data-comfort-prop="comfortTemperatureMax" data-id="${escapeHtml(item.id)}" type="number" inputmode="decimal" min="-20" max="60" step="0.5" value="${escapeHtml(formatConfigNumber(settings.comfortTemperatureMax, 1))}" />
+      </label>
+      <label class="field">
+        <span>${escapeHtml(t("comfort.humidityMin"))}</span>
+        <input data-comfort-prop="comfortHumidityMin" data-id="${escapeHtml(item.id)}" type="number" inputmode="decimal" min="0" max="100" step="1" value="${escapeHtml(formatConfigNumber(settings.comfortHumidityMin, 0))}" />
+      </label>
+      <label class="field">
+        <span>${escapeHtml(t("comfort.humidityMax"))}</span>
+        <input data-comfort-prop="comfortHumidityMax" data-id="${escapeHtml(item.id)}" type="number" inputmode="decimal" min="0" max="100" step="1" value="${escapeHtml(formatConfigNumber(settings.comfortHumidityMax, 0))}" />
+      </label>
+    </div>
+  `;
+  panel.querySelectorAll("[data-comfort-prop]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const nextSettings = {
+        ...settings,
+        [input.dataset.comfortProp]: readNumberField(
+          input,
+          input.previousElementSibling?.textContent || "",
+          Number(input.min),
+          Number(input.max),
+        ),
+      };
+      updateDashboardLayoutItemProps(input.dataset.id, validateComfortSettings(nextSettings));
     });
   });
   return panel;
@@ -3374,16 +3413,6 @@ function updateStatus(status) {
     partialCleanInterval:
       status.partialCleanInterval ??
       DEFAULT_REFRESH_SETTINGS.partialCleanInterval,
-  });
-  applyComfortInputs({
-    comfortTemperatureMin:
-      status.comfortTemperatureMin ?? DEFAULT_COMFORT_SETTINGS.comfortTemperatureMin,
-    comfortTemperatureMax:
-      status.comfortTemperatureMax ?? DEFAULT_COMFORT_SETTINGS.comfortTemperatureMax,
-    comfortHumidityMin:
-      status.comfortHumidityMin ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMin,
-    comfortHumidityMax:
-      status.comfortHumidityMax ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMax,
   });
   if (!state.layoutDirty) {
     const activeLayout = activeLayoutFromDocument(status.layoutDocument);
@@ -4089,7 +4118,6 @@ async function saveSettings({ connectNow, syncTime }) {
   const ssid = typedSsid || savedSsid;
   const password = elements.passwordInput.value;
   const timezone = Number(elements.timezoneSelect.value);
-  const comfortSettings = readComfortSettingsFromInputs();
   const refreshSettings = readRefreshSettingsFromInputs();
 
   if (!ssid) {
@@ -4107,7 +4135,6 @@ async function saveSettings({ connectNow, syncTime }) {
     connectNow,
     syncTime,
     ...refreshSettings,
-    ...comfortSettings,
   };
 
   if (!savedSsid || typedSsid !== savedSsid) {
@@ -4833,7 +4860,6 @@ function handleActionError(error) {
 async function initialize() {
   applyTranslations();
   renderTimezoneOptions();
-  applyComfortInputs(DEFAULT_COMFORT_SETTINGS);
   state.dashboardLayouts = [defaultClassicLayoutPreset(), defaultDashboardLayoutPreset()];
   loadLayoutPresets();
   elements.otaManifestInput.value = DEFAULT_OTA_MANIFEST_URL;

@@ -1023,6 +1023,16 @@ button:focus {
   min-width: 0;
 }
 
+.climate-properties-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.climate-properties-panel .comfort-grid {
+  margin-top: 0;
+}
+
 .market-properties-panel .market-current {
   padding: 10px 12px;
 }
