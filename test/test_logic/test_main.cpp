@@ -5,6 +5,7 @@
 #include "logic/ComfortLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/HolidayLogic.h"
+#include "logic/LayoutLogic.h"
 #include "logic/SegmentLogic.h"
 #include "logic/UiLogic.h"
 
@@ -18,6 +19,40 @@ void test_partial_clean_interval_clamp() {
     TEST_ASSERT_EQUAL(1, logic::ClampPartialCleanInterval(0));
     TEST_ASSERT_EQUAL(4, logic::ClampPartialCleanInterval(4));
     TEST_ASSERT_EQUAL(30, logic::ClampPartialCleanInterval(99));
+}
+
+void test_dashboard_layout_clamps_to_screen() {
+    logic::DashboardLayoutItem item =
+        logic::DashboardLayoutDefaultItem(logic::DashboardComponentId::Climate);
+    item.x = 900;
+    item.y = -20;
+
+    const logic::DashboardLayoutItem clamped =
+        logic::ClampDashboardLayoutItem(item);
+
+    TEST_ASSERT_EQUAL(960 - item.w, clamped.x);
+    TEST_ASSERT_EQUAL(0, clamped.y);
+}
+
+void test_dashboard_component_id_from_key() {
+    bool found = false;
+    const logic::DashboardComponentId id =
+        logic::DashboardComponentIdFromKey("market-1", found);
+
+    TEST_ASSERT_TRUE(found);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::Summary),
+        static_cast<int>(id));
+
+    const logic::DashboardComponentId type_id =
+        logic::DashboardComponentIdFromKey("market", found);
+    TEST_ASSERT_TRUE(found);
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::DashboardComponentId::Summary),
+        static_cast<int>(type_id));
+
+    logic::DashboardComponentIdFromKey("unknown", found);
+    TEST_ASSERT_FALSE(found);
 }
 
 void test_wifi_pagination() {
@@ -288,6 +323,8 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_timezone_clamp);
     RUN_TEST(test_partial_clean_interval_clamp);
+    RUN_TEST(test_dashboard_layout_clamps_to_screen);
+    RUN_TEST(test_dashboard_component_id_from_key);
     RUN_TEST(test_wifi_pagination);
     RUN_TEST(test_segment_masks);
     RUN_TEST(test_parse_tencent_quote);

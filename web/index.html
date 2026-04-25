@@ -321,6 +321,36 @@
         </div>
       </section>
 
+      <section class="band layout-band">
+        <div class="band-heading">
+          <div>
+            <h2 data-i18n="layout.heading">仪表盘布局</h2>
+            <p class="helper-text" data-i18n="layout.helper">
+              拖动组件调整位置，保存后设备会全量刷新一次仪表盘。
+            </p>
+          </div>
+          <div class="action-row action-row-pair layout-actions">
+            <button id="layout-save-button" class="action-button primary" disabled>
+              <span data-i18n="button.saveLayout">保存布局</span>
+            </button>
+            <button id="layout-reset-button" class="action-button subtle" disabled>
+              <span data-i18n="button.resetLayout">恢复默认布局</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <div class="layout-preview-panel">
+            <p class="config-action-title" data-i18n="layout.preview">一比一预览</p>
+            <div id="layout-preview" class="layout-preview" aria-label="Dashboard layout preview"></div>
+          </div>
+          <div class="layout-list-panel">
+            <p class="config-action-title" data-i18n="layout.position">位置</p>
+            <div id="layout-component-list" class="layout-component-list"></div>
+          </div>
+        </div>
+      </section>
+
       <section class="band update-band">
         <div class="band-heading">
           <div>

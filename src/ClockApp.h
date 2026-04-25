@@ -214,10 +214,18 @@ private:
     void sendLocalOtaProgress(ConfigTransport transport) const;
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
+    void populateLayoutDocument(JsonObject document) const;
+    void populateLayoutComponents(JsonArray components) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
     void sendConfigLine(const String& line, ConfigTransport transport) const;
     const char* currentPageName() const;
     const char* clockStyleName() const;
+    const logic::DashboardLayoutItem& dashboardLayoutItem(
+        logic::DashboardComponentId id) const;
+    int16_t dashboardComponentX(logic::DashboardComponentId id) const;
+    int16_t dashboardComponentY(logic::DashboardComponentId id) const;
+    bool applyLayoutDocument(JsonObjectConst document, String& error_message);
+    bool applyDashboardLayout(JsonArrayConst components, String& error_message);
     String currentIpAddress() const;
     String currentMarketCode() const;
     String currentMarketDisplayName() const;

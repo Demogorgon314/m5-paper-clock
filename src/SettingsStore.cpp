@@ -26,6 +26,24 @@ AppSettings SettingsStore::load() const {
     settings.partial_clean_interval = static_cast<uint8_t>(
         logic::ClampPartialCleanInterval(preferences_.getUChar(
             "partial_gc16", settings.partial_clean_interval)));
+    settings.dashboard_layout = logic::DefaultDashboardLayout();
+    for (logic::DashboardLayoutItem& item : settings.dashboard_layout) {
+        const String key_prefix = String("dash_") + item.instance_id;
+        const String legacy_key_prefix = String("dash_") + item.type;
+        item.x = preferences_.getShort(
+            (key_prefix + "_x").c_str(),
+            preferences_.getShort((legacy_key_prefix + "_x").c_str(), item.x));
+        item.y = preferences_.getShort(
+            (key_prefix + "_y").c_str(),
+            preferences_.getShort((legacy_key_prefix + "_y").c_str(), item.y));
+        item.visible =
+            preferences_.getBool((key_prefix + "_v").c_str(),
+                                 preferences_.getBool(
+                                     (legacy_key_prefix + "_v").c_str(),
+                                     item.visible));
+    }
+    settings.dashboard_layout =
+        logic::NormalizeDashboardLayout(settings.dashboard_layout);
     settings.comfort_settings.min_temperature =
         preferences_.getFloat("comfort_t_min",
                               settings.comfort_settings.min_temperature);
@@ -65,6 +83,7 @@ void SettingsStore::save(const AppSettings& settings) {
         "partial_gc16",
         static_cast<uint8_t>(
             logic::ClampPartialCleanInterval(settings.partial_clean_interval)));
+    saveDashboardLayout(settings.dashboard_layout);
     preferences_.putFloat("comfort_t_min",
                           settings.comfort_settings.min_temperature);
     preferences_.putFloat("comfort_t_max",
@@ -134,6 +153,21 @@ void SettingsStore::savePartialCleanInterval(uint8_t partial_clean_interval) {
         "partial_gc16",
         static_cast<uint8_t>(
             logic::ClampPartialCleanInterval(partial_clean_interval)));
+}
+
+void SettingsStore::saveDashboardLayout(
+    const logic::DashboardLayout& dashboard_layout) {
+    if (!started_) {
+        return;
+    }
+    const logic::DashboardLayout normalized =
+        logic::NormalizeDashboardLayout(dashboard_layout);
+    for (const logic::DashboardLayoutItem& item : normalized) {
+        const String key_prefix = String("dash_") + item.instance_id;
+        preferences_.putShort((key_prefix + "_x").c_str(), item.x);
+        preferences_.putShort((key_prefix + "_y").c_str(), item.y);
+        preferences_.putBool((key_prefix + "_v").c_str(), item.visible);
+    }
 }
 
 void SettingsStore::saveBlePairingToken(const String& token) {

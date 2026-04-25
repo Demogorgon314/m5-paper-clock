@@ -44,6 +44,22 @@ const REFRESH_LIMITS = Object.freeze({
   partialCleanIntervalMin: 1,
   partialCleanIntervalMax: 30,
 });
+const DASHBOARD_PREVIEW = Object.freeze({
+  width: 960,
+  height: 540,
+  snap: 4,
+  guideThreshold: 8,
+});
+const DEFAULT_LAYOUT_ID = "dashboard-default";
+const DEFAULT_LAYOUT_NAME = "仪表盘";
+const DEFAULT_DASHBOARD_LAYOUT = Object.freeze([
+  { id: "date-main", type: "date", labelKey: "layout.component.date", x: 24, y: 20, w: 744, h: 44, props: { variant: "header" } },
+  { id: "battery-main", type: "battery", labelKey: "layout.component.battery", x: 768, y: 20, w: 176, h: 44, props: { variant: "status" } },
+  { id: "calendar-main", type: "calendar", labelKey: "layout.component.calendar", x: 72, y: 106, w: 304, h: 232, props: { variant: "month-grid" } },
+  { id: "time-main", type: "time", labelKey: "layout.component.time", x: 412, y: 104, w: 472, h: 236, props: { variant: "large-digits" } },
+  { id: "market-1", type: "market", labelKey: "layout.component.summary", x: 72, y: 392, w: 332, h: 86, props: { variant: "summary-card", symbol: "sh000001" } },
+  { id: "climate-main", type: "climate", labelKey: "layout.component.climate", x: 428, y: 392, w: 456, h: 86, props: { variant: "compact-card" } },
+]);
 
 const DEFAULT_LOCALE = "zh-CN";
 const SUPPORTED_LOCALES = Object.freeze(["zh-CN", "en"]);
@@ -106,6 +122,18 @@ const I18N = Object.freeze({
     "comfort.tempMax": "最高舒适温度",
     "comfort.humidityMin": "最低舒适湿度",
     "comfort.humidityMax": "最高舒适湿度",
+    "layout.heading": "仪表盘布局",
+    "layout.helper": "拖动组件调整位置，保存后设备会全量刷新一次仪表盘。",
+    "layout.preview": "一比一预览",
+    "layout.position": "位置",
+    "layout.component.date": "日期",
+    "layout.component.battery": "状态",
+    "layout.component.calendar": "日历",
+    "layout.component.time": "时间",
+    "layout.component.summary": "行情",
+    "layout.component.climate": "温湿度",
+    "layout.nudge": "微调",
+    "layout.resetComponent": "重置此组件",
     "hint.serial": "Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。",
     "hint.bluetooth": "蓝牙连接需要先在设备附近点“连接蓝牙”并选择 M5Paper Clock。",
     "update.heading": "固件更新",
@@ -180,6 +208,8 @@ const I18N = Object.freeze({
     "button.fullFlash": "完整刷写",
     "button.search": "搜索",
     "button.clear": "清空",
+    "button.saveLayout": "保存布局",
+    "button.resetLayout": "恢复默认布局",
   },
   en: {
     "app.title": "M5Paper Ink Clock Setup",
@@ -238,6 +268,18 @@ const I18N = Object.freeze({
     "comfort.tempMax": "Maximum comfort temperature",
     "comfort.humidityMin": "Minimum comfort humidity",
     "comfort.humidityMax": "Maximum comfort humidity",
+    "layout.heading": "Dashboard Layout",
+    "layout.helper": "Drag components to adjust positions. Saving refreshes the dashboard once.",
+    "layout.preview": "1:1 Preview",
+    "layout.position": "Position",
+    "layout.component.date": "Date",
+    "layout.component.battery": "Status",
+    "layout.component.calendar": "Calendar",
+    "layout.component.time": "Time",
+    "layout.component.summary": "Market",
+    "layout.component.climate": "Climate",
+    "layout.nudge": "Nudge",
+    "layout.resetComponent": "Reset component",
     "hint.serial": "Chrome remembers authorized serial ports and can reconnect when the page opens.",
     "hint.bluetooth": "For Bluetooth, stay near the device, click Connect Bluetooth, and choose M5Paper Clock.",
     "update.heading": "Firmware Update",
@@ -312,6 +354,8 @@ const I18N = Object.freeze({
     "button.fullFlash": "Full Flash",
     "button.search": "Search",
     "button.clear": "Clear",
+    "button.saveLayout": "Save Layout",
+    "button.resetLayout": "Reset Layout",
   },
 });
 
@@ -436,6 +480,10 @@ const elements = {
   comfortTempMaxInput: document.querySelector("#comfort-temp-max-input"),
   comfortHumidityMinInput: document.querySelector("#comfort-humidity-min-input"),
   comfortHumidityMaxInput: document.querySelector("#comfort-humidity-max-input"),
+  layoutPreview: document.querySelector("#layout-preview"),
+  layoutComponentList: document.querySelector("#layout-component-list"),
+  layoutSaveButton: document.querySelector("#layout-save-button"),
+  layoutResetButton: document.querySelector("#layout-reset-button"),
   otaManifestInput: document.querySelector("#ota-manifest-input"),
   webFlashManifestInput: document.querySelector("#web-flash-manifest-input"),
   webFlashButton: document.querySelector("#web-flash-button"),
@@ -489,6 +537,12 @@ const state = {
   localOtaLoggedWritten: 0,
   marketResultsVisible: false,
   marketResults: [],
+  dashboardLayout: cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT),
+  selectedLayoutId: DEFAULT_DASHBOARD_LAYOUT[0]?.id || null,
+  draggedLayoutId: null,
+  layoutDragOffset: { x: 0, y: 0 },
+  layoutGuides: { vertical: [], horizontal: [] },
+  layoutDirty: false,
 };
 
 function detectInitialLocale() {
@@ -512,6 +566,204 @@ function t(key, params = {}) {
 
 function localized(zhCn, en) {
   return state.locale === "en" ? en : zhCn;
+}
+
+function cloneDashboardLayout(layout) {
+  return layout.map((item) => ({
+    ...item,
+    props: { ...(item.props || {}) },
+  }));
+}
+
+function dashboardLayoutWithLabels(layout) {
+  return DEFAULT_DASHBOARD_LAYOUT.map((defaultItem) => {
+    const savedItem =
+      layout.find(
+        (item) => item.id === defaultItem.id || item.type === defaultItem.type,
+      ) || {};
+    return {
+      ...defaultItem,
+      ...savedItem,
+      w: defaultItem.w,
+      h: defaultItem.h,
+      labelKey: defaultItem.labelKey,
+      type: defaultItem.type,
+      props: {
+        ...defaultItem.props,
+        ...(savedItem.props || {}),
+      },
+      visible: savedItem.visible !== false,
+    };
+  });
+}
+
+function activeLayoutFromDocument(document) {
+  if (!document || !Array.isArray(document.layouts)) {
+    return null;
+  }
+  const activeLayoutId = String(document.activeLayoutId || "");
+  return (
+    document.layouts.find((layout) => layout.id === activeLayoutId) ||
+    document.layouts[0] ||
+    null
+  );
+}
+
+function layoutDocumentFromComponents(components) {
+  return {
+    activeLayoutId: DEFAULT_LAYOUT_ID,
+    layouts: [
+      {
+        id: DEFAULT_LAYOUT_ID,
+        name: DEFAULT_LAYOUT_NAME,
+        canvas: {
+          width: DASHBOARD_PREVIEW.width,
+          height: DASHBOARD_PREVIEW.height,
+        },
+        components: components.map((item) => ({
+          id: item.id,
+          type: item.type,
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+          visible: item.visible !== false,
+          props: { ...(item.props || {}) },
+        })),
+      },
+    ],
+  };
+}
+
+function clampDashboardLayoutItem(item) {
+  const x = Math.min(
+    Math.max(0, Number(item.x) || 0),
+    DASHBOARD_PREVIEW.width - item.w,
+  );
+  const y = Math.min(
+    Math.max(0, Number(item.y) || 0),
+    DASHBOARD_PREVIEW.height - item.h,
+  );
+  return {
+    ...item,
+    x: Math.round(x / DASHBOARD_PREVIEW.snap) * DASHBOARD_PREVIEW.snap,
+    y: Math.round(y / DASHBOARD_PREVIEW.snap) * DASHBOARD_PREVIEW.snap,
+  };
+}
+
+function snapToDashboardGrid(value) {
+  return Math.round(value / DASHBOARD_PREVIEW.snap) * DASHBOARD_PREVIEW.snap;
+}
+
+function layoutSnapPoints(item) {
+  return {
+    vertical: [
+      { kind: "left", value: item.x },
+      { kind: "center", value: item.x + item.w / 2 },
+      { kind: "right", value: item.x + item.w },
+    ],
+    horizontal: [
+      { kind: "top", value: item.y },
+      { kind: "center", value: item.y + item.h / 2 },
+      { kind: "bottom", value: item.y + item.h },
+    ],
+  };
+}
+
+function dashboardGuideCandidates(draggedId) {
+  const vertical = [
+    0,
+    DASHBOARD_PREVIEW.width / 2,
+    DASHBOARD_PREVIEW.width,
+  ];
+  const horizontal = [
+    0,
+    DASHBOARD_PREVIEW.height / 2,
+    DASHBOARD_PREVIEW.height,
+  ];
+
+  for (const item of state.dashboardLayout) {
+    if (item.id === draggedId) {
+      continue;
+    }
+    const points = layoutSnapPoints(item);
+    vertical.push(...points.vertical.map((point) => point.value));
+    horizontal.push(...points.horizontal.map((point) => point.value));
+  }
+
+  return { vertical, horizontal };
+}
+
+function nearestDashboardGuide(points, candidates) {
+  let best = null;
+  for (const point of points) {
+    for (const candidate of candidates) {
+      const distance = Math.abs(point.value - candidate);
+      if (
+        distance > DASHBOARD_PREVIEW.guideThreshold ||
+        (best && distance >= best.distance)
+      ) {
+        continue;
+      }
+      best = {
+        kind: point.kind,
+        value: candidate,
+        distance,
+      };
+    }
+  }
+  return best;
+}
+
+function applyDashboardGuideSnap(item) {
+  const candidates = dashboardGuideCandidates(item.id);
+  const points = layoutSnapPoints(item);
+  const verticalGuide = nearestDashboardGuide(points.vertical, candidates.vertical);
+  const horizontalGuide = nearestDashboardGuide(
+    points.horizontal,
+    candidates.horizontal,
+  );
+  const snapped = { ...item };
+
+  if (verticalGuide) {
+    if (verticalGuide.kind === "left") {
+      snapped.x = verticalGuide.value;
+    } else if (verticalGuide.kind === "center") {
+      snapped.x = verticalGuide.value - item.w / 2;
+    } else {
+      snapped.x = verticalGuide.value - item.w;
+    }
+  }
+  if (horizontalGuide) {
+    if (horizontalGuide.kind === "top") {
+      snapped.y = horizontalGuide.value;
+    } else if (horizontalGuide.kind === "center") {
+      snapped.y = horizontalGuide.value - item.h / 2;
+    } else {
+      snapped.y = horizontalGuide.value - item.h;
+    }
+  }
+
+  return {
+    item: {
+      ...snapped,
+      x: snapToDashboardGrid(snapped.x),
+      y: snapToDashboardGrid(snapped.y),
+    },
+    guides: {
+      vertical: verticalGuide ? [verticalGuide.value] : [],
+      horizontal: horizontalGuide ? [horizontalGuide.value] : [],
+    },
+  };
+}
+
+function setDashboardLayout(layout, { dirty = false } = {}) {
+  state.dashboardLayout = dashboardLayoutWithLabels(layout).map(
+    clampDashboardLayoutItem,
+  );
+  state.layoutDirty = dirty;
+  renderDashboardLayoutEditor();
+  setConnected(state.connected);
 }
 
 function applyTranslations() {
@@ -554,6 +806,7 @@ function setLocale(locale) {
   renderOtaSummary(state.otaManifest);
   renderOtaProgress();
   renderLocalOtaSummary();
+  renderDashboardLayoutEditor();
 }
 
 function normalizeMarketQuery(value) {
@@ -871,6 +1124,9 @@ function setConnected(connected) {
   elements.syncButton.disabled = !allowDeviceActions;
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
+  elements.layoutSaveButton.disabled =
+    !allowDeviceActions || !state.layoutDirty;
+  elements.layoutResetButton.disabled = !allowDeviceActions;
   elements.checkUpdateButton.disabled = state.busyCount > 0;
   elements.otaUpdateButton.disabled =
     !allowDeviceActions ||
@@ -934,6 +1190,196 @@ function renderNetworks() {
     });
     elements.networkList.appendChild(button);
   }
+}
+
+function renderDashboardLayoutEditor() {
+  if (!elements.layoutPreview || !elements.layoutComponentList) {
+    return;
+  }
+
+  elements.layoutPreview.innerHTML = "";
+  for (const x of state.layoutGuides.vertical) {
+    const guide = document.createElement("span");
+    guide.className = "layout-guide layout-guide-vertical";
+    guide.style.left = `${(x / DASHBOARD_PREVIEW.width) * 100}%`;
+    elements.layoutPreview.appendChild(guide);
+  }
+  for (const y of state.layoutGuides.horizontal) {
+    const guide = document.createElement("span");
+    guide.className = "layout-guide layout-guide-horizontal";
+    guide.style.top = `${(y / DASHBOARD_PREVIEW.height) * 100}%`;
+    elements.layoutPreview.appendChild(guide);
+  }
+
+  for (const item of state.dashboardLayout) {
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = `layout-component layout-component-${item.type}`;
+    if (item.id === state.selectedLayoutId) {
+      node.classList.add("is-selected");
+    }
+    node.dataset.id = item.id;
+    node.style.left = `${(item.x / DASHBOARD_PREVIEW.width) * 100}%`;
+    node.style.top = `${(item.y / DASHBOARD_PREVIEW.height) * 100}%`;
+    node.style.width = `${(item.w / DASHBOARD_PREVIEW.width) * 100}%`;
+    node.style.height = `${(item.h / DASHBOARD_PREVIEW.height) * 100}%`;
+    node.innerHTML = `<strong>${escapeHtml(t(item.labelKey))}</strong><span>${item.x}, ${item.y}</span>`;
+    node.addEventListener("click", () => {
+      selectDashboardLayoutItem(item.id);
+    });
+    node.addEventListener("keydown", (event) => {
+      const moves = {
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+      };
+      const move = moves[event.key];
+      if (!move) {
+        return;
+      }
+      const step = event.shiftKey ? DASHBOARD_PREVIEW.snap * 5 : DASHBOARD_PREVIEW.snap;
+      nudgeDashboardLayoutItem(item.id, move[0] * step, move[1] * step);
+      event.preventDefault();
+    });
+    node.addEventListener("pointerdown", (event) => {
+      const point = dashboardPreviewPoint(event);
+      state.selectedLayoutId = item.id;
+      state.draggedLayoutId = item.id;
+      state.layoutDragOffset = {
+        x: point.x - item.x,
+        y: point.y - item.y,
+      };
+      state.layoutGuides = { vertical: [], horizontal: [] };
+      node.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    elements.layoutPreview.appendChild(node);
+  }
+
+  elements.layoutComponentList.innerHTML = "";
+  const selectedItem =
+    state.dashboardLayout.find((item) => item.id === state.selectedLayoutId) ||
+    state.dashboardLayout[0];
+  if (!selectedItem) {
+    return;
+  }
+  state.selectedLayoutId = selectedItem.id;
+
+  const row = document.createElement("div");
+  row.className = "layout-position-row is-selected";
+  row.dataset.id = selectedItem.id;
+  row.innerHTML = `
+    <div class="layout-position-heading">
+      <strong>${escapeHtml(t(selectedItem.labelKey))}</strong>
+      <span>${escapeHtml(selectedItem.id)}</span>
+    </div>
+    <div class="layout-position-fields">
+      <label><span>X</span><input type="number" data-axis="x" data-id="${escapeHtml(selectedItem.id)}" min="0" max="${DASHBOARD_PREVIEW.width - selectedItem.w}" step="${DASHBOARD_PREVIEW.snap}" value="${selectedItem.x}" /></label>
+      <label><span>Y</span><input type="number" data-axis="y" data-id="${escapeHtml(selectedItem.id)}" min="0" max="${DASHBOARD_PREVIEW.height - selectedItem.h}" step="${DASHBOARD_PREVIEW.snap}" value="${selectedItem.y}" /></label>
+    </div>
+    <div class="layout-position-actions" aria-label="${escapeHtml(t("layout.nudge"))}">
+      <button type="button" class="layout-nudge-button" data-dx="0" data-dy="${-DASHBOARD_PREVIEW.snap}" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">↑</button>
+      <button type="button" class="layout-nudge-button" data-dx="${-DASHBOARD_PREVIEW.snap}" data-dy="0" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">←</button>
+      <button type="button" class="layout-nudge-button" data-dx="${DASHBOARD_PREVIEW.snap}" data-dy="0" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">→</button>
+      <button type="button" class="layout-nudge-button" data-dx="0" data-dy="${DASHBOARD_PREVIEW.snap}" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.nudge"))}">↓</button>
+      <button type="button" class="layout-reset-item-button" data-id="${escapeHtml(selectedItem.id)}" title="${escapeHtml(t("layout.resetComponent"))}">↺</button>
+    </div>
+  `;
+  row.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("change", () => {
+      updateDashboardLayoutItem(input.dataset.id, {
+        [input.dataset.axis]: Number(input.value),
+      });
+    });
+  });
+  row.querySelectorAll(".layout-nudge-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      nudgeDashboardLayoutItem(
+        button.dataset.id,
+        Number(button.dataset.dx),
+        Number(button.dataset.dy),
+      );
+    });
+  });
+  row.querySelector(".layout-reset-item-button").addEventListener("click", () => {
+    resetDashboardLayoutItem(selectedItem.id);
+  });
+  elements.layoutComponentList.appendChild(row);
+}
+
+function dashboardPreviewPoint(event) {
+  const rect = elements.layoutPreview.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * DASHBOARD_PREVIEW.width,
+    y: ((event.clientY - rect.top) / rect.height) * DASHBOARD_PREVIEW.height,
+  };
+}
+
+function updateDashboardLayoutItem(id, patch) {
+  state.selectedLayoutId = id;
+  const nextLayout = state.dashboardLayout.map((item) =>
+    item.id === id ? clampDashboardLayoutItem({ ...item, ...patch }) : item,
+  );
+  setDashboardLayout(nextLayout, { dirty: true });
+}
+
+function selectDashboardLayoutItem(id) {
+  if (state.selectedLayoutId === id) {
+    return;
+  }
+  state.selectedLayoutId = id;
+  renderDashboardLayoutEditor();
+}
+
+function nudgeDashboardLayoutItem(id, dx, dy) {
+  const currentItem = state.dashboardLayout.find((item) => item.id === id);
+  if (!currentItem) {
+    return;
+  }
+  updateDashboardLayoutItem(id, {
+    x: currentItem.x + dx,
+    y: currentItem.y + dy,
+  });
+}
+
+function resetDashboardLayoutItem(id) {
+  const defaultItem = DEFAULT_DASHBOARD_LAYOUT.find((item) => item.id === id);
+  if (!defaultItem) {
+    return;
+  }
+  updateDashboardLayoutItem(id, {
+    x: defaultItem.x,
+    y: defaultItem.y,
+  });
+}
+
+function moveDraggedDashboardComponent(event) {
+  if (!state.draggedLayoutId) {
+    return;
+  }
+  const point = dashboardPreviewPoint(event);
+  const currentItem = state.dashboardLayout.find(
+    (item) => item.id === state.draggedLayoutId,
+  );
+  if (!currentItem) {
+    return;
+  }
+  const snapResult = applyDashboardGuideSnap({
+    ...currentItem,
+    x: point.x - state.layoutDragOffset.x,
+    y: point.y - state.layoutDragOffset.y,
+  });
+  state.layoutGuides = snapResult.guides;
+  updateDashboardLayoutItem(state.draggedLayoutId, snapResult.item);
+}
+
+function stopDashboardLayoutDrag() {
+  if (state.draggedLayoutId) {
+    state.layoutGuides = { vertical: [], horizontal: [] };
+    renderDashboardLayoutEditor();
+  }
+  state.draggedLayoutId = null;
 }
 
 function renderMarketHotList() {
@@ -1127,6 +1573,12 @@ function updateStatus(status) {
     comfortHumidityMax:
       status.comfortHumidityMax ?? DEFAULT_COMFORT_SETTINGS.comfortHumidityMax,
   });
+  const activeLayout = activeLayoutFromDocument(status.layoutDocument);
+  if (activeLayout?.components) {
+    setDashboardLayout(activeLayout.components, { dirty: false });
+  } else if (Array.isArray(status.dashboardLayout)) {
+    setDashboardLayout(status.dashboardLayout, { dirty: false });
+  }
 
   const message =
     status.statusMessage ||
@@ -1860,6 +2312,34 @@ async function saveSettings({ connectNow, syncTime }) {
   );
 }
 
+async function saveDashboardLayout() {
+  if (!state.connected) {
+    throw new Error(localized("请先连接设备，再保存布局", "Connect the device before saving the layout"));
+  }
+  setMessage(localized("正在保存仪表盘布局。", "Saving dashboard layout."));
+  const data = await sendCommand(
+    "apply_layout",
+    {
+      layoutDocument: layoutDocumentFromComponents(state.dashboardLayout),
+    },
+    REQUEST_TIMEOUT_MS,
+  );
+  updateStatus(data);
+  state.layoutDirty = false;
+  setConnected(state.connected);
+  setMessage(localized("仪表盘布局已保存。", "Dashboard layout saved."));
+}
+
+async function resetDashboardLayout() {
+  if (!state.connected) {
+    throw new Error(localized("请先连接设备，再恢复默认布局", "Connect the device before resetting the layout"));
+  }
+  setMessage(localized("正在恢复默认仪表盘布局。", "Resetting dashboard layout."));
+  const data = await sendCommand("apply_layout", { reset: true }, REQUEST_TIMEOUT_MS);
+  updateStatus(data);
+  setMessage(localized("仪表盘布局已恢复默认。", "Dashboard layout reset."));
+}
+
 async function syncTime() {
   setMessage(localized("正在同步时间。", "Syncing time."));
   const data = await sendCommand("sync_time", undefined, 20000);
@@ -2415,6 +2895,17 @@ function installEventHandlers() {
     withBusyWork(syncTime).catch(handleActionError),
   );
 
+  elements.layoutSaveButton.addEventListener("click", () =>
+    withBusyWork(saveDashboardLayout).catch(handleActionError),
+  );
+
+  elements.layoutResetButton.addEventListener("click", () =>
+    withBusyWork(resetDashboardLayout).catch(handleActionError),
+  );
+
+  window.addEventListener("pointermove", moveDraggedDashboardComponent);
+  window.addEventListener("pointerup", stopDashboardLayoutDrag);
+
   elements.checkUpdateButton.addEventListener("click", () =>
     withBusyWork(checkForUpdate).catch(handleActionError),
   );
@@ -2495,6 +2986,7 @@ async function initialize() {
   state.marketResultsVisible = false;
   renderMarketHotList();
   renderMarketResults();
+  renderDashboardLayoutEditor();
   installEventHandlers();
   setConnected(false);
 

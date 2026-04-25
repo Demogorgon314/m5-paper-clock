@@ -183,8 +183,6 @@ constexpr int16_t kComfortCanvasW =
 constexpr int16_t kComfortCanvasH = kInfoCanvasH;
 constexpr int16_t kComfortFaceDrawX = (kInfoX + 640) - kComfortCanvasX;
 constexpr int16_t kComfortFaceDrawY = 58;
-constexpr int16_t kDashboardCalendarX = 72;
-constexpr int16_t kDashboardCalendarY = 106;
 constexpr int16_t kDashboardCalendarW = 304;
 constexpr int16_t kDashboardCalendarH = 232;
 constexpr int16_t kDashboardCalendarCellW = 42;
@@ -194,8 +192,6 @@ constexpr int16_t kDashboardCalendarStartX =
     (kDashboardCalendarW - kDashboardCalendarGridW) / 2;
 constexpr int16_t kDashboardCalendarHeaderY = 54;
 constexpr int16_t kDashboardCalendarGridY = 86;
-constexpr int16_t kDashboardTimeX = 412;
-constexpr int16_t kDashboardTimeY = 104;
 constexpr int16_t kDashboardTimeW = 472;
 constexpr int16_t kDashboardTimeH = 236;
 constexpr int16_t kDashboardTimeDigitW = 92;
@@ -213,18 +209,12 @@ constexpr int16_t kDashboardTimeDigitY =
     (kDashboardTimeH - kDashboardTimeDigitH) / 2;
 constexpr int16_t kDashboardMinuteLocalX =
     kDashboardTimeDrawX + ((kDashboardTimeDigitW + kDashboardTimeGap) * 2);
-constexpr int16_t kDashboardMinuteCanvasX =
-    alignDownTo4(kDashboardTimeX + kDashboardMinuteLocalX);
-constexpr int16_t kDashboardMinuteCanvasY = kDashboardTimeY;
-constexpr int16_t kDashboardMinuteDrawX =
-    (kDashboardTimeX + kDashboardMinuteLocalX) - kDashboardMinuteCanvasX;
+constexpr int16_t kDashboardMinuteContentW =
+    kDashboardTimeColonW + kDashboardTimeGap + kDashboardTimeDigitW +
+    kDashboardTimeGap + kDashboardTimeDigitW;
 constexpr int16_t kDashboardMinuteCanvasW =
-    alignUpTo4(kDashboardMinuteDrawX + kDashboardTimeColonW +
-               kDashboardTimeGap + kDashboardTimeDigitW + kDashboardTimeGap +
-               kDashboardTimeDigitW);
+    alignUpTo4(kDashboardMinuteContentW + 3);
 constexpr int16_t kDashboardMinuteCanvasH = kDashboardTimeH;
-constexpr int16_t kDashboardSummaryX = 72;
-constexpr int16_t kDashboardSummaryY = 392;
 constexpr int16_t kDashboardSummaryW = 332;
 constexpr int16_t kDashboardSummaryH = 86;
 constexpr int16_t kDashboardSummaryTitleX = 16;
@@ -247,8 +237,6 @@ constexpr int16_t kDashboardSummaryBottomAreaX = 8;
 constexpr int16_t kDashboardSummaryBottomAreaY = 52;
 constexpr int16_t kDashboardSummaryBottomAreaW = kDashboardSummaryW - 16;
 constexpr int16_t kDashboardSummaryBottomAreaH = 26;
-constexpr int16_t kDashboardClimateX = 428;
-constexpr int16_t kDashboardClimateY = 392;
 constexpr int16_t kDashboardClimateW = 456;
 constexpr int16_t kDashboardClimateH = 86;
 constexpr int16_t kDashboardClimateHumidityDividerX = 126;
@@ -770,6 +758,7 @@ void drawMinuteTime(const SegmentRenderer& renderer, M5EPD_Canvas& canvas,
 
 void drawDashboardMinuteTime(const SegmentRenderer& renderer,
                              M5EPD_Canvas& canvas, const String& time_digits,
+                             int16_t draw_x,
                              uint8_t body_color, uint8_t edge_color) {
     if (time_digits.length() != 4) {
         return;
@@ -779,8 +768,8 @@ void drawDashboardMinuteTime(const SegmentRenderer& renderer,
     canvas.fillCanvas(kWhite);
     canvas.setTextDatum(TL_DATUM);
     canvas.setTextColor(body_color);
-    renderer.drawText(canvas, kDashboardMinuteDrawX, kDashboardTimeDigitY,
-                      minute_text, kDashboardTimeDigitW, kDashboardTimeDigitH,
+    renderer.drawText(canvas, draw_x, kDashboardTimeDigitY, minute_text,
+                      kDashboardTimeDigitW, kDashboardTimeDigitH,
                       kDashboardTimeGap, body_color, edge_color);
 }
 
@@ -1874,7 +1863,15 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
             active_date_canvas.drawString(date_text, 0, kDateH / 2);
         }
     }
-    active_date_canvas.pushCanvas(kDateX, kDateY, UPDATE_MODE_NONE);
+    const int16_t date_x =
+        usesDashboardClockStyle()
+            ? dashboardComponentX(logic::DashboardComponentId::Date)
+            : kDateX;
+    const int16_t date_y =
+        usesDashboardClockStyle()
+            ? dashboardComponentY(logic::DashboardComponentId::Date)
+            : kDateY;
+    active_date_canvas.pushCanvas(date_x, date_y, UPDATE_MODE_NONE);
 
     if (!full_refresh) {
         const m5epd_update_mode_t mode =
@@ -1909,11 +1906,11 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
                 includeDirtyRect(dirty, rect);
             }
             if (dirty.valid) {
-                updateAlignedArea(kDateX + dirty.x, kDateY + dirty.y,
+                updateAlignedArea(date_x + dirty.x, date_y + dirty.y,
                                   dirty.w, dirty.h, mode);
             }
         } else {
-            updateAlignedArea(kDateX, kDateY, kDateW, kDateH, mode);
+            updateAlignedArea(date_x, date_y, kDateW, kDateH, mode);
         }
         ++partial_refresh_count_;
     } else {
@@ -1994,7 +1991,15 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
     if (fill_w > 0) {
         battery_canvas_.fillRect(inner_x, inner_y, fill_w, inner_h, kText);
     }
-    battery_canvas_.pushCanvas(kBatteryX, kBatteryY, UPDATE_MODE_NONE);
+    const int16_t battery_x =
+        usesDashboardClockStyle()
+            ? dashboardComponentX(logic::DashboardComponentId::Battery)
+            : kBatteryX;
+    const int16_t battery_y =
+        usesDashboardClockStyle()
+            ? dashboardComponentY(logic::DashboardComponentId::Battery)
+            : kBatteryY;
+    battery_canvas_.pushCanvas(battery_x, battery_y, UPDATE_MODE_NONE);
 
     if (full_refresh) {
         battery_partial_count_ = 0;
@@ -2043,7 +2048,7 @@ void ClockApp::updateBatteryCanvas(bool full_refresh) {
             nextPartialMode(battery_partial_count_,
                             settings_.partial_clean_interval);
         if (dirty.valid) {
-            updateAlignedArea(kBatteryX + dirty.x, kBatteryY + dirty.y,
+            updateAlignedArea(battery_x + dirty.x, battery_y + dirty.y,
                               dirty.w, dirty.h, mode);
         }
     }
@@ -2130,7 +2135,11 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
         }
     }
 
-    dashboard_calendar_canvas_.pushCanvas(kDashboardCalendarX, kDashboardCalendarY,
+    const int16_t calendar_x =
+        dashboardComponentX(logic::DashboardComponentId::Calendar);
+    const int16_t calendar_y =
+        dashboardComponentY(logic::DashboardComponentId::Calendar);
+    dashboard_calendar_canvas_.pushCanvas(calendar_x, calendar_y,
                                           UPDATE_MODE_NONE);
     if (full_refresh) {
         dashboard_calendar_partial_count_ = 0;
@@ -2148,13 +2157,13 @@ void ClockApp::updateDashboardCalendarCanvas(bool full_refresh) {
             includeDirtyRect(dirty, dashboardCalendarCellRect(last_date_));
             includeDirtyRect(dirty, dashboardCalendarCellRect(current_date));
             if (dirty.valid) {
-                updateAlignedArea(kDashboardCalendarX + dirty.x,
-                                  kDashboardCalendarY + dirty.y, dirty.w,
+                updateAlignedArea(calendar_x + dirty.x,
+                                  calendar_y + dirty.y, dirty.w,
                                   dirty.h, mode);
             }
         } else {
-            updateAlignedArea(kDashboardCalendarX, kDashboardCalendarY,
-                              kDashboardCalendarW, kDashboardCalendarH, mode);
+            updateAlignedArea(calendar_x, calendar_y, kDashboardCalendarW,
+                              kDashboardCalendarH, mode);
         }
         ++partial_refresh_count_;
     }
@@ -2173,14 +2182,19 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
         !full_refresh && last_time_text_rendered_.length() == 4 &&
         time_digits.substring(0, 2) == last_time_text_rendered_.substring(0, 2);
 
+    const int16_t time_x = dashboardComponentX(logic::DashboardComponentId::Time);
+    const int16_t time_y = dashboardComponentY(logic::DashboardComponentId::Time);
     if (can_refresh_minutes_only) {
+        const int16_t minute_x = alignDownTo4(time_x + kDashboardMinuteLocalX);
+        const int16_t minute_y = time_y;
+        const int16_t minute_draw_x =
+            (time_x + kDashboardMinuteLocalX) - minute_x;
         drawDashboardMinuteTime(renderer_, dashboard_minute_canvas_, time_digits,
-                                kText, kTimeEdgeText);
+                                minute_draw_x, kText, kTimeEdgeText);
         const m5epd_update_mode_t mode =
             nextPartialMode(dashboard_time_partial_count_,
                             settings_.partial_clean_interval);
-        pushAndRefreshCanvas(dashboard_minute_canvas_, kDashboardMinuteCanvasX,
-                             kDashboardMinuteCanvasY, mode);
+        pushAndRefreshCanvas(dashboard_minute_canvas_, minute_x, minute_y, mode);
         ++partial_refresh_count_;
         last_time_text_rendered_ = time_digits;
         return;
@@ -2194,16 +2208,14 @@ void ClockApp::updateDashboardTimeCanvas(bool full_refresh) {
                        kDashboardTimeDigitY, time_text,
                        kDashboardTimeDigitW, kDashboardTimeDigitH,
                        kDashboardTimeGap, kText, kTimeEdgeText);
-    dashboard_time_canvas_.pushCanvas(kDashboardTimeX, kDashboardTimeY,
-                                      UPDATE_MODE_NONE);
+    dashboard_time_canvas_.pushCanvas(time_x, time_y, UPDATE_MODE_NONE);
     if (full_refresh) {
         dashboard_time_partial_count_ = 0;
     } else {
         const m5epd_update_mode_t mode =
             nextPartialMode(dashboard_time_partial_count_,
                             settings_.partial_clean_interval);
-        updateAlignedArea(kDashboardTimeX, kDashboardTimeY, kDashboardTimeW,
-                          kDashboardTimeH, mode);
+        updateAlignedArea(time_x, time_y, kDashboardTimeW, kDashboardTimeH, mode);
         ++partial_refresh_count_;
     }
     last_time_text_rendered_ = time_digits;
@@ -2342,8 +2354,11 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
         active_summary_canvas.drawString(status_detail, 16, 62);
     }
 
-    active_summary_canvas.pushCanvas(kDashboardSummaryX, kDashboardSummaryY,
-                                     UPDATE_MODE_NONE);
+    const int16_t summary_x =
+        dashboardComponentX(logic::DashboardComponentId::Summary);
+    const int16_t summary_y =
+        dashboardComponentY(logic::DashboardComponentId::Summary);
+    active_summary_canvas.pushCanvas(summary_x, summary_y, UPDATE_MODE_NONE);
     if (full_refresh) {
         dashboard_summary_partial_count_ = 0;
     } else {
@@ -2387,9 +2402,8 @@ void ClockApp::updateDashboardSummaryCanvas(bool full_refresh,
             nextPartialMode(dashboard_summary_partial_count_,
                             settings_.partial_clean_interval);
         if (dirty.valid) {
-            updateAlignedArea(kDashboardSummaryX + dirty.x,
-                              kDashboardSummaryY + dirty.y, dirty.w,
-                              dirty.h, mode);
+            updateAlignedArea(summary_x + dirty.x, summary_y + dirty.y,
+                              dirty.w, dirty.h, mode);
         }
         ++partial_refresh_count_;
     }
@@ -2459,7 +2473,11 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
                              kDashboardClimateH / 2 + 2, comfort_face, kText,
                              cjk_font_ready_);
 
-    dashboard_climate_canvas_.pushCanvas(kDashboardClimateX, kDashboardClimateY,
+    const int16_t climate_x =
+        dashboardComponentX(logic::DashboardComponentId::Climate);
+    const int16_t climate_y =
+        dashboardComponentY(logic::DashboardComponentId::Climate);
+    dashboard_climate_canvas_.pushCanvas(climate_x, climate_y,
                                          UPDATE_MODE_NONE);
     if (full_refresh) {
         dashboard_climate_partial_count_ = 0;
@@ -2486,8 +2504,8 @@ void ClockApp::updateDashboardClimateCanvas(bool full_refresh) {
         const m5epd_update_mode_t mode =
             nextPartialMode(dashboard_climate_partial_count_,
                             settings_.partial_clean_interval);
-        updateAlignedArea(kDashboardClimateX + dirty_left,
-                          kDashboardClimateY + kDashboardClimateContentY,
+        updateAlignedArea(climate_x + dirty_left,
+                          climate_y + kDashboardClimateContentY,
                           dirty_right - dirty_left,
                           kDashboardClimateContentH, mode);
         ++partial_refresh_count_;
@@ -3343,6 +3361,39 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         }
 
         response_doc["ok"] = true;
+        JsonObject data_out = response_doc.createNestedObject("data");
+        populateSerialStatus(data_out);
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "apply_layout") {
+        const JsonObject data = request_doc["data"].as<JsonObject>();
+        String error_message;
+        bool ok = true;
+        if (data["reset"] | false) {
+            settings_.dashboard_layout = logic::DefaultDashboardLayout();
+            store_.saveDashboardLayout(settings_.dashboard_layout);
+        } else if (data["layoutDocument"].is<JsonObjectConst>()) {
+            ok = applyLayoutDocument(data["layoutDocument"].as<JsonObjectConst>(),
+                                     error_message);
+        } else {
+            ok = applyDashboardLayout(
+                data["dashboardLayout"].as<JsonArrayConst>(), error_message);
+        }
+
+        if (ok && current_page_ == PageId::Clock &&
+            usesDashboardClockStyle()) {
+            renderClockPage(true);
+        } else if (ok) {
+            refreshCurrentPage();
+        }
+
+        response_doc["ok"] = ok;
+        if (!ok) {
+            response_doc["error"] =
+                error_message.isEmpty() ? "Apply layout failed" : error_message;
+        }
         JsonObject data_out = response_doc.createNestedObject("data");
         populateSerialStatus(data_out);
         sendConfigDoc(response_doc, transport);
@@ -4608,6 +4659,38 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["bluetoothPairingActive"] = blePairingCodeActive();
     data["statusMessage"] = status_message_;
     data["statusError"] = status_error_;
+    populateLayoutDocument(data.createNestedObject("layoutDocument"));
+}
+
+void ClockApp::populateLayoutDocument(JsonObject document) const {
+    document["activeLayoutId"] = logic::kDefaultLayoutId;
+    JsonArray layouts = document.createNestedArray("layouts");
+    JsonObject layout = layouts.createNestedObject();
+    layout["id"] = logic::kDefaultLayoutId;
+    layout["name"] = logic::kDefaultLayoutName;
+    JsonObject canvas = layout.createNestedObject("canvas");
+    canvas["width"] = logic::kLayoutScreenWidth;
+    canvas["height"] = logic::kLayoutScreenHeight;
+    populateLayoutComponents(layout.createNestedArray("components"));
+}
+
+void ClockApp::populateLayoutComponents(JsonArray components) const {
+    for (const logic::DashboardLayoutItem& item : settings_.dashboard_layout) {
+        JsonObject component = components.createNestedObject();
+        component["id"] = item.instance_id;
+        component["type"] = item.type;
+        component["x"] = item.x;
+        component["y"] = item.y;
+        component["w"] = item.w;
+        component["h"] = item.h;
+        component["visible"] = item.visible;
+        component["lockedSize"] = true;
+        JsonObject props = component.createNestedObject("props");
+        props["variant"] = item.variant;
+        if (item.id == logic::DashboardComponentId::Summary) {
+            props["symbol"] = settings_.market_symbol;
+        }
+    }
 }
 
 void ClockApp::sendConfigDoc(const JsonDocument& doc,
@@ -4658,6 +4741,91 @@ const char* ClockApp::currentPageName() const {
 
 const char* ClockApp::clockStyleName() const {
     return clock_style_ == ClockStyle::Dashboard ? "dashboard" : "classic";
+}
+
+const logic::DashboardLayoutItem& ClockApp::dashboardLayoutItem(
+    logic::DashboardComponentId id) const {
+    const logic::DashboardLayoutItem* item =
+        logic::FindDashboardLayoutItem(settings_.dashboard_layout, id);
+    return item ? *item : logic::DashboardLayoutDefaultItem(id);
+}
+
+int16_t ClockApp::dashboardComponentX(logic::DashboardComponentId id) const {
+    return dashboardLayoutItem(id).x;
+}
+
+int16_t ClockApp::dashboardComponentY(logic::DashboardComponentId id) const {
+    return dashboardLayoutItem(id).y;
+}
+
+bool ClockApp::applyLayoutDocument(JsonObjectConst document,
+                                   String& error_message) {
+    if (document.isNull()) {
+        error_message = "Missing layout document";
+        return false;
+    }
+
+    const String active_layout_id =
+        String(document["activeLayoutId"] | logic::kDefaultLayoutId);
+    JsonArrayConst layouts = document["layouts"].as<JsonArrayConst>();
+    if (layouts.isNull()) {
+        error_message = "Missing layouts";
+        return false;
+    }
+
+    for (JsonVariantConst value : layouts) {
+        JsonObjectConst layout = value.as<JsonObjectConst>();
+        const String layout_id = String(layout["id"] | "");
+        if (layout_id != active_layout_id) {
+            continue;
+        }
+
+        return applyDashboardLayout(layout["components"].as<JsonArrayConst>(),
+                                    error_message);
+    }
+
+    error_message = "Active layout not found";
+    return false;
+}
+
+bool ClockApp::applyDashboardLayout(JsonArrayConst components,
+                                    String& error_message) {
+    if (components.isNull()) {
+        error_message = "Missing dashboard layout components";
+        return false;
+    }
+
+    logic::DashboardLayout next_layout = settings_.dashboard_layout;
+    for (JsonVariantConst value : components) {
+        JsonObjectConst component = value.as<JsonObjectConst>();
+        const char* id_key = component["id"] | "";
+        const char* type_key = component["type"] | "";
+        bool found = false;
+        logic::DashboardComponentId id =
+            logic::DashboardComponentIdFromKey(id_key, found);
+        if (!found && type_key[0] != '\0') {
+            id = logic::DashboardComponentIdFromKey(type_key, found);
+        }
+        if (!found) {
+            error_message = "Unknown dashboard component";
+            return false;
+        }
+
+        logic::DashboardLayoutItem& item =
+            next_layout[logic::DashboardComponentIndex(id)];
+        const logic::DashboardLayoutItem& default_item =
+            logic::DashboardLayoutDefaultItem(id);
+        item.x = component["x"] | item.x;
+        item.y = component["y"] | item.y;
+        item.w = default_item.w;
+        item.h = default_item.h;
+        item.visible = component["visible"] | item.visible;
+        item = logic::ClampDashboardLayoutItem(item);
+    }
+
+    settings_.dashboard_layout = next_layout;
+    store_.saveDashboardLayout(settings_.dashboard_layout);
+    return true;
 }
 
 String ClockApp::currentIpAddress() const {

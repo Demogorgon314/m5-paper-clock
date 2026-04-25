@@ -4,6 +4,7 @@
 #include <Preferences.h>
 
 #include "logic/ComfortLogic.h"
+#include "logic/LayoutLogic.h"
 #include "logic/UiLogic.h"
 
 struct AppSettings {
@@ -17,6 +18,7 @@ struct AppSettings {
     String ble_pairing_token;
     logic::ComfortSettings comfort_settings;
     uint8_t partial_clean_interval = logic::kDefaultPartialCleanInterval;
+    logic::DashboardLayout dashboard_layout = logic::DefaultDashboardLayout();
 };
 
 class SettingsStore {
@@ -31,6 +33,7 @@ public:
     void saveMarket(const String& market_symbol, const String& market_name);
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
     void savePartialCleanInterval(uint8_t partial_clean_interval);
+    void saveDashboardLayout(const logic::DashboardLayout& dashboard_layout);
     void saveBlePairingToken(const String& token);
 
 private:
