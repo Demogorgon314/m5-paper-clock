@@ -2,6 +2,7 @@
 .pio-core/
 .vscode/
 .idea/
+.playwright-cli/
 compile_commands.json
 dist/
 .DS_Store
