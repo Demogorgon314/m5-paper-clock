@@ -60,6 +60,32 @@ const DEFAULT_DASHBOARD_LAYOUT = Object.freeze([
   { id: "market-1", type: "market", labelKey: "layout.component.summary", x: 72, y: 392, w: 332, h: 86, props: { variant: "summary-card", symbol: "sh000001" } },
   { id: "climate-main", type: "climate", labelKey: "layout.component.climate", x: 428, y: 392, w: 456, h: 86, props: { variant: "compact-card" } },
 ]);
+const DASHBOARD_PREVIEW_SAMPLE = Object.freeze({
+  date: "2026-04-24",
+  weekdayZh: "周五",
+  weekdayEn: "Fri",
+  holidayZh: "距 劳动节 还有 7 天",
+  holidayEn: "7 days to Labor Day",
+  batteryPercent: 86,
+  wifiConnected: true,
+  wifiSignalLevel: 3,
+  time: "22:12",
+  marketNameZh: "上证指数",
+  marketNameEn: "SSE Composite",
+  marketValue: "4079.90",
+  marketStatusZh: "休市 16:14",
+  marketStatusEn: "Closed 16:14",
+  marketChange: "▼ -13.35  -0.33%",
+  humidity: "62",
+  temperature: "29.3",
+  comfortFace: "(-^-)",
+  configConnectionIcon: "none",
+});
+const DASHBOARD_PREVIEW_FONT = Object.freeze({
+  cjkFamily: "M5PaperCJK",
+  asciiFamily: "ui-monospace, Menlo, Consolas, monospace",
+  fallbackCjkFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+});
 
 const DEFAULT_LOCALE = "zh-CN";
 const SUPPORTED_LOCALES = Object.freeze(["zh-CN", "en"]);
@@ -537,12 +563,15 @@ const state = {
   localOtaLoggedWritten: 0,
   marketResultsVisible: false,
   marketResults: [],
+  activeClockStyle: "dashboard",
   dashboardLayout: cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT),
   selectedLayoutId: DEFAULT_DASHBOARD_LAYOUT[0]?.id || null,
   draggedLayoutId: null,
   layoutDragOffset: { x: 0, y: 0 },
   layoutGuides: { vertical: [], horizontal: [] },
   layoutDirty: false,
+  previewFontReady: false,
+  previewWifiBitmaps: null,
 };
 
 function detectInitialLocale() {
@@ -566,6 +595,63 @@ function t(key, params = {}) {
 
 function localized(zhCn, en) {
   return state.locale === "en" ? en : zhCn;
+}
+
+async function loadDashboardPreviewFont() {
+  if (!("FontFace" in window) || !document.fonts) {
+    return;
+  }
+  try {
+    const font = new FontFace(DASHBOARD_PREVIEW_FONT.cjkFamily, "url('./assets/cjk.ttf')");
+    const loadedFont = await font.load();
+    document.fonts.add(loadedFont);
+    state.previewFontReady = true;
+    renderDashboardLayoutEditor();
+  } catch {
+    state.previewFontReady = false;
+  }
+}
+
+function parsePreviewBitmapArray(headerText, arrayName) {
+  const match = headerText.match(
+    new RegExp(`static\\s+const\\s+uint8_t\\s+${arrayName}\\[\\]\\s*=\\s*\\{([\\s\\S]*?)\\n\\};`),
+  );
+  if (!match) {
+    return null;
+  }
+  const bytes = Array.from(match[1].matchAll(/0x([0-9a-fA-F]{1,2})/g), (item) =>
+    Number.parseInt(item[1], 16),
+  );
+  return bytes.length > 0 ? bytes : null;
+}
+
+function parseWifiBitmapsHeader(headerText) {
+  const result = {};
+  for (const level of [1, 2, 3]) {
+    const data = parsePreviewBitmapArray(headerText, `kWifiBitmap${level}_32x32`);
+    if (data) {
+      result[level] = { width: 32, height: 32, data };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+async function loadDashboardWifiBitmaps() {
+  try {
+    const response = await fetch("./assets/wifi_bitmaps.h", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    state.previewWifiBitmaps = parseWifiBitmapsHeader(await response.text());
+    renderDashboardLayoutEditor();
+  } catch {
+    state.previewWifiBitmaps = null;
+  }
+}
+
+function previewWifiBitmapForLevel(level) {
+  const normalized = Math.max(1, Math.min(3, Number(level) || 1));
+  return state.previewWifiBitmaps?.[normalized] || null;
 }
 
 function cloneDashboardLayout(layout) {
@@ -755,6 +841,913 @@ function applyDashboardGuideSnap(item) {
       horizontal: horizontalGuide ? [horizontalGuide.value] : [],
     },
   };
+}
+
+function createDashboardPreviewCanvas() {
+  const canvas = document.createElement("canvas");
+  canvas.className = "layout-preview-canvas";
+  canvas.dataset.logicalWidth = String(DASHBOARD_PREVIEW.width);
+  canvas.dataset.logicalHeight = String(DASHBOARD_PREVIEW.height);
+  canvas.width = DASHBOARD_PREVIEW.width;
+  canvas.height = DASHBOARD_PREVIEW.height;
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  const ctx = canvas.getContext("2d");
+  return { canvas, ctx };
+}
+
+const INK = Object.freeze({
+  white: "#ffffff",
+  paper: "#ffffff",
+  text: "#181512",
+  edgeText: "#2f2a24",
+  border: "#746e67",
+  mutedText: "#6e6860",
+  calendarPastFill: "#bcb5aa",
+  calendarTodayFill: "#181512",
+  frame: "#c8c0b5",
+});
+const TEXT_DATUM = Object.freeze({
+  TL: "TL",
+  TR: "TR",
+  CL: "CL",
+  CR: "CR",
+  CC: "CC",
+});
+const SEGMENT_MASKS = Object.freeze({
+  "0": 0b1110111,
+  "1": 0b0100100,
+  "2": 0b1011101,
+  "3": 0b1101101,
+  "4": 0b0101110,
+  "5": 0b1101011,
+  "6": 0b1111011,
+  "7": 0b0100101,
+  "8": 0b1111111,
+  "9": 0b1101111,
+});
+const SEGMENT = Object.freeze({
+  top: 0b0000001,
+  upperLeft: 0b0000010,
+  upperRight: 0b0000100,
+  middle: 0b0001000,
+  lowerLeft: 0b0010000,
+  lowerRight: 0b0100000,
+  bottom: 0b1000000,
+});
+const DASHBOARD_RENDER_CONSTANTS = Object.freeze({
+  dateW: 744,
+  dateH: 44,
+  dateCjkTextSize: 7,
+  dateCjkDateX: 0,
+  dateCjkWeekdayX: 142,
+  dateCjkHolidayX: 222,
+  batteryW: 176,
+  batteryH: 44,
+  calendarW: 304,
+  calendarH: 232,
+  calendarCellW: 42,
+  calendarCellH: 24,
+  calendarStartX: 5,
+  calendarHeaderY: 54,
+  calendarGridY: 86,
+  timeW: 472,
+  timeH: 236,
+  timeDigitW: 92,
+  timeDigitH: 210,
+  timeGap: 18,
+  timeColonW: 30,
+  timeDrawX: 7,
+  timeDigitY: 13,
+  summaryW: 332,
+  summaryH: 86,
+  summaryTitleX: 16,
+  summaryTitleY: 9,
+  summaryPriceRight: 318,
+  summaryPriceY: 10,
+  summaryBottomY: 58,
+  summaryArrowGap: 12,
+  summaryValueGap: 14,
+  climateW: 456,
+  climateH: 86,
+  climateHumidityDividerX: 126,
+  climateTemperatureDividerX: 286,
+});
+const CLASSIC_RENDER_CONSTANTS = Object.freeze({
+  dateX: 24,
+  dateY: 20,
+  batteryX: 768,
+  batteryY: 20,
+  timeX: 100,
+  timeY: 72,
+  timeW: 760,
+  timeH: 300,
+  timeDigitW: 150,
+  timeDigitH: 280,
+  timeGap: 24,
+  timeDigitY: 10,
+  infoX: 100,
+  infoY: 378,
+  infoW: 760,
+  infoH: 120,
+  smallDigitW: 54,
+  smallDigitH: 96,
+  smallGap: 8,
+  infoDigitY: 6,
+  humidityDigitX: 40,
+  humidityUnitX: 226,
+  humidityUnitY: 72,
+  temperatureDigitX: 280,
+  temperatureUnitX: 495,
+  temperatureUnitY: 72,
+  temperatureDegreeX: 480,
+  temperatureDegreeY: 62,
+  comfortCenterX: 640,
+  comfortCenterY: 58,
+});
+
+function uiTextPixelSize(legacySize) {
+  if (legacySize === 2) return 20;
+  if (legacySize === 3) return 30;
+  if (legacySize === 4) return 38;
+  if (legacySize === 5) return 48;
+  if (legacySize === 6) return 60;
+  if (legacySize === 7) return 24;
+  return legacySize * 10;
+}
+
+const BUILTIN_FONT_5X7 = Object.freeze({
+  " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
+  "+": ["00000", "00100", "00100", "11111", "00100", "00100", "00000"],
+  "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
+  ".": ["00000", "00000", "00000", "00000", "00000", "01100", "01100"],
+  "%": ["11001", "11010", "00100", "01000", "10110", "00110", "00000"],
+  "(": ["00010", "00100", "01000", "01000", "01000", "00100", "00010"],
+  ")": ["01000", "00100", "00010", "00010", "00010", "00100", "01000"],
+  "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
+  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+  "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
+  "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
+  "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
+  "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
+  "6": ["00110", "01000", "10000", "11110", "10001", "10001", "01110"],
+  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
+  "9": ["01110", "10001", "10001", "01111", "00001", "00010", "01100"],
+  "C": ["01110", "10001", "10000", "10000", "10000", "10001", "01110"],
+  "o": ["00000", "00000", "01110", "10001", "10001", "10001", "01110"],
+});
+
+function canDrawBuiltinText(text) {
+  return Array.from(String(text)).every((char) => BUILTIN_FONT_5X7[char]);
+}
+
+class InkCanvas {
+  constructor(ctx, width, height) {
+    this.ctx = ctx;
+    this.width = width;
+    this.height = height;
+    this.textColor = INK.text;
+    this.textDatum = TEXT_DATUM.TL;
+    this.textSize = 20;
+    this.legacyTextSize = 2;
+    this.useCjkFont = false;
+  }
+
+  child(x, y, w, h) {
+    this.ctx.save();
+    this.ctx.translate(x, y);
+    this.ctx.beginPath();
+    this.ctx.rect(0, 0, w, h);
+    this.ctx.clip();
+    return new InkCanvas(this.ctx, w, h);
+  }
+
+  restore() {
+    this.ctx.restore();
+  }
+
+  fillCanvas(color = INK.white) {
+    this.fillRect(0, 0, this.width, this.height, color);
+  }
+
+  setTextColor(color) {
+    this.textColor = color;
+  }
+
+  setTextDatum(datum) {
+    this.textDatum = datum;
+  }
+
+  setTextSize(legacySize, useCjkFont = false) {
+    this.useCjkFont = useCjkFont;
+    this.legacyTextSize = legacySize;
+    this.textSize = useCjkFont ? uiTextPixelSize(legacySize) : legacySize * 10;
+  }
+
+  font(weight = 400) {
+    const family = this.useCjkFont
+      ? `"${DASHBOARD_PREVIEW_FONT.cjkFamily}", ${DASHBOARD_PREVIEW_FONT.fallbackCjkFamily}`
+      : DASHBOARD_PREVIEW_FONT.asciiFamily;
+    return `${weight} ${this.textSize}px ${family}`;
+  }
+
+  textWidth(text) {
+    if (!this.useCjkFont && canDrawBuiltinText(text)) {
+      return String(text).length * 6 * this.legacyTextSize;
+    }
+    this.ctx.save();
+    this.ctx.font = this.font();
+    const width = this.ctx.measureText(String(text)).width;
+    this.ctx.restore();
+    return width;
+  }
+
+  drawString(text, x, y, options = {}) {
+    const value = String(text);
+    if (!this.useCjkFont && canDrawBuiltinText(value)) {
+      this.drawBuiltinString(value, x, y, options.color || this.textColor);
+      return;
+    }
+    this.ctx.save();
+    this.ctx.fillStyle = options.color || this.textColor;
+    this.ctx.font = this.font(options.weight || 400);
+    const metrics = this.ctx.measureText(value);
+    const width = metrics.width;
+    const ascent = metrics.actualBoundingBoxAscent || this.textSize * 0.8;
+    const descent = metrics.actualBoundingBoxDescent || this.textSize * 0.2;
+    let drawX = x;
+    let drawY = y + ascent;
+    if (this.textDatum === TEXT_DATUM.TR) {
+      drawX = x - width;
+    } else if (this.textDatum === TEXT_DATUM.CL) {
+      drawY = y + (ascent - descent) / 2;
+    } else if (this.textDatum === TEXT_DATUM.CR) {
+      drawX = x - width;
+      drawY = y + (ascent - descent) / 2;
+    } else if (this.textDatum === TEXT_DATUM.CC) {
+      drawX = x - width / 2;
+      drawY = y + (ascent - descent) / 2;
+    }
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+    this.ctx.fillText(value, drawX, drawY);
+    this.ctx.restore();
+  }
+
+  drawBuiltinString(text, x, y, color) {
+    const value = String(text);
+    const scale = this.legacyTextSize;
+    const width = value.length * 6 * scale;
+    const height = 8 * scale;
+    let drawX = x;
+    let drawY = y;
+    if (this.textDatum === TEXT_DATUM.TR) {
+      drawX = x - width;
+    } else if (this.textDatum === TEXT_DATUM.CL) {
+      drawY = y - height / 2;
+    } else if (this.textDatum === TEXT_DATUM.CR) {
+      drawX = x - width;
+      drawY = y - height / 2;
+    } else if (this.textDatum === TEXT_DATUM.CC) {
+      drawX = x - width / 2;
+      drawY = y - height / 2;
+    }
+
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    Array.from(value).forEach((char, charIndex) => {
+      const glyph = BUILTIN_FONT_5X7[char];
+      const charX = drawX + charIndex * 6 * scale;
+      glyph.forEach((row, rowIndex) => {
+        Array.from(row).forEach((pixel, colIndex) => {
+          if (pixel === "1") {
+            this.ctx.fillRect(
+              charX + colIndex * scale,
+              drawY + rowIndex * scale,
+              scale,
+              scale,
+            );
+          }
+        });
+      });
+    });
+    this.ctx.restore();
+  }
+
+  drawFauxBoldString(text, x, y, offsetX = 1) {
+    this.drawString(text, x, y);
+    if (String(text).length > 0 && offsetX !== 0) {
+      this.drawString(text, x + offsetX, y);
+    }
+  }
+
+  fillRect(x, y, w, h, color) {
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(x, y, w, h);
+    this.ctx.restore();
+  }
+
+  pushImage4bpp(x, y, w, h, data) {
+    const bitmapCanvas = document.createElement("canvas");
+    bitmapCanvas.width = w;
+    bitmapCanvas.height = h;
+    const bitmapCtx = bitmapCanvas.getContext("2d");
+    const imageData = bitmapCtx.createImageData(w, h);
+    const pixels = imageData.data;
+    for (let pixelIndex = 0; pixelIndex < w * h; pixelIndex += 1) {
+      const byte = data[Math.floor(pixelIndex / 2)] || 0;
+      const value = pixelIndex % 2 === 0 ? byte >> 4 : byte & 0x0f;
+      const gray = 255 - value * 17;
+      const outputIndex = pixelIndex * 4;
+      pixels[outputIndex] = gray;
+      pixels[outputIndex + 1] = gray;
+      pixels[outputIndex + 2] = gray;
+      pixels[outputIndex + 3] = 255;
+    }
+    bitmapCtx.putImageData(imageData, 0, 0);
+    this.ctx.drawImage(bitmapCanvas, x, y);
+  }
+
+  drawRect(x, y, w, h, color = INK.border, lineWidth = 1) {
+    this.ctx.save();
+    this.ctx.strokeStyle = color;
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    this.ctx.restore();
+  }
+
+  drawRoundRect(x, y, w, h, radius, color = INK.border, lineWidth = 1) {
+    this.ctx.save();
+    this.ctx.strokeStyle = color;
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.beginPath();
+    this.ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, radius);
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  drawFastVLine(x, y, h, color = INK.border) {
+    this.fillRect(x, y, 1, h, color);
+  }
+
+  drawFastHLine(x, y, w, color = INK.border) {
+    this.fillRect(x, y, w, 1, color);
+  }
+
+  drawLine(x0, y0, x1, y1, color = INK.text, lineWidth = 1) {
+    if (lineWidth <= 1) {
+      this.drawPixelLine(x0, y0, x1, y1, color);
+      return;
+    }
+    this.ctx.save();
+    this.ctx.strokeStyle = color;
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.beginPath();
+    this.ctx.moveTo(x0 + 0.5, y0 + 0.5);
+    this.ctx.lineTo(x1 + 0.5, y1 + 0.5);
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  drawPixelLine(x0, y0, x1, y1, color) {
+    let currentX = Math.round(x0);
+    let currentY = Math.round(y0);
+    const targetX = Math.round(x1);
+    const targetY = Math.round(y1);
+    const dx = Math.abs(targetX - currentX);
+    const sx = currentX < targetX ? 1 : -1;
+    const dy = -Math.abs(targetY - currentY);
+    const sy = currentY < targetY ? 1 : -1;
+    let error = dx + dy;
+
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    while (true) {
+      this.ctx.fillRect(currentX, currentY, 1, 1);
+      if (currentX === targetX && currentY === targetY) {
+        break;
+      }
+      const nextError = 2 * error;
+      if (nextError >= dy) {
+        error += dy;
+        currentX += sx;
+      }
+      if (nextError <= dx) {
+        error += dx;
+        currentY += sy;
+      }
+    }
+    this.ctx.restore();
+  }
+
+  fillTriangle(x1, y1, x2, y2, x3, y3, color) {
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.beginPath();
+    this.ctx.moveTo(x1, y1);
+    this.ctx.lineTo(x2, y2);
+    this.ctx.lineTo(x3, y3);
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  fillCircle(x, y, radius, color) {
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+}
+
+class WebSegmentRenderer {
+  charWidth(ch, digitWidth) {
+    if (ch === ":") return Math.floor(digitWidth / 3);
+    if (ch === ".") return Math.floor(digitWidth / 5);
+    return digitWidth;
+  }
+
+  drawText(canvas, x, y, text, digitWidth, digitHeight, gap, bodyColor, edgeColor) {
+    let cursorX = x;
+    for (const ch of String(text)) {
+      if (ch >= "0" && ch <= "9") {
+        this.drawDigit(canvas, cursorX, y, ch, digitWidth, digitHeight, bodyColor, edgeColor);
+      } else if (ch === "-") {
+        this.drawMinus(canvas, cursorX, y, digitWidth, digitHeight, bodyColor, edgeColor);
+      } else if (ch === ":") {
+        this.drawColon(canvas, cursorX, y, digitWidth, digitHeight, bodyColor);
+      } else if (ch === ".") {
+        this.drawDot(canvas, cursorX, y, digitWidth, digitHeight, bodyColor);
+      }
+      cursorX += this.charWidth(ch, digitWidth) + gap;
+    }
+  }
+
+  drawDigit(canvas, x, y, digit, digitWidth, digitHeight, bodyColor, edgeColor) {
+    const mask = SEGMENT_MASKS[digit];
+    const thickness = Math.max(6, Math.floor(digitWidth / 7));
+    const slant = Math.max(2, Math.floor(thickness / 2));
+    const innerInset = Math.max(2, Math.floor(thickness / 5));
+    const horizontalLength = digitWidth - thickness;
+    const verticalLength = Math.floor(digitHeight / 2) - Math.floor(thickness / 2);
+    const drawHorizontal = (sx, sy) => {
+      this.drawHorizontalSegment(canvas, sx, sy, horizontalLength, thickness, slant, edgeColor);
+      this.drawHorizontalSegment(canvas, sx + innerInset, sy + innerInset,
+        horizontalLength - innerInset * 2, thickness - innerInset * 2,
+        Math.max(1, slant - innerInset), bodyColor);
+    };
+    const drawVertical = (sx, sy) => {
+      this.drawVerticalSegment(canvas, sx, sy, verticalLength, thickness, slant, edgeColor);
+      this.drawVerticalSegment(canvas, sx + innerInset, sy + innerInset,
+        verticalLength - innerInset * 2, thickness - innerInset * 2,
+        Math.max(1, slant - innerInset), bodyColor);
+    };
+    const topX = x + Math.floor(thickness / 2);
+    const upperY = y + Math.floor(thickness / 2);
+    const middleY = y + Math.floor((digitHeight - thickness) / 2);
+    const lowerY = y + Math.floor(digitHeight / 2);
+    const rightX = x + digitWidth - thickness;
+    if (mask & SEGMENT.top) drawHorizontal(topX, y);
+    if (mask & SEGMENT.upperLeft) drawVertical(x, upperY);
+    if (mask & SEGMENT.upperRight) drawVertical(rightX, upperY);
+    if (mask & SEGMENT.middle) drawHorizontal(topX, middleY);
+    if (mask & SEGMENT.lowerLeft) drawVertical(x, lowerY);
+    if (mask & SEGMENT.lowerRight) drawVertical(rightX, lowerY);
+    if (mask & SEGMENT.bottom) drawHorizontal(topX, y + digitHeight - thickness);
+  }
+
+  drawColon(canvas, x, y, digitWidth, digitHeight, color) {
+    const radius = Math.max(3, Math.floor(digitWidth / 10));
+    const centerX = x + Math.floor(digitWidth / 6);
+    canvas.fillCircle(centerX, y + Math.floor(digitHeight / 3), radius, color);
+    canvas.fillCircle(centerX, y + Math.floor((digitHeight * 2) / 3), radius, color);
+  }
+
+  drawDot(canvas, x, y, digitWidth, digitHeight, color) {
+    const radius = Math.max(3, Math.floor(digitWidth / 12));
+    canvas.fillCircle(x + radius, y + digitHeight - radius * 2, radius, color);
+  }
+
+  drawMinus(canvas, x, y, digitWidth, digitHeight, bodyColor, edgeColor) {
+    const thickness = Math.max(6, Math.floor(digitWidth / 7));
+    const slant = Math.max(2, Math.floor(thickness / 2));
+    const innerInset = Math.max(2, Math.floor(thickness / 5));
+    const horizontalLength = digitWidth - thickness;
+    const middleY = y + Math.floor((digitHeight - thickness) / 2);
+    const topX = x + Math.floor(thickness / 2);
+    this.drawHorizontalSegment(canvas, topX, middleY, horizontalLength, thickness, slant, edgeColor);
+    this.drawHorizontalSegment(canvas, topX + innerInset, middleY + innerInset,
+      horizontalLength - innerInset * 2, thickness - innerInset * 2,
+      Math.max(1, slant - innerInset), bodyColor);
+  }
+
+  drawHorizontalSegment(canvas, x, y, length, thickness, slant, color) {
+    if (length <= 0 || thickness <= 0) return;
+    canvas.fillRect(x + slant, y, length - slant * 2, thickness, color);
+    canvas.fillTriangle(x, y + Math.floor(thickness / 2), x + slant, y,
+      x + slant, y + thickness, color);
+    canvas.fillTriangle(x + length, y + Math.floor(thickness / 2),
+      x + length - slant, y, x + length - slant, y + thickness, color);
+  }
+
+  drawVerticalSegment(canvas, x, y, length, thickness, slant, color) {
+    if (length <= 0 || thickness <= 0) return;
+    canvas.fillRect(x, y + slant, thickness, length - slant * 2, color);
+    canvas.fillTriangle(x + Math.floor(thickness / 2), y, x, y + slant,
+      x + thickness, y + slant, color);
+    canvas.fillTriangle(x + Math.floor(thickness / 2), y + length,
+      x, y + length - slant, x + thickness, y + length - slant, color);
+  }
+}
+
+const previewSegmentRenderer = new WebSegmentRenderer();
+
+function drawWideLine(canvas, x0, y0, x1, y1, color, thickness) {
+  const radius = Math.floor(thickness / 2);
+  for (let offset = -radius; offset <= radius; offset += 1) {
+    canvas.drawLine(x0, y0 + offset, x1, y1 + offset, color);
+    if (offset !== 0) {
+      canvas.drawLine(x0 + offset, y0, x1 + offset, y1, color);
+    }
+  }
+}
+
+function drawThickLine(canvas, x0, y0, x1, y1, color) {
+  canvas.drawLine(x0, y0, x1, y1, color);
+  canvas.drawLine(x0 + 1, y0, x1 + 1, y1, color);
+}
+
+function drawCaret(canvas, x, bottomY, halfW, rise, color, thickness) {
+  drawWideLine(canvas, x - halfW, bottomY, x, bottomY - rise, color, thickness);
+  drawWideLine(canvas, x + halfW, bottomY, x, bottomY - rise, color, thickness);
+}
+
+function drawDash(canvas, x, y, halfW, color, thickness) {
+  const radius = Math.floor(thickness / 2);
+  for (let offset = -radius; offset <= radius; offset += 1) {
+    canvas.drawFastHLine(x - halfW, y + offset, halfW * 2 + 1, color);
+  }
+}
+
+function drawComponentFrame(canvas, item) {
+  canvas.fillCanvas(INK.white);
+  canvas.drawRoundRect(0, 0, item.w, item.h, 6, INK.border);
+}
+
+function drawPreviewDate(canvas, item) {
+  const c = DASHBOARD_RENDER_CONSTANTS;
+  const weekday = DASHBOARD_PREVIEW_SAMPLE.weekdayZh;
+  const holiday = DASHBOARD_PREVIEW_SAMPLE.holidayZh;
+  canvas.setTextDatum(TEXT_DATUM.CL);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(c.dateCjkTextSize, true);
+  canvas.drawFauxBoldString(DASHBOARD_PREVIEW_SAMPLE.date, c.dateCjkDateX, item.h / 2);
+  canvas.drawFauxBoldString(weekday, c.dateCjkWeekdayX, item.h / 2);
+  canvas.drawFauxBoldString(holiday, c.dateCjkHolidayX, item.h / 2);
+}
+
+function drawWifiStatusIcon(canvas, originX, originY, connected = true) {
+  const bitmap = previewWifiBitmapForLevel(DASHBOARD_PREVIEW_SAMPLE.wifiSignalLevel);
+  if (bitmap) {
+    canvas.pushImage4bpp(originX, originY, bitmap.width, bitmap.height, bitmap.data);
+  } else {
+    drawLegacyWifiStatusIcon(canvas, originX, originY, connected);
+    return;
+  }
+  if (!connected) {
+    canvas.drawLine(originX + 5, originY + 26, originX + 26, originY + 5, INK.text);
+    canvas.drawLine(originX + 6, originY + 26, originX + 27, originY + 5, INK.text);
+  }
+}
+
+function drawLegacyWifiStatusIcon(canvas, originX, originY, connected = true) {
+  canvas.drawLine(originX + 5, originY + 19, originX + 16, originY + 8, INK.text, 3);
+  canvas.drawLine(originX + 16, originY + 8, originX + 27, originY + 19, INK.text, 3);
+  canvas.drawLine(originX + 9, originY + 23, originX + 16, originY + 16, INK.text, 3);
+  canvas.drawLine(originX + 16, originY + 16, originX + 23, originY + 23, INK.text, 3);
+  canvas.fillCircle(originX + 16, originY + 27, 3, INK.text);
+  if (!connected) {
+    canvas.drawLine(originX + 5, originY + 26, originX + 26, originY + 5, INK.text);
+    canvas.drawLine(originX + 6, originY + 26, originX + 27, originY + 5, INK.text);
+  }
+}
+
+function drawUsbStatusIcon(canvas, originX, originY) {
+  const cx = originX + 9;
+  canvas.fillTriangle(cx, originY + 1, originX + 6, originY + 7,
+    originX + 12, originY + 7, INK.text);
+  canvas.fillRect(cx, originY + 7, 2, 11, INK.text);
+  canvas.drawLine(cx, originY + 16, originX + 5, originY + 13, INK.text);
+  canvas.drawLine(originX + 5, originY + 13, originX + 5, originY + 11, INK.text);
+  canvas.fillCircle(originX + 5, originY + 9, 2, INK.text);
+  canvas.drawLine(cx + 1, originY + 14, originX + 15, originY + 10, INK.text);
+  canvas.drawLine(originX + 15, originY + 10, originX + 15, originY + 8, INK.text);
+  canvas.fillRect(originX + 13, originY + 5, 4, 4, INK.text);
+  canvas.fillCircle(cx + 1, originY + 20, 2, INK.text);
+}
+
+function drawBluetoothStatusIcon(canvas, originX, originY) {
+  const spineX = originX + 8;
+  const topY = originY + 2;
+  const midY = originY + 12;
+  const bottomY = originY + 22;
+  const armX = originX + 16;
+  drawThickLine(canvas, spineX, topY, spineX, bottomY, INK.text);
+  drawThickLine(canvas, spineX, topY, armX, originY + 8, INK.text);
+  drawThickLine(canvas, armX, originY + 8, spineX, midY, INK.text);
+  drawThickLine(canvas, spineX, midY, armX, originY + 16, INK.text);
+  drawThickLine(canvas, armX, originY + 16, spineX, bottomY, INK.text);
+  drawThickLine(canvas, originX + 3, originY + 6, spineX, midY, INK.text);
+  drawThickLine(canvas, originX + 3, originY + 18, spineX, midY, INK.text);
+}
+
+function drawCompactComfortInfoAt(canvas, centerX, centerY, face, color, useCjkFont) {
+  canvas.setTextDatum(TEXT_DATUM.CC);
+  canvas.setTextColor(color);
+  canvas.setTextSize(4, useCjkFont);
+  canvas.drawString("(", centerX - 40, centerY);
+  canvas.drawString(")", centerX + 40, centerY);
+
+  if (face === "(^_^)") {
+    drawCaret(canvas, centerX - 18, centerY - 2, 6, 7, color, 4);
+    drawCaret(canvas, centerX + 18, centerY - 2, 6, 7, color, 4);
+    drawDash(canvas, centerX, centerY + 10, 7, color, 4);
+    return;
+  }
+
+  if (face === "(-^-)") {
+    drawDash(canvas, centerX - 20, centerY - 5, 6, color, 2);
+    drawDash(canvas, centerX + 20, centerY - 5, 6, color, 2);
+    drawCaret(canvas, centerX, centerY + 9, 6, 7, color, 2);
+    return;
+  }
+
+  drawDash(canvas, centerX - 20, centerY - 5, 6, color, 2);
+  drawDash(canvas, centerX + 20, centerY - 5, 6, color, 2);
+  drawDash(canvas, centerX, centerY + 10, 7, color, 2);
+}
+
+function drawClassicComfortInfoAt(canvas, centerX, centerY, face, color, useCjkFont) {
+  canvas.setTextDatum(TEXT_DATUM.CC);
+  canvas.setTextColor(color);
+  canvas.setTextSize(6, useCjkFont);
+  canvas.drawString("(", centerX - 78, centerY);
+  canvas.drawString(")", centerX + 78, centerY);
+
+  if (face === "(^_^)") {
+    drawCaret(canvas, centerX - 30, centerY - 2, 10, 12, color, 4);
+    drawCaret(canvas, centerX + 30, centerY - 2, 10, 12, color, 4);
+    drawDash(canvas, centerX, centerY + 18, 12, color, 4);
+    return;
+  }
+
+  if (face === "(-^-)") {
+    drawDash(canvas, centerX - 34, centerY - 8, 10, color, 2);
+    drawDash(canvas, centerX + 34, centerY - 8, 10, color, 2);
+    drawCaret(canvas, centerX, centerY + 14, 9, 10, color, 2);
+    return;
+  }
+
+  drawDash(canvas, centerX - 34, centerY - 8, 10, color, 2);
+  drawDash(canvas, centerX + 34, centerY - 8, 10, color, 2);
+  drawDash(canvas, centerX, centerY + 18, 12, color, 2);
+}
+
+function drawPreviewBattery(canvas) {
+  const c = DASHBOARD_RENDER_CONSTANTS;
+  const battery = DASHBOARD_PREVIEW_SAMPLE.batteryPercent;
+  const batteryLabel = `${String(battery).padStart(3, " ")}%`;
+  const bodyW = 38;
+  const bodyH = 20;
+  const capW = 4;
+  const capH = 10;
+  const iconRight = c.batteryW - 2;
+  const capX = iconRight - capW;
+  const bodyX = capX - bodyW;
+  const bodyY = 12;
+  const capY = bodyY + 5;
+  const innerX = bodyX + 3;
+  const innerY = bodyY + 3;
+  const innerW = bodyW - 6;
+  const innerH = bodyH - 6;
+  const fillW = Math.floor((battery * innerW) / 100);
+  const labelRight = bodyX - 10;
+  canvas.fillCanvas(INK.white);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(2, false);
+  canvas.setTextDatum(TEXT_DATUM.CR);
+  const labelWidth = canvas.textWidth(batteryLabel);
+  const wifiGap = 8;
+  const wifiSize = 32;
+  const wifiX = labelRight - labelWidth - wifiGap - wifiSize;
+  const wifiY = 6;
+  const transportGap = 10;
+  const transportSize = 18;
+  const transportX = wifiX - transportGap - transportSize;
+  const transportY = 10;
+  canvas.drawString(batteryLabel, labelRight, c.batteryH / 2);
+  if (DASHBOARD_PREVIEW_SAMPLE.configConnectionIcon === "serial") {
+    drawUsbStatusIcon(canvas, transportX, transportY);
+  } else if (DASHBOARD_PREVIEW_SAMPLE.configConnectionIcon === "bluetooth") {
+    drawBluetoothStatusIcon(canvas, transportX, transportY);
+  }
+  drawWifiStatusIcon(canvas, wifiX, wifiY, true);
+  canvas.drawRoundRect(bodyX, bodyY, bodyW, bodyH, 3, INK.text);
+  canvas.fillRect(capX, capY, capW, capH, INK.text);
+  if (fillW > 0) {
+    canvas.fillRect(innerX, innerY, fillW, innerH, INK.text);
+  }
+}
+
+function drawPreviewCalendar(canvas) {
+  const c = DASHBOARD_RENDER_CONSTANTS;
+  canvas.fillCanvas(INK.white);
+  canvas.setTextColor(INK.text);
+  canvas.setTextDatum(TEXT_DATUM.CC);
+  canvas.setTextSize(5, false);
+  canvas.drawString("04", c.calendarW / 2, 24, { weight: 700 });
+  const weekdays =
+    ["日", "一", "二", "三", "四", "五", "六"];
+  weekdays.forEach((day, index) => {
+    canvas.setTextSize(2, true);
+    canvas.drawString(day, c.calendarStartX + index * c.calendarCellW +
+      Math.floor((c.calendarCellW - 2) / 2), c.calendarHeaderY + 8);
+  });
+  canvas.setTextSize(2, false);
+  for (let day = 1; day <= 30; day += 1) {
+    const slot = day + 2;
+    const row = Math.floor(slot / 7);
+    const col = slot % 7;
+    const x = c.calendarStartX + col * c.calendarCellW;
+    const y = c.calendarGridY + row * c.calendarCellH;
+    if (day === 24) {
+      canvas.fillRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2,
+        INK.calendarTodayFill);
+    } else if (day < 24) {
+      canvas.fillRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2,
+        INK.calendarPastFill);
+    }
+    canvas.drawRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2, INK.border);
+    canvas.setTextColor(day === 24 ? INK.white : INK.text);
+    canvas.drawString(String(day), x + Math.floor((c.calendarCellW - 2) / 2),
+      y + Math.floor((c.calendarCellH - 2) / 2), { weight: 700 });
+  }
+}
+
+function drawPreviewTime(canvas) {
+  const c = DASHBOARD_RENDER_CONSTANTS;
+  canvas.fillCanvas(INK.white);
+  previewSegmentRenderer.drawText(canvas, c.timeDrawX, c.timeDigitY,
+    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    INK.text, INK.edgeText);
+}
+
+function drawPreviewMarket(canvas, item) {
+  drawComponentFrame(canvas, item);
+  const name = DASHBOARD_PREVIEW_SAMPLE.marketNameZh;
+  const status = DASHBOARD_PREVIEW_SAMPLE.marketStatusZh;
+  canvas.setTextDatum(TEXT_DATUM.TL);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(2, true);
+  canvas.drawFauxBoldString(name, 16, 9);
+  canvas.setTextDatum(TEXT_DATUM.TR);
+  canvas.setTextSize(4, false);
+  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.marketValue, item.w - 14, 10);
+  canvas.setTextSize(2, false);
+  const percentValue = "-0.33%";
+  const changeValue = "-13.35";
+  const percentRight = item.w - 14;
+  const percentWidth = canvas.textWidth(percentValue);
+  const changeRight = percentRight - percentWidth - DASHBOARD_RENDER_CONSTANTS.summaryValueGap;
+  const changeWidth = canvas.textWidth(changeValue);
+  const changeLeft = changeRight - changeWidth;
+  const arrowCenterX = changeLeft - DASHBOARD_RENDER_CONSTANTS.summaryArrowGap;
+  const arrowCenterY = DASHBOARD_RENDER_CONSTANTS.summaryBottomY + 5;
+  canvas.fillTriangle(arrowCenterX - 8, arrowCenterY - 6, arrowCenterX,
+    arrowCenterY + 6, arrowCenterX + 8, arrowCenterY - 6, INK.text);
+  canvas.setTextDatum(TEXT_DATUM.TL);
+  canvas.setTextColor(INK.mutedText);
+  canvas.setTextSize(2, true);
+  canvas.drawString(status, 16, 58);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(2, false);
+  canvas.setTextDatum(TEXT_DATUM.TR);
+  canvas.drawString(changeValue, changeRight, DASHBOARD_RENDER_CONSTANTS.summaryBottomY);
+  canvas.drawString(percentValue, percentRight, DASHBOARD_RENDER_CONSTANTS.summaryBottomY);
+}
+
+function drawPreviewClimate(canvas, item) {
+  const c = DASHBOARD_RENDER_CONSTANTS;
+  drawComponentFrame(canvas, item);
+  canvas.drawFastVLine(c.climateHumidityDividerX, 18, 50, INK.border);
+  canvas.drawFastVLine(c.climateTemperatureDividerX, 18, 50, INK.border);
+  const climateValueY = Math.floor(c.climateH / 2) + 2;
+  canvas.setTextDatum(TEXT_DATUM.CL);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(5, false);
+  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.humidity, 18, climateValueY);
+  const humidityWidth = canvas.textWidth(DASHBOARD_PREVIEW_SAMPLE.humidity);
+  canvas.setTextSize(2, false);
+  canvas.drawString("%", 18 + humidityWidth + 6, climateValueY + 14);
+  canvas.setTextSize(5, false);
+  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.temperature, 134, climateValueY);
+  const temperatureWidth = canvas.textWidth(DASHBOARD_PREVIEW_SAMPLE.temperature);
+  const unitX = 134 + temperatureWidth + 4;
+  canvas.setTextSize(2, false);
+  canvas.drawString("o", unitX, climateValueY - 8);
+  canvas.drawString("C", unitX + 14, climateValueY + 14);
+  drawCompactComfortInfoAt(canvas,
+    c.climateTemperatureDividerX + Math.floor((item.w - c.climateTemperatureDividerX) / 2),
+    Math.floor(c.climateH / 2) + 2, DASHBOARD_PREVIEW_SAMPLE.comfortFace,
+    INK.text, false);
+}
+
+function drawClassicPreviewInfo(canvas) {
+  const c = CLASSIC_RENDER_CONSTANTS;
+  canvas.fillCanvas(INK.white);
+  previewSegmentRenderer.drawText(canvas, c.humidityDigitX, c.infoDigitY,
+    DASHBOARD_PREVIEW_SAMPLE.humidity.padStart(3, " "), c.smallDigitW,
+    c.smallDigitH, c.smallGap, INK.text, INK.mutedText);
+  canvas.setTextDatum(TEXT_DATUM.TL);
+  canvas.setTextColor(INK.text);
+  canvas.setTextSize(3, false);
+  canvas.drawString("%", c.humidityUnitX, c.humidityUnitY);
+
+  const temperatureDigits = DASHBOARD_PREVIEW_SAMPLE.temperature.replace(".", "").padStart(3, " ");
+  const temperatureDisplay = `${temperatureDigits.slice(0, 2)}.${temperatureDigits.slice(2)}`;
+  previewSegmentRenderer.drawText(canvas, c.temperatureDigitX, c.infoDigitY,
+    temperatureDisplay, c.smallDigitW, c.smallDigitH, c.smallGap,
+    INK.text, INK.mutedText);
+  canvas.setTextSize(3, false);
+  canvas.drawString(" C", c.temperatureUnitX, c.temperatureUnitY);
+  canvas.setTextSize(2, false);
+  canvas.drawString("o", c.temperatureDegreeX, c.temperatureDegreeY);
+
+  drawClassicComfortInfoAt(canvas, c.comfortCenterX, c.comfortCenterY,
+    DASHBOARD_PREVIEW_SAMPLE.comfortFace, INK.text, false);
+}
+
+const DASHBOARD_COMPONENT_RENDERERS = Object.freeze({
+  date: drawPreviewDate,
+  battery: drawPreviewBattery,
+  calendar: drawPreviewCalendar,
+  time: drawPreviewTime,
+  market: drawPreviewMarket,
+  climate: drawPreviewClimate,
+});
+
+function renderDashboardPreviewCanvas(ctx) {
+  const rootCanvas = new InkCanvas(ctx, DASHBOARD_PREVIEW.width, DASHBOARD_PREVIEW.height);
+  rootCanvas.fillCanvas(INK.paper);
+  rootCanvas.drawRect(12, 12, DASHBOARD_PREVIEW.width - 24,
+    DASHBOARD_PREVIEW.height - 24, INK.frame);
+
+  for (const item of state.dashboardLayout) {
+    if (item.visible === false) {
+      continue;
+    }
+    const renderComponent = DASHBOARD_COMPONENT_RENDERERS[item.type];
+    if (!renderComponent) {
+      continue;
+    }
+    const componentCanvas = rootCanvas.child(item.x, item.y, item.w, item.h);
+    renderComponent(componentCanvas, item);
+    componentCanvas.restore();
+  }
+}
+
+function renderClassicPreviewCanvas(ctx) {
+  const c = CLASSIC_RENDER_CONSTANTS;
+  const rootCanvas = new InkCanvas(ctx, DASHBOARD_PREVIEW.width, DASHBOARD_PREVIEW.height);
+  rootCanvas.fillCanvas(INK.paper);
+
+  const dateCanvas = rootCanvas.child(c.dateX, c.dateY,
+    DASHBOARD_RENDER_CONSTANTS.dateW, DASHBOARD_RENDER_CONSTANTS.dateH);
+  drawPreviewDate(dateCanvas, {
+    w: DASHBOARD_RENDER_CONSTANTS.dateW,
+    h: DASHBOARD_RENDER_CONSTANTS.dateH,
+  });
+  dateCanvas.restore();
+
+  const batteryCanvas = rootCanvas.child(c.batteryX, c.batteryY,
+    DASHBOARD_RENDER_CONSTANTS.batteryW, DASHBOARD_RENDER_CONSTANTS.batteryH);
+  drawPreviewBattery(batteryCanvas);
+  batteryCanvas.restore();
+
+  const timeCanvas = rootCanvas.child(c.timeX, c.timeY, c.timeW, c.timeH);
+  timeCanvas.fillCanvas(INK.white);
+  previewSegmentRenderer.drawText(timeCanvas, 7, c.timeDigitY,
+    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    INK.text, INK.edgeText);
+  timeCanvas.restore();
+
+  const infoCanvas = rootCanvas.child(c.infoX, c.infoY, c.infoW, c.infoH);
+  drawClassicPreviewInfo(infoCanvas);
+  infoCanvas.restore();
 }
 
 function setDashboardLayout(layout, { dirty = false } = {}) {
@@ -1125,8 +2118,9 @@ function setConnected(connected) {
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
   elements.layoutSaveButton.disabled =
-    !allowDeviceActions || !state.layoutDirty;
-  elements.layoutResetButton.disabled = !allowDeviceActions;
+    state.activeClockStyle === "classic" || !allowDeviceActions || !state.layoutDirty;
+  elements.layoutResetButton.disabled =
+    state.activeClockStyle === "classic" || !allowDeviceActions;
   elements.checkUpdateButton.disabled = state.busyCount > 0;
   elements.otaUpdateButton.disabled =
     !allowDeviceActions ||
@@ -1198,6 +2192,26 @@ function renderDashboardLayoutEditor() {
   }
 
   elements.layoutPreview.innerHTML = "";
+  const previewCanvas = createDashboardPreviewCanvas();
+  if (state.activeClockStyle === "classic") {
+    renderClassicPreviewCanvas(previewCanvas.ctx);
+    elements.layoutPreview.appendChild(previewCanvas.canvas);
+    elements.layoutComponentList.innerHTML = "";
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = localized(
+      "经典数字样式使用固定布局，不需要位置编辑。",
+      "Classic digits use a fixed layout and do not need position editing.",
+    );
+    elements.layoutComponentList.appendChild(empty);
+    elements.layoutSaveButton.disabled = true;
+    elements.layoutResetButton.disabled = true;
+    return;
+  }
+
+  renderDashboardPreviewCanvas(previewCanvas.ctx);
+  elements.layoutPreview.appendChild(previewCanvas.canvas);
+
   for (const x of state.layoutGuides.vertical) {
     const guide = document.createElement("span");
     guide.className = "layout-guide layout-guide-vertical";
@@ -1223,7 +2237,10 @@ function renderDashboardLayoutEditor() {
     node.style.top = `${(item.y / DASHBOARD_PREVIEW.height) * 100}%`;
     node.style.width = `${(item.w / DASHBOARD_PREVIEW.width) * 100}%`;
     node.style.height = `${(item.h / DASHBOARD_PREVIEW.height) * 100}%`;
-    node.innerHTML = `<strong>${escapeHtml(t(item.labelKey))}</strong><span>${item.x}, ${item.y}</span>`;
+    node.setAttribute(
+      "aria-label",
+      `${t(item.labelKey)} ${item.x}, ${item.y}`,
+    );
     node.addEventListener("click", () => {
       selectDashboardLayoutItem(item.id);
     });
@@ -1556,7 +2573,9 @@ function updateStatus(status) {
     elements.timezoneSelect.value = String(status.timezone);
   }
   if (status.clockStyle) {
+    state.activeClockStyle = status.clockStyle === "classic" ? "classic" : "dashboard";
     elements.clockStyleSelect.value = status.clockStyle;
+    renderDashboardLayoutEditor();
   }
   applyRefreshInputs({
     partialCleanInterval:
@@ -2879,6 +3898,12 @@ function installEventHandlers() {
     withBusyWork(() => searchMarkets()).catch(handleActionError),
   );
 
+  elements.clockStyleSelect.addEventListener("change", () => {
+    state.activeClockStyle =
+      elements.clockStyleSelect.value === "classic" ? "classic" : "dashboard";
+    renderDashboardLayoutEditor();
+  });
+
   elements.saveButton.addEventListener("click", () =>
     withBusyWork(() =>
       saveSettings({ connectNow: false, syncTime: false }),
@@ -2987,6 +4012,8 @@ async function initialize() {
   renderMarketHotList();
   renderMarketResults();
   renderDashboardLayoutEditor();
+  void loadDashboardPreviewFont();
+  void loadDashboardWifiBitmaps();
   installEventHandlers();
   setConnected(false);
 

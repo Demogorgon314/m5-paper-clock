@@ -783,28 +783,29 @@ button:focus {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #ded9cf;
+  background: #fff;
   box-shadow: inset 0 0 0 12px #f8f5ef;
   touch-action: none;
 }
 
+.layout-preview-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+}
+
 .layout-component {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
   min-height: 0;
-  padding: 4px 8px;
-  border: 1px solid #80786f;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: rgba(255, 253, 249, 0.86);
-  color: var(--text);
+  background: transparent;
+  color: transparent;
   cursor: grab;
   overflow: hidden;
-  text-align: left;
-  white-space: nowrap;
-  z-index: 2;
+  z-index: 3;
 }
 
 .layout-component:active {
@@ -818,45 +819,9 @@ button:focus {
     inset 0 0 0 1px rgba(116, 153, 139, 0.42);
 }
 
-.layout-component strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: clamp(10px, 1.7vw, 20px);
-  line-height: 1.1;
-}
-
-.layout-component span {
-  color: var(--muted);
-  font-size: clamp(9px, 1.2vw, 13px);
-  line-height: 1.1;
-}
-
-.layout-component-time {
-  align-items: center;
-  font-family: "SFMono-Regular", SFMono-Regular, ui-monospace, Menlo, Consolas,
-    monospace;
-}
-
-.layout-component-time strong {
-  font-size: clamp(18px, 6vw, 78px);
-}
-
-.layout-component-calendar {
-  background-image:
-    linear-gradient(#c7bfb5 1px, transparent 1px),
-    linear-gradient(90deg, #c7bfb5 1px, transparent 1px);
-  background-size: calc(100% / 7) calc(100% / 6);
-}
-
-.layout-component-market,
-.layout-component-climate {
-  justify-content: space-around;
-}
-
 .layout-guide {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
   background: var(--accent);
   opacity: 0.72;
