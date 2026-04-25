@@ -150,6 +150,8 @@ const I18N = Object.freeze({
     "comfort.tempMax": "最高舒适温度",
     "comfort.humidityMin": "最低舒适湿度",
     "comfort.humidityMax": "最高舒适湿度",
+    "comfort.save": "保存属性",
+    "comfort.restoreDefaults": "恢复默认设置",
     "layout.heading": "布局预设",
     "layout.helper": "选择布局预设；仪表盘类布局可拖动组件调整位置，保存后设备会全量刷新一次。",
     "layout.preset": "布局预设",
@@ -321,6 +323,8 @@ const I18N = Object.freeze({
     "comfort.tempMax": "Maximum comfort temperature",
     "comfort.humidityMin": "Minimum comfort humidity",
     "comfort.humidityMax": "Maximum comfort humidity",
+    "comfort.save": "Save Properties",
+    "comfort.restoreDefaults": "Restore Defaults",
     "layout.heading": "Layout Presets",
     "layout.helper": "Choose a layout preset. Dashboard layouts can be edited by dragging components; saving refreshes the device once.",
     "layout.preset": "Layout preset",
@@ -2975,6 +2979,27 @@ function comfortSettingsFromLayoutItem(item) {
   };
 }
 
+function readComfortSettingsFromPanel(panel) {
+  const settings = {};
+  panel.querySelectorAll("[data-comfort-prop]").forEach((input) => {
+    settings[input.dataset.comfortProp] = readNumberField(
+      input,
+      input.previousElementSibling?.textContent || "",
+      Number(input.min),
+      Number(input.max),
+    );
+  });
+  return validateComfortSettings(settings);
+}
+
+function applyComfortSettingsToPanel(panel, settings) {
+  panel.querySelectorAll("[data-comfort-prop]").forEach((input) => {
+    const value = settings[input.dataset.comfortProp];
+    const fractionDigits = input.step === "1" ? 0 : 1;
+    input.value = formatConfigNumber(value, fractionDigits);
+  });
+}
+
 function renderClimatePropertiesPanel(item) {
   const panel = document.createElement("div");
   panel.className = "climate-properties-panel";
@@ -2999,19 +3024,32 @@ function renderClimatePropertiesPanel(item) {
         <input data-comfort-prop="comfortHumidityMax" data-id="${escapeHtml(item.id)}" type="number" inputmode="decimal" min="0" max="100" step="1" value="${escapeHtml(formatConfigNumber(settings.comfortHumidityMax, 0))}" />
       </label>
     </div>
+    <div class="climate-property-actions">
+      <button class="action-button primary" type="button" data-comfort-save="true">
+        <span>${escapeHtml(t("comfort.save"))}</span>
+      </button>
+      <button class="action-button subtle" type="button" data-comfort-reset="true">
+        <span>${escapeHtml(t("comfort.restoreDefaults"))}</span>
+      </button>
+    </div>
   `;
+  panel.querySelector("[data-comfort-save]")?.addEventListener("click", () => {
+    try {
+      updateDashboardLayoutItemProps(item.id, readComfortSettingsFromPanel(panel));
+    } catch (error) {
+      handleActionError(error);
+    }
+  });
+  panel.querySelector("[data-comfort-reset]")?.addEventListener("click", () => {
+    applyComfortSettingsToPanel(panel, DEFAULT_COMFORT_SETTINGS);
+    updateDashboardLayoutItemProps(item.id, DEFAULT_COMFORT_SETTINGS);
+  });
   panel.querySelectorAll("[data-comfort-prop]").forEach((input) => {
-    input.addEventListener("change", () => {
-      const nextSettings = {
-        ...settings,
-        [input.dataset.comfortProp]: readNumberField(
-          input,
-          input.previousElementSibling?.textContent || "",
-          Number(input.min),
-          Number(input.max),
-        ),
-      };
-      updateDashboardLayoutItemProps(input.dataset.id, validateComfortSettings(nextSettings));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        panel.querySelector("[data-comfort-save]")?.click();
+      }
     });
   });
   return panel;
