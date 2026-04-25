@@ -4,17 +4,6 @@
 // Source papers:
 // - https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm
 
-static const HolidayEntry kHolidayEntries[] = {
-    HolidayEntry(HolidayId::YuanDan, 2026, 1, 1),  // 元旦 2026-01-01
-    HolidayEntry(HolidayId::ChunJie, 2026, 2, 15),  // 春节 2026-02-15
-    HolidayEntry(HolidayId::QingMing, 2026, 4, 4),  // 清明节 2026-04-04
-    HolidayEntry(HolidayId::LaoDong, 2026, 5, 1),  // 劳动节 2026-05-01
-    HolidayEntry(HolidayId::DuanWu, 2026, 6, 19),  // 端午节 2026-06-19
-    HolidayEntry(HolidayId::ZhongQiu, 2026, 9, 25),  // 中秋节 2026-09-25
-    HolidayEntry(HolidayId::GuoQing, 2026, 10, 1),  // 国庆节 2026-10-01
-    HolidayEntry(HolidayId::YuanDan, 2028, 1, 1),  // 元旦 2028-01-01
-};
-
 static const HolidayPeriod kHolidayPeriods[] = {
     HolidayPeriod(HolidayId::YuanDan, 2026, 1, 1, 2026, 1, 3, 3),  // 元旦 2026-01-01..2026-01-03
     HolidayPeriod(HolidayId::ChunJie, 2026, 2, 15, 2026, 2, 23, 9),  // 春节 2026-02-15..2026-02-23

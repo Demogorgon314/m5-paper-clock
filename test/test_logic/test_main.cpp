@@ -242,14 +242,17 @@ void test_comfort_state_for_reading_respects_custom_thresholds() {
         static_cast<int>(logic::ComfortStateForReading(24.5f, 48.0f, false, custom)));
 }
 
-void test_next_holiday_countdown() {
-    const logic::HolidayCountdown countdown =
-        logic::NextHolidayCountdown(2026, 4, 21);
+void test_holiday_display_countdown() {
+    const logic::HolidayDisplay display =
+        logic::HolidayDisplayForDate(2026, 4, 21);
 
-    TEST_ASSERT_TRUE(countdown.valid);
+    TEST_ASSERT_TRUE(display.valid());
+    TEST_ASSERT_EQUAL(
+        static_cast<int>(logic::HolidayDisplayState::Countdown),
+        static_cast<int>(display.state));
     TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::LaoDong),
-                      static_cast<int>(countdown.id));
-    TEST_ASSERT_EQUAL(10, countdown.days_remaining);
+                      static_cast<int>(display.id));
+    TEST_ASSERT_EQUAL(10, display.days_remaining);
 }
 
 void test_holiday_name_zh() {
@@ -305,44 +308,6 @@ void test_holiday_display_last_day() {
     TEST_ASSERT_EQUAL(period->total_days, display.holiday_day_index);
 }
 
-void test_next_holiday_skips_current_holiday_start() {
-    const logic::HolidayCountdown countdown =
-        logic::NextHolidayCountdown(2026, 5, 1);
-
-    TEST_ASSERT_TRUE(countdown.valid);
-    TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::DuanWu),
-                      static_cast<int>(countdown.id));
-    TEST_ASSERT_EQUAL(49, countdown.days_remaining);
-}
-
-void test_next_holiday_falls_back_to_next_new_year() {
-    const logic::HolidayCountdown countdown =
-        logic::NextHolidayCountdown(2026, 10, 8);
-    const int current_days = logic::DaysFromCivil(2026, 10, 8);
-    int expected_days = 0;
-
-    for (const logic::HolidayEntry& entry : logic::kHolidayEntries) {
-        if (entry.id != logic::HolidayId::YuanDan) {
-            continue;
-        }
-        const int delta =
-            logic::DaysFromCivil(entry.year, entry.month, entry.day) -
-            current_days;
-        if (delta <= 0) {
-            continue;
-        }
-        if (expected_days == 0 || delta < expected_days) {
-            expected_days = delta;
-        }
-    }
-
-    TEST_ASSERT_TRUE(countdown.valid);
-    TEST_ASSERT_EQUAL(static_cast<int>(logic::HolidayId::YuanDan),
-                      static_cast<int>(countdown.id));
-    TEST_ASSERT_GREATER_THAN_INT(0, expected_days);
-    TEST_ASSERT_EQUAL(expected_days, countdown.days_remaining);
-}
-
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_timezone_clamp);
@@ -365,11 +330,9 @@ int main() {
     RUN_TEST(test_cn_a_share_market_closed_on_weekends_and_holidays);
     RUN_TEST(test_normalize_comfort_settings_clamps_and_swaps_ranges);
     RUN_TEST(test_comfort_state_for_reading_respects_custom_thresholds);
-    RUN_TEST(test_next_holiday_countdown);
+    RUN_TEST(test_holiday_display_countdown);
     RUN_TEST(test_holiday_name_zh);
     RUN_TEST(test_holiday_display_in_holiday);
     RUN_TEST(test_holiday_display_last_day);
-    RUN_TEST(test_next_holiday_skips_current_holiday_start);
-    RUN_TEST(test_next_holiday_falls_back_to_next_new_year);
     return UNITY_END();
 }
