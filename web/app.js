@@ -56,6 +56,7 @@ const DASHBOARD_PREVIEW = Object.freeze({
   height: 540,
   snap: 4,
   guideThreshold: 8,
+  dragThreshold: 3,
 });
 const DEFAULT_CLASSIC_LAYOUT_ID = "classic-default";
 const DEFAULT_CLASSIC_LAYOUT_NAME = "经典数字";
@@ -622,6 +623,8 @@ const state = {
   dashboardLayout: cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT),
   selectedLayoutId: DEFAULT_DASHBOARD_LAYOUT[0]?.id || null,
   draggedLayoutId: null,
+  pendingDragLayoutId: null,
+  layoutDragStart: null,
   layoutDragOffset: { x: 0, y: 0 },
   layoutGuides: { vertical: [], horizontal: [] },
   layoutDirty: false,
@@ -2689,8 +2692,12 @@ function renderDashboardLayoutEditor() {
     });
     node.addEventListener("pointerdown", (event) => {
       const point = dashboardPreviewPoint(event);
-      state.selectedLayoutId = item.id;
-      state.draggedLayoutId = item.id;
+      state.pendingDragLayoutId = item.id;
+      state.draggedLayoutId = null;
+      state.layoutDragStart = {
+        x: point.x,
+        y: point.y,
+      };
       state.layoutDragOffset = {
         x: point.x - item.x,
         y: point.y - item.y,
@@ -2925,11 +2932,38 @@ function dashboardPreviewPoint(event) {
   };
 }
 
+function dashboardLayoutItemEquals(left, right) {
+  return (
+    left.id === right.id &&
+    left.type === right.type &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.w === right.w &&
+    left.h === right.h &&
+    left.visible === right.visible &&
+    JSON.stringify(left.props || {}) === JSON.stringify(right.props || {})
+  );
+}
+
 function updateDashboardLayoutItem(id, patch) {
   state.selectedLayoutId = id;
+  let changed = false;
   const nextLayout = state.dashboardLayout.map((item) =>
-    item.id === id ? clampDashboardLayoutItem({ ...item, ...patch }) : item,
+    {
+      if (item.id !== id) {
+        return item;
+      }
+      const nextItem = clampDashboardLayoutItem({ ...item, ...patch });
+      if (!dashboardLayoutItemEquals(item, nextItem)) {
+        changed = true;
+        return nextItem;
+      }
+      return item;
+    },
   );
+  if (!changed) {
+    return;
+  }
   setDashboardLayout(nextLayout, { dirty: true });
 }
 
@@ -3313,15 +3347,26 @@ function resetDashboardLayoutItem(id) {
 }
 
 function moveDraggedDashboardComponent(event) {
-  if (!state.draggedLayoutId) {
+  const dragId = state.draggedLayoutId || state.pendingDragLayoutId;
+  if (!dragId) {
     return;
   }
   const point = dashboardPreviewPoint(event);
   const currentItem = state.dashboardLayout.find(
-    (item) => item.id === state.draggedLayoutId && item.visible !== false,
+    (item) => item.id === dragId && item.visible !== false,
   );
   if (!currentItem) {
     return;
+  }
+  if (!state.draggedLayoutId) {
+    const start = state.layoutDragStart || point;
+    if (
+      Math.abs(point.x - start.x) < DASHBOARD_PREVIEW.dragThreshold &&
+      Math.abs(point.y - start.y) < DASHBOARD_PREVIEW.dragThreshold
+    ) {
+      return;
+    }
+    state.draggedLayoutId = dragId;
   }
   const snapResult = applyDashboardGuideSnap({
     ...currentItem,
@@ -3329,7 +3374,7 @@ function moveDraggedDashboardComponent(event) {
     y: point.y - state.layoutDragOffset.y,
   });
   state.layoutGuides = snapResult.guides;
-  updateDashboardLayoutItem(state.draggedLayoutId, snapResult.item);
+  updateDashboardLayoutItem(dragId, snapResult.item);
 }
 
 function stopDashboardLayoutDrag() {
@@ -3338,6 +3383,8 @@ function stopDashboardLayoutDrag() {
     renderDashboardLayoutEditor();
   }
   state.draggedLayoutId = null;
+  state.pendingDragLayoutId = null;
+  state.layoutDragStart = null;
 }
 
 function renderMarketHotList(container) {
