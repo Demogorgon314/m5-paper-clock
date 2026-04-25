@@ -1234,6 +1234,14 @@ void ClockApp::begin() {
     if (settings_.active_layout_id.isEmpty()) {
         settings_.active_layout_id = logic::kDefaultLayoutId;
     }
+    if (settings_.layout_presets.empty()) {
+        SavedDashboardLayout preset;
+        preset.id = logic::kDefaultLayoutId;
+        preset.name = logic::kDefaultLayoutName;
+        preset.dashboard_layout = settings_.dashboard_layout;
+        preset.market_layout = settings_.market_layout;
+        settings_.layout_presets.push_back(preset);
+    }
     seedMarketQuoteFromSettings();
     M5.RTC.getTime(&last_time_);
     M5.RTC.getDate(&last_date_);
@@ -3728,7 +3736,16 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         if (data["reset"] | false) {
             settings_.dashboard_layout = logic::DefaultDashboardLayout();
             settings_.active_layout_id = logic::kDefaultLayoutId;
+            settings_.market_layout = {MarketLayoutItem {}};
+            SavedDashboardLayout preset;
+            preset.id = logic::kDefaultLayoutId;
+            preset.name = logic::kDefaultLayoutName;
+            preset.dashboard_layout = settings_.dashboard_layout;
+            preset.market_layout = settings_.market_layout;
+            settings_.layout_presets = {preset};
             store_.saveDashboardLayout(settings_.dashboard_layout);
+            store_.saveMarketLayout(settings_.market_layout);
+            store_.saveLayoutPresets(settings_.layout_presets);
             store_.saveActiveLayoutId(settings_.active_layout_id);
         } else if (data["layoutDocument"].is<JsonObjectConst>()) {
             ok = applyLayoutDocument(data["layoutDocument"].as<JsonObjectConst>(),
@@ -4284,10 +4301,28 @@ void ClockApp::cancelBackgroundConnectivity() {
 }
 
 void ClockApp::cycleClockLayout(int delta) {
-    (void)delta;
-    settings_.active_layout_id = usesDashboardLayout()
-        ? logic::kClassicLayoutId
-        : logic::kDefaultLayoutId;
+    const int dashboard_count =
+        static_cast<int>(settings_.layout_presets.size());
+    const int cycle_count = dashboard_count + 1;
+    if (cycle_count <= 1) {
+        return;
+    }
+    int current_index = 0;
+    if (usesDashboardLayout()) {
+        const int preset_index = activeDashboardPresetIndex();
+        current_index = preset_index >= 0 ? preset_index + 1 : 1;
+    }
+    int next_index = (current_index + delta) % cycle_count;
+    if (next_index < 0) {
+        next_index += cycle_count;
+    }
+
+    if (next_index == 0) {
+        settings_.active_layout_id = logic::kClassicLayoutId;
+    } else {
+        const int preset_index = next_index - 1;
+        applyDashboardPreset(settings_.layout_presets[preset_index]);
+    }
     store_.saveActiveLayoutId(settings_.active_layout_id);
 
     if (current_page_ == PageId::Clock) {
@@ -4297,6 +4332,80 @@ void ClockApp::cycleClockLayout(int delta) {
 
 bool ClockApp::usesDashboardLayout() const {
     return settings_.active_layout_id != logic::kClassicLayoutId;
+}
+
+int ClockApp::activeDashboardPresetIndex() const {
+    for (size_t index = 0; index < settings_.layout_presets.size(); ++index) {
+        if (settings_.layout_presets[index].id == settings_.active_layout_id) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
+void ClockApp::applyDashboardPreset(const SavedDashboardLayout& preset) {
+    settings_.active_layout_id = preset.id.isEmpty()
+        ? String(logic::kDefaultLayoutId)
+        : preset.id;
+    settings_.dashboard_layout = preset.dashboard_layout;
+    settings_.market_layout = preset.market_layout;
+    if (!settings_.market_layout.empty() &&
+        !settings_.market_layout.front().symbol.isEmpty()) {
+        settings_.market_symbol = settings_.market_layout.front().symbol;
+        const String market_code =
+            marketCodeFromRequestSymbol(settings_.market_symbol);
+        const std::string known_name =
+            logic::KnownMarketDisplayName(std::string(market_code.c_str()));
+        settings_.market_name = known_name.empty()
+            ? market_code
+            : String(known_name.c_str());
+        store_.saveMarket(settings_.market_symbol, settings_.market_name);
+    }
+    syncMarketRenderStates();
+    seedMarketQuoteFromSettings();
+    resetClockRenderState();
+}
+
+void ClockApp::upsertActiveDashboardPreset(const String& name) {
+    if (!usesDashboardLayout()) {
+        return;
+    }
+    const String preset_id = settings_.active_layout_id.isEmpty()
+        ? String(logic::kDefaultLayoutId)
+        : settings_.active_layout_id;
+    SavedDashboardLayout preset;
+    preset.id = preset_id;
+    preset.name = name.isEmpty() ? preset_id : name;
+    preset.dashboard_layout = settings_.dashboard_layout;
+    preset.market_layout = settings_.market_layout;
+    for (SavedDashboardLayout& existing : settings_.layout_presets) {
+        if (existing.id == preset_id) {
+            if (!name.isEmpty()) {
+                existing.name = name;
+            } else if (existing.name.isEmpty()) {
+                existing.name = preset.name;
+            }
+            existing.dashboard_layout = preset.dashboard_layout;
+            existing.market_layout = preset.market_layout;
+            store_.saveLayoutPresets(settings_.layout_presets);
+            return;
+        }
+    }
+    settings_.layout_presets.push_back(preset);
+    if (settings_.layout_presets.size() > 5) {
+        for (auto it = settings_.layout_presets.begin();
+             it != settings_.layout_presets.end(); ++it) {
+            if (it->id != logic::kDefaultLayoutId &&
+                it->id != settings_.active_layout_id) {
+                settings_.layout_presets.erase(it);
+                break;
+            }
+        }
+        if (settings_.layout_presets.size() > 5) {
+            settings_.layout_presets.erase(settings_.layout_presets.begin());
+        }
+    }
+    store_.saveLayoutPresets(settings_.layout_presets);
 }
 
 void ClockApp::autoConnectIfNeeded() {
@@ -5161,18 +5270,19 @@ void ClockApp::populateLayoutDocument(JsonObject document) const {
     populateClassicLayoutComponents(
         classic_layout.createNestedArray("components"));
 
-    JsonObject dashboard_layout = layouts.createNestedObject();
-    dashboard_layout["id"] = usesDashboardLayout()
-        ? active_layout_id
-        : String(logic::kDefaultLayoutId);
-    dashboard_layout["name"] = usesDashboardLayout()
-        ? active_layout_id
-        : String(logic::kDefaultLayoutName);
-    dashboard_layout["kind"] = "dashboard";
-    JsonObject dashboard_canvas = dashboard_layout.createNestedObject("canvas");
-    dashboard_canvas["width"] = logic::kLayoutScreenWidth;
-    dashboard_canvas["height"] = logic::kLayoutScreenHeight;
-    populateLayoutComponents(dashboard_layout.createNestedArray("components"));
+    for (const SavedDashboardLayout& preset : settings_.layout_presets) {
+        JsonObject dashboard_layout = layouts.createNestedObject();
+        dashboard_layout["id"] = preset.id;
+        dashboard_layout["name"] = preset.name.isEmpty() ? preset.id : preset.name;
+        dashboard_layout["kind"] = "dashboard";
+        JsonObject dashboard_canvas =
+            dashboard_layout.createNestedObject("canvas");
+        dashboard_canvas["width"] = logic::kLayoutScreenWidth;
+        dashboard_canvas["height"] = logic::kLayoutScreenHeight;
+        populateDashboardLayoutComponents(
+            dashboard_layout.createNestedArray("components"),
+            preset.dashboard_layout, preset.market_layout);
+    }
 }
 
 void ClockApp::populateClassicLayoutComponents(JsonArray components) const {
@@ -5215,8 +5325,11 @@ void ClockApp::populateClassicLayoutComponents(JsonArray components) const {
     }
 }
 
-void ClockApp::populateLayoutComponents(JsonArray components) const {
-    for (const logic::DashboardLayoutItem& item : settings_.dashboard_layout) {
+void ClockApp::populateDashboardLayoutComponents(
+    JsonArray components,
+    const logic::DashboardLayout& dashboard_layout,
+    const std::vector<MarketLayoutItem>& market_layout) const {
+    for (const logic::DashboardLayoutItem& item : dashboard_layout) {
         if (item.id == logic::DashboardComponentId::Summary) {
             continue;
         }
@@ -5248,7 +5361,7 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
                 settings_.comfort_settings.max_humidity;
         }
     }
-    for (const MarketLayoutItem& item : settings_.market_layout) {
+    for (const MarketLayoutItem& item : market_layout) {
         JsonObject component = components.createNestedObject();
         component["id"] = item.instance_id;
         component["type"] = "market";
@@ -5262,6 +5375,11 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
         props["variant"] = "summary-card";
         props["symbol"] = item.symbol;
     }
+}
+
+void ClockApp::populateLayoutComponents(JsonArray components) const {
+    populateDashboardLayoutComponents(components, settings_.dashboard_layout,
+                                      settings_.market_layout);
 }
 
 void ClockApp::sendConfigDoc(const JsonDocument& doc,
@@ -5348,32 +5466,79 @@ bool ClockApp::applyLayoutDocument(JsonObjectConst document,
         return false;
     }
 
-    if (active_layout_id == logic::kClassicLayoutId) {
-        settings_.active_layout_id = logic::kClassicLayoutId;
-        store_.saveActiveLayoutId(settings_.active_layout_id);
-        return true;
-    }
+    bool active_dashboard_found = active_layout_id == logic::kClassicLayoutId;
+    uint8_t saved_dashboard_count = 0;
+    std::vector<SavedDashboardLayout> next_presets;
+    const std::vector<SavedDashboardLayout> previous_presets =
+        settings_.layout_presets;
+    const String previous_active_layout_id = settings_.active_layout_id;
+    const logic::DashboardLayout previous_dashboard_layout =
+        settings_.dashboard_layout;
+    const std::vector<MarketLayoutItem> previous_market_layout =
+        settings_.market_layout;
 
     for (JsonVariantConst value : layouts) {
         JsonObjectConst layout = value.as<JsonObjectConst>();
         const String layout_id = String(layout["id"] | "");
-        if (layout_id != active_layout_id) {
+        const String layout_kind = String(layout["kind"] | "dashboard");
+        if (layout_id.isEmpty() || layout_id == logic::kClassicLayoutId ||
+            layout_kind == "classic") {
             continue;
         }
-
+        if (saved_dashboard_count >= 5 && layout_id != active_layout_id) {
+            continue;
+        }
+        if (saved_dashboard_count >= 5 && layout_id == active_layout_id &&
+            !next_presets.empty()) {
+            next_presets.pop_back();
+            --saved_dashboard_count;
+        }
+        settings_.layout_presets = next_presets;
+        settings_.active_layout_id = layout_id;
         if (!applyDashboardLayout(layout["components"].as<JsonArrayConst>(),
                                   error_message)) {
+            settings_.layout_presets = previous_presets;
+            settings_.active_layout_id = previous_active_layout_id;
+            settings_.dashboard_layout = previous_dashboard_layout;
+            settings_.market_layout = previous_market_layout;
             return false;
         }
-        settings_.active_layout_id = active_layout_id.isEmpty()
-            ? String(logic::kDefaultLayoutId)
-            : active_layout_id;
+        upsertActiveDashboardPreset(String(layout["name"] | layout_id));
+        next_presets = settings_.layout_presets;
+        ++saved_dashboard_count;
+        if (layout_id == active_layout_id) {
+            active_dashboard_found = true;
+        }
+    }
+    settings_.layout_presets = next_presets;
+
+    if (active_layout_id == logic::kClassicLayoutId) {
+        settings_.active_layout_id = logic::kClassicLayoutId;
+        if (!settings_.layout_presets.empty()) {
+            store_.saveLayoutPresets(settings_.layout_presets);
+        }
         store_.saveActiveLayoutId(settings_.active_layout_id);
         return true;
     }
 
-    error_message = "Active layout not found";
-    return false;
+    if (!active_dashboard_found) {
+        error_message = "Active layout not found";
+        settings_.layout_presets = previous_presets;
+        settings_.active_layout_id = previous_active_layout_id;
+        settings_.dashboard_layout = previous_dashboard_layout;
+        settings_.market_layout = previous_market_layout;
+        return false;
+    }
+    settings_.active_layout_id = active_layout_id.isEmpty()
+        ? String(logic::kDefaultLayoutId)
+        : active_layout_id;
+    const int active_index = activeDashboardPresetIndex();
+    if (active_index >= 0) {
+        applyDashboardPreset(settings_.layout_presets[active_index]);
+    }
+    store_.saveActiveLayoutId(settings_.active_layout_id);
+    store_.saveLayoutPresets(settings_.layout_presets);
+    return true;
 }
 
 bool ClockApp::applyDashboardLayout(JsonArrayConst components,
@@ -5542,6 +5707,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
     settings_.market_layout = next_market_layout;
     store_.saveMarketLayout(settings_.market_layout);
     syncMarketRenderStates();
+    upsertActiveDashboardPreset();
     if (!next_market_symbol.isEmpty() &&
         next_market_symbol != settings_.market_symbol) {
         settings_.market_symbol = next_market_symbol;

@@ -23,6 +23,7 @@ const BLE_WRITE_CHUNK_SIZE = 20;
 const BLE_AUTH_STORAGE_KEY = "m5-paper-clock.bleAuthToken";
 const LANGUAGE_STORAGE_KEY = "m5-paper-clock.language";
 const LAYOUT_PRESETS_STORAGE_KEY = "m5-paper-clock.layoutPresets";
+const MAX_LAYOUT_PRESETS = 5;
 const REQUEST_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 20000;
 const MARKET_SEARCH_API_PATH = "/api/market-search";
@@ -931,6 +932,10 @@ function activeLayoutKind() {
 
 function isBuiltInLayoutId(id) {
   return BUILT_IN_LAYOUT_IDS.includes(id);
+}
+
+function canCreateLayoutPreset() {
+  return state.dashboardLayouts.length < MAX_LAYOUT_PRESETS;
 }
 
 function layoutDocumentFromState() {
@@ -2287,12 +2292,20 @@ function setActiveDashboardLayout(id, { dirty = false } = {}) {
 }
 
 function createBlankDashboardPreset() {
+  if (!canCreateLayoutPreset()) {
+    setMessage(localized("最多只能保存 5 个布局预设。", "Up to 5 layout presets can be saved."), true);
+    return;
+  }
   const preset = blankDashboardLayoutPreset();
   state.dashboardLayouts = [...state.dashboardLayouts, preset];
   setActiveDashboardLayout(preset.id, { dirty: true });
 }
 
 function duplicateDashboardPreset() {
+  if (!canCreateLayoutPreset()) {
+    setMessage(localized("最多只能保存 5 个布局预设。", "Up to 5 layout presets can be saved."), true);
+    return;
+  }
   const source =
     state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
     defaultDashboardLayoutPreset();
@@ -2715,9 +2728,11 @@ function setConnected(connected) {
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
   const editingClassicLayout = activeLayoutKind() === "classic";
+  const reachedLayoutLimit = !canCreateLayoutPreset();
   elements.layoutPresetSelect.disabled = false;
-  elements.layoutNewButton.disabled = editingClassicLayout;
-  elements.layoutDuplicateButton.disabled = editingClassicLayout;
+  elements.layoutNewButton.disabled = editingClassicLayout || reachedLayoutLimit;
+  elements.layoutDuplicateButton.disabled =
+    editingClassicLayout || reachedLayoutLimit;
   elements.layoutDeleteButton.disabled =
     editingClassicLayout || isBuiltInLayoutId(state.activeLayoutId);
   elements.layoutSaveButton.disabled =

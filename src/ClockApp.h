@@ -249,6 +249,10 @@ private:
     void populateLayoutPreviewState(JsonObject data) const;
     void populateLayoutDocument(JsonObject document) const;
     void populateClassicLayoutComponents(JsonArray components) const;
+    void populateDashboardLayoutComponents(
+        JsonArray components,
+        const logic::DashboardLayout& dashboard_layout,
+        const std::vector<MarketLayoutItem>& market_layout) const;
     void populateLayoutComponents(JsonArray components) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
     void sendConfigLine(const String& line, ConfigTransport transport) const;
@@ -259,6 +263,9 @@ private:
     bool dashboardComponentVisible(logic::DashboardComponentId id) const;
     int16_t dashboardComponentX(logic::DashboardComponentId id) const;
     int16_t dashboardComponentY(logic::DashboardComponentId id) const;
+    int activeDashboardPresetIndex() const;
+    void applyDashboardPreset(const SavedDashboardLayout& preset);
+    void upsertActiveDashboardPreset(const String& name = String());
     bool applyLayoutDocument(JsonObjectConst document, String& error_message);
     bool applyDashboardLayout(JsonArrayConst components, String& error_message);
     String currentIpAddress() const;

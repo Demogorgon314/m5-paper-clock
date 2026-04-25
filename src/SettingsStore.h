@@ -16,6 +16,13 @@ struct MarketLayoutItem {
     bool visible = true;
 };
 
+struct SavedDashboardLayout {
+    String id = logic::kDefaultLayoutId;
+    String name = logic::kDefaultLayoutName;
+    logic::DashboardLayout dashboard_layout = logic::DefaultDashboardLayout();
+    std::vector<MarketLayoutItem> market_layout = {MarketLayoutItem {}};
+};
+
 struct AppSettings {
     String ssid;
     String password;
@@ -33,6 +40,7 @@ struct AppSettings {
     uint8_t partial_clean_interval = logic::kDefaultPartialCleanInterval;
     logic::DashboardLayout dashboard_layout = logic::DefaultDashboardLayout();
     std::vector<MarketLayoutItem> market_layout = {MarketLayoutItem {}};
+    std::vector<SavedDashboardLayout> layout_presets;
 };
 
 class SettingsStore {
@@ -53,6 +61,7 @@ public:
     void savePartialCleanInterval(uint8_t partial_clean_interval);
     void saveDashboardLayout(const logic::DashboardLayout& dashboard_layout);
     void saveMarketLayout(const std::vector<MarketLayoutItem>& market_layout);
+    void saveLayoutPresets(const std::vector<SavedDashboardLayout>& presets);
     void saveBlePairingToken(const String& token);
 
 private:

@@ -2,6 +2,8 @@
 
 namespace {
 constexpr uint8_t kMaxSavedMarketLayoutItems = 6;
+constexpr uint8_t kMaxSavedDashboardLayouts = 5;
+constexpr const char* kActiveLayoutIdKey = "active_lid";
 
 MarketLayoutItem defaultMarketLayoutItem(uint8_t index,
                                          const String& fallback_symbol,
@@ -13,6 +15,55 @@ MarketLayoutItem defaultMarketLayoutItem(uint8_t index,
     item.y = summary.y;
     item.visible = summary.visible;
     return item;
+}
+
+std::vector<MarketLayoutItem> defaultDashboardMarketLayout(
+    const String& fallback_symbol) {
+    const logic::DashboardLayout defaults = logic::DefaultDashboardLayout();
+    return {defaultMarketLayoutItem(
+        0, fallback_symbol,
+        defaults[logic::DashboardComponentIndex(
+            logic::DashboardComponentId::Summary)])};
+}
+
+SavedDashboardLayout defaultSavedDashboardLayout(
+    const String& fallback_symbol) {
+    SavedDashboardLayout preset;
+    preset.id = logic::kDefaultLayoutId;
+    preset.name = logic::kDefaultLayoutName;
+    preset.dashboard_layout = logic::DefaultDashboardLayout();
+    preset.market_layout = defaultDashboardMarketLayout(fallback_symbol);
+    return preset;
+}
+
+void normalizeBuiltInDefaultPreset(SavedDashboardLayout& preset,
+                                   const String& fallback_symbol) {
+    if (preset.id != logic::kDefaultLayoutId) {
+        return;
+    }
+    preset.name = logic::kDefaultLayoutName;
+    preset.dashboard_layout = logic::DefaultDashboardLayout();
+    preset.market_layout = defaultDashboardMarketLayout(fallback_symbol);
+}
+
+bool dashboardPresetIdExists(const std::vector<SavedDashboardLayout>& presets,
+                             const String& id) {
+    for (const SavedDashboardLayout& preset : presets) {
+        if (preset.id == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const SavedDashboardLayout* findDashboardPreset(
+    const std::vector<SavedDashboardLayout>& presets, const String& id) {
+    for (const SavedDashboardLayout& preset : presets) {
+        if (preset.id == id) {
+            return &preset;
+        }
+    }
+    return nullptr;
 }
 }  // namespace
 
@@ -34,7 +85,7 @@ AppSettings SettingsStore::load() const {
     settings.timezone = preferences_.getChar("timezone", settings.timezone);
     settings.time_synced = preferences_.getBool("time_synced", false);
     settings.active_layout_id =
-        preferences_.getString("active_layout_id", settings.active_layout_id);
+        preferences_.getString(kActiveLayoutIdKey, settings.active_layout_id);
     settings.market_symbol =
         preferences_.getString("market_symbol", settings.market_symbol);
     settings.market_name =
@@ -99,6 +150,105 @@ AppSettings SettingsStore::load() const {
         settings.market_layout.push_back(
             defaultMarketLayoutItem(0, settings.market_symbol, summary));
     }
+    const SavedDashboardLayout legacy_default =
+        defaultSavedDashboardLayout(settings.market_symbol);
+    settings.layout_presets.clear();
+    const uint8_t layout_count =
+        preferences_.getUChar("lp_count", 0);
+    const uint8_t clamped_layout_count =
+        layout_count > kMaxSavedDashboardLayouts ? kMaxSavedDashboardLayouts
+                                                 : layout_count;
+    for (uint8_t layout_index = 0; layout_index < clamped_layout_count;
+         ++layout_index) {
+        const String prefix = "lp" + String(layout_index);
+        SavedDashboardLayout preset;
+        preset.id =
+            preferences_.getString((prefix + "_id").c_str(), "");
+        if (preset.id.isEmpty() || preset.id == logic::kClassicLayoutId ||
+            dashboardPresetIdExists(settings.layout_presets, preset.id)) {
+            continue;
+        }
+        preset.name =
+            preferences_.getString((prefix + "_name").c_str(), preset.id);
+        preset.dashboard_layout = logic::DefaultDashboardLayout();
+        for (uint8_t component_index = 0;
+             component_index < logic::kDashboardComponentCount;
+             ++component_index) {
+            logic::DashboardLayoutItem& item =
+                preset.dashboard_layout[component_index];
+            const String component_prefix =
+                prefix + "_c" + String(component_index);
+            item.x = preferences_.getShort((component_prefix + "x").c_str(),
+                                           item.x);
+            item.y = preferences_.getShort((component_prefix + "y").c_str(),
+                                           item.y);
+            item.visible = preferences_.getBool(
+                (component_prefix + "v").c_str(), item.visible);
+        }
+        preset.dashboard_layout =
+            logic::NormalizeDashboardLayout(preset.dashboard_layout);
+        preset.market_layout.clear();
+        const uint8_t preset_market_count = preferences_.getUChar(
+            (prefix + "_mc").c_str(), 0);
+        const uint8_t clamped_preset_market_count =
+            preset_market_count > kMaxSavedMarketLayoutItems
+                ? kMaxSavedMarketLayoutItems
+                : preset_market_count;
+        const logic::DashboardLayoutItem& preset_summary =
+            preset.dashboard_layout[logic::DashboardComponentIndex(
+                logic::DashboardComponentId::Summary)];
+        for (uint8_t market_index = 0;
+             market_index < clamped_preset_market_count;
+             ++market_index) {
+            const String market_prefix =
+                prefix + "_m" + String(market_index);
+            MarketLayoutItem item = defaultMarketLayoutItem(
+                market_index,
+                market_index == 0 ? settings.market_symbol : String("sh000001"),
+                preset_summary);
+            item.instance_id = preferences_.getString(
+                (market_prefix + "id").c_str(), item.instance_id);
+            item.symbol = preferences_.getString(
+                (market_prefix + "s").c_str(), item.symbol);
+            item.x = preferences_.getShort((market_prefix + "x").c_str(),
+                                           item.x);
+            item.y = preferences_.getShort((market_prefix + "y").c_str(),
+                                           item.y);
+            item.visible = preferences_.getBool(
+                (market_prefix + "v").c_str(), item.visible);
+            if (item.symbol.isEmpty()) {
+                item.symbol = "sh000001";
+            }
+            preset.market_layout.push_back(item);
+        }
+        if (preset.market_layout.empty() && preset_summary.visible) {
+            preset.market_layout.push_back(defaultMarketLayoutItem(
+                0, settings.market_symbol, preset_summary));
+        }
+        normalizeBuiltInDefaultPreset(preset, settings.market_symbol);
+        settings.layout_presets.push_back(preset);
+    }
+    if (settings.layout_presets.empty()) {
+        settings.layout_presets.push_back(legacy_default);
+    } else if (!dashboardPresetIdExists(settings.layout_presets,
+                                        logic::kDefaultLayoutId)) {
+        settings.layout_presets.insert(settings.layout_presets.begin(),
+                                       legacy_default);
+        if (settings.layout_presets.size() > kMaxSavedDashboardLayouts) {
+            settings.layout_presets.resize(kMaxSavedDashboardLayouts);
+        }
+    }
+    if (settings.active_layout_id != logic::kClassicLayoutId) {
+        const SavedDashboardLayout* active_preset =
+            findDashboardPreset(settings.layout_presets,
+                                settings.active_layout_id);
+        if (!active_preset) {
+            active_preset = &settings.layout_presets.front();
+            settings.active_layout_id = active_preset->id;
+        }
+        settings.dashboard_layout = active_preset->dashboard_layout;
+        settings.market_layout = active_preset->market_layout;
+    }
     settings.comfort_settings.min_temperature =
         preferences_.getFloat("comfort_t_min",
                               settings.comfort_settings.min_temperature);
@@ -130,7 +280,7 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("password", settings.password);
     preferences_.putChar("timezone", settings.timezone);
     preferences_.putBool("time_synced", settings.time_synced);
-    preferences_.putString("active_layout_id", settings.active_layout_id);
+    preferences_.putString(kActiveLayoutIdKey, settings.active_layout_id);
     preferences_.putString("market_symbol", settings.market_symbol);
     preferences_.putString("market_name", settings.market_name);
     preferences_.putString("date_format", settings.date_format);
@@ -144,6 +294,7 @@ void SettingsStore::save(const AppSettings& settings) {
             logic::ClampPartialCleanInterval(settings.partial_clean_interval)));
     saveDashboardLayout(settings.dashboard_layout);
     saveMarketLayout(settings.market_layout);
+    saveLayoutPresets(settings.layout_presets);
     preferences_.putFloat("comfort_t_min",
                           settings.comfort_settings.min_temperature);
     preferences_.putFloat("comfort_t_max",
@@ -180,7 +331,7 @@ void SettingsStore::saveActiveLayoutId(const String& active_layout_id) {
     if (!started_) {
         return;
     }
-    preferences_.putString("active_layout_id", active_layout_id);
+    preferences_.putString(kActiveLayoutIdKey, active_layout_id);
 }
 
 void SettingsStore::saveMarket(const String& market_symbol,
@@ -261,6 +412,55 @@ void SettingsStore::saveMarketLayout(
         preferences_.putShort((prefix + "_x").c_str(), item.x);
         preferences_.putShort((prefix + "_y").c_str(), item.y);
         preferences_.putBool((prefix + "_v").c_str(), item.visible);
+    }
+}
+
+void SettingsStore::saveLayoutPresets(
+    const std::vector<SavedDashboardLayout>& presets) {
+    if (!started_) {
+        return;
+    }
+    const uint8_t count =
+        presets.size() > kMaxSavedDashboardLayouts
+            ? kMaxSavedDashboardLayouts
+            : static_cast<uint8_t>(presets.size());
+    preferences_.putUChar("lp_count", count);
+    for (uint8_t layout_index = 0; layout_index < count; ++layout_index) {
+        const String prefix = "lp" + String(layout_index);
+        const SavedDashboardLayout& preset = presets[layout_index];
+        preferences_.putString((prefix + "_id").c_str(), preset.id);
+        preferences_.putString((prefix + "_name").c_str(), preset.name);
+        const logic::DashboardLayout normalized =
+            logic::NormalizeDashboardLayout(preset.dashboard_layout);
+        for (uint8_t component_index = 0;
+             component_index < logic::kDashboardComponentCount;
+             ++component_index) {
+            const String component_prefix =
+                prefix + "_c" + String(component_index);
+            const logic::DashboardLayoutItem& item =
+                normalized[component_index];
+            preferences_.putShort((component_prefix + "x").c_str(), item.x);
+            preferences_.putShort((component_prefix + "y").c_str(), item.y);
+            preferences_.putBool((component_prefix + "v").c_str(),
+                                 item.visible);
+        }
+        const uint8_t market_count =
+            preset.market_layout.size() > kMaxSavedMarketLayoutItems
+                ? kMaxSavedMarketLayoutItems
+                : static_cast<uint8_t>(preset.market_layout.size());
+        preferences_.putUChar((prefix + "_mc").c_str(), market_count);
+        for (uint8_t market_index = 0; market_index < market_count;
+             ++market_index) {
+            const String market_prefix =
+                prefix + "_m" + String(market_index);
+            const MarketLayoutItem& item = preset.market_layout[market_index];
+            preferences_.putString((market_prefix + "id").c_str(),
+                                   item.instance_id);
+            preferences_.putString((market_prefix + "s").c_str(), item.symbol);
+            preferences_.putShort((market_prefix + "x").c_str(), item.x);
+            preferences_.putShort((market_prefix + "y").c_str(), item.y);
+            preferences_.putBool((market_prefix + "v").c_str(), item.visible);
+        }
     }
 }
 
