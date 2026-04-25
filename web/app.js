@@ -51,15 +51,30 @@ const DASHBOARD_PREVIEW = Object.freeze({
   snap: 4,
   guideThreshold: 8,
 });
+const DEFAULT_CLASSIC_LAYOUT_ID = "classic-default";
+const DEFAULT_CLASSIC_LAYOUT_NAME = "经典数字";
 const DEFAULT_LAYOUT_ID = "dashboard-default";
 const DEFAULT_LAYOUT_NAME = "仪表盘";
-const DEFAULT_DASHBOARD_LAYOUT = Object.freeze([
+const BUILT_IN_LAYOUT_IDS = Object.freeze([
+  DEFAULT_CLASSIC_LAYOUT_ID,
+  DEFAULT_LAYOUT_ID,
+]);
+const DEFAULT_LAYOUT_COMPONENTS = Object.freeze([
   { id: "date-main", type: "date", labelKey: "layout.component.date", x: 24, y: 20, w: 744, h: 44, props: { variant: "header" } },
   { id: "battery-main", type: "battery", labelKey: "layout.component.battery", x: 768, y: 20, w: 176, h: 44, props: { variant: "status" } },
   { id: "calendar-main", type: "calendar", labelKey: "layout.component.calendar", x: 72, y: 106, w: 304, h: 232, props: { variant: "month-grid" } },
   { id: "time-main", type: "time", labelKey: "layout.component.time", x: 412, y: 104, w: 472, h: 236, props: { variant: "large-digits" } },
   { id: "market-1", type: "market", labelKey: "layout.component.summary", x: 72, y: 392, w: 332, h: 86, props: { variant: "summary-card", symbol: "sh000001" } },
   { id: "climate-main", type: "climate", labelKey: "layout.component.climate", x: 428, y: 392, w: 456, h: 86, props: { variant: "compact-card" } },
+  { id: "classic-time", type: "classic-time", labelKey: "layout.component.classicTime", x: 100, y: 72, w: 760, h: 300, visible: false, props: { variant: "large-digits" } },
+  { id: "classic-info", type: "classic-info", labelKey: "layout.component.classicInfo", x: 100, y: 378, w: 760, h: 120, visible: false, props: { variant: "metrics" } },
+]);
+const DEFAULT_DASHBOARD_LAYOUT = DEFAULT_LAYOUT_COMPONENTS;
+const DEFAULT_CLASSIC_LAYOUT = Object.freeze([
+  { id: "classic-date", type: "date", labelKey: "layout.component.date", x: 24, y: 20, w: 744, h: 44, props: { variant: "classic-header" } },
+  { id: "classic-battery", type: "battery", labelKey: "layout.component.battery", x: 768, y: 20, w: 176, h: 44, props: { variant: "classic-status" } },
+  { id: "classic-time", type: "classic-time", labelKey: "layout.component.time", x: 100, y: 72, w: 760, h: 300, props: { variant: "large-digits" } },
+  { id: "classic-info", type: "classic-info", labelKey: "layout.component.climate", x: 100, y: 378, w: 760, h: 120, props: { variant: "metrics" } },
 ]);
 const DASHBOARD_PREVIEW_SAMPLE = Object.freeze({
   date: "2026-04-24",
@@ -96,7 +111,7 @@ const I18N = Object.freeze({
     "app.title": "M5Paper Ink Clock 配置",
     "language.label": "语言",
     "intro.heading": "设备配置",
-    "intro.lead": "通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和时钟样式。",
+    "intro.lead": "通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和布局。",
     "intro.step.connect": "连接 USB 或蓝牙",
     "intro.step.scan": "扫描并选择 Wi-Fi",
     "intro.step.save": "保存并连接 Wi-Fi",
@@ -118,7 +133,7 @@ const I18N = Object.freeze({
     "status.device": "设备",
     "status.page": "页面",
     "status.timezone": "时区",
-    "status.style": "样式",
+    "status.layout": "布局",
     "status.synced": "已同步",
     "status.unsynced": "未同步",
     "status.usb": "USB",
@@ -135,22 +150,19 @@ const I18N = Object.freeze({
     "settings.heading": "设置",
     "settings.helper": "保存后会写入设备存储，重启后继续生效。",
     "settings.timezone": "时区",
-    "settings.clockStyle": "时钟样式",
     "settings.partialCleanInterval": "墨水屏清晰度校准频率",
     "settings.saveSection": "配置保存",
     "settings.saveHelp": "仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。",
     "settings.deviceSection": "设备操作",
     "settings.dangerSection": "危险操作",
-    "clockStyle.classic": "经典数字",
-    "clockStyle.dashboard": "仪表盘",
     "comfort.heading": "表情条件",
     "comfort.helper": "舒适区间显示 <code>(^_^)</code>，超出范围显示 <code>(-^-)</code>。",
     "comfort.tempMin": "最低舒适温度",
     "comfort.tempMax": "最高舒适温度",
     "comfort.humidityMin": "最低舒适湿度",
     "comfort.humidityMax": "最高舒适湿度",
-    "layout.heading": "仪表盘布局",
-    "layout.helper": "拖动组件调整位置，保存后设备会全量刷新一次仪表盘。",
+    "layout.heading": "布局预设",
+    "layout.helper": "选择布局预设；仪表盘类布局可拖动组件调整位置，保存后设备会全量刷新一次。",
     "layout.preset": "布局预设",
     "layout.preview": "一比一预览",
     "layout.position": "位置",
@@ -178,6 +190,8 @@ const I18N = Object.freeze({
     "layout.component.time": "时间",
     "layout.component.summary": "行情",
     "layout.component.climate": "温湿度",
+    "layout.component.classicTime": "经典大时间",
+    "layout.component.classicInfo": "经典温湿度",
     "layout.nudge": "微调",
     "layout.resetComponent": "重置此组件",
     "hint.serial": "Chrome 会记住你授权过的串口，页面打开后会自动恢复连接。",
@@ -194,7 +208,7 @@ const I18N = Object.freeze({
     "update.fullFlashHeading": "完整刷写",
     "update.fullFlashHelper": "用于首次安装、字体或分区变化。",
     "update.advanced": "高级",
-    "update.fullFlashWarning": "可能清除设备配置，包括 Wi-Fi、时区、时钟样式、行情标的和表情条件。",
+    "update.fullFlashWarning": "可能清除设备配置，包括 Wi-Fi、时区、布局、行情标的和表情条件。",
     "update.fullFlashManifest": "完整刷写 Manifest 地址",
     "update.noOtaInfo": "没有可用的 OTA 固件信息。",
     "update.latestSummary": "当前 {current}，可用 {available}，已是最新版本，固件 {size} MB。",
@@ -264,7 +278,7 @@ const I18N = Object.freeze({
     "app.title": "M5Paper Ink Clock Setup",
     "language.label": "Language",
     "intro.heading": "Device Setup",
-    "intro.lead": "Connect over USB or Bluetooth to save Wi-Fi, timezone, and clock style settings.",
+    "intro.lead": "Connect over USB or Bluetooth to save Wi-Fi, timezone, and layout settings.",
     "intro.step.connect": "Connect USB or Bluetooth",
     "intro.step.scan": "Scan and choose Wi-Fi",
     "intro.step.save": "Save and connect Wi-Fi",
@@ -286,7 +300,7 @@ const I18N = Object.freeze({
     "status.device": "Device",
     "status.page": "Page",
     "status.timezone": "Timezone",
-    "status.style": "Style",
+    "status.layout": "Layout",
     "status.synced": "Synced",
     "status.unsynced": "Not synced",
     "status.usb": "USB",
@@ -303,22 +317,19 @@ const I18N = Object.freeze({
     "settings.heading": "Settings",
     "settings.helper": "Settings are saved on the device and persist after reboot.",
     "settings.timezone": "Timezone",
-    "settings.clockStyle": "Clock style",
     "settings.partialCleanInterval": "Screen clarity refresh frequency",
     "settings.saveSection": "Save Settings",
     "settings.saveHelp": "Save only does not connect; save and connect stores settings, connects Wi-Fi, and syncs time.",
     "settings.deviceSection": "Device Actions",
     "settings.dangerSection": "Danger Zone",
-    "clockStyle.classic": "Classic digits",
-    "clockStyle.dashboard": "Dashboard",
     "comfort.heading": "Face Conditions",
     "comfort.helper": "The comfortable range shows <code>(^_^)</code>; out-of-range values show <code>(-^-)</code>.",
     "comfort.tempMin": "Minimum comfort temperature",
     "comfort.tempMax": "Maximum comfort temperature",
     "comfort.humidityMin": "Minimum comfort humidity",
     "comfort.humidityMax": "Maximum comfort humidity",
-    "layout.heading": "Dashboard Layout",
-    "layout.helper": "Drag components to adjust positions. Saving refreshes the dashboard once.",
+    "layout.heading": "Layout Presets",
+    "layout.helper": "Choose a layout preset. Dashboard layouts can be edited by dragging components; saving refreshes the device once.",
     "layout.preset": "Layout preset",
     "layout.preview": "1:1 Preview",
     "layout.position": "Position",
@@ -346,6 +357,8 @@ const I18N = Object.freeze({
     "layout.component.time": "Time",
     "layout.component.summary": "Market",
     "layout.component.climate": "Climate",
+    "layout.component.classicTime": "Classic Time",
+    "layout.component.classicInfo": "Classic Climate",
     "layout.nudge": "Nudge",
     "layout.resetComponent": "Reset component",
     "hint.serial": "Chrome remembers authorized serial ports and can reconnect when the page opens.",
@@ -362,7 +375,7 @@ const I18N = Object.freeze({
     "update.fullFlashHeading": "Full Flash",
     "update.fullFlashHelper": "For first install, font changes, or partition changes.",
     "update.advanced": "Advanced",
-    "update.fullFlashWarning": "May erase device settings, including Wi-Fi, timezone, clock style, market symbol, and face conditions.",
+    "update.fullFlashWarning": "May erase device settings, including Wi-Fi, timezone, layout, market symbol, and face conditions.",
     "update.fullFlashManifest": "Full flash manifest URL",
     "update.noOtaInfo": "No OTA firmware information is available.",
     "update.latestSummary": "Current {current}, available {available}, already up to date, firmware {size} MB.",
@@ -533,7 +546,7 @@ const elements = {
   wifiName: document.querySelector("#wifi-name"),
   ipAddress: document.querySelector("#ip-address"),
   timezoneLabel: document.querySelector("#timezone-label"),
-  clockStyleLabel: document.querySelector("#clock-style-label"),
+  layoutLabel: document.querySelector("#layout-label"),
   marketLabel: document.querySelector("#market-label"),
   batteryLabel: document.querySelector("#battery-label"),
   syncState: document.querySelector("#sync-state"),
@@ -543,7 +556,6 @@ const elements = {
   ssidInput: document.querySelector("#ssid-input"),
   passwordInput: document.querySelector("#password-input"),
   timezoneSelect: document.querySelector("#timezone-select"),
-  clockStyleSelect: document.querySelector("#clock-style-select"),
   partialCleanIntervalInput: document.querySelector(
     "#partial-clean-interval-input",
   ),
@@ -613,7 +625,6 @@ const state = {
   localOtaLoggedWritten: 0,
   marketResultsVisible: false,
   marketResults: [],
-  activeClockStyle: "dashboard",
   activeLayoutId: DEFAULT_LAYOUT_ID,
   dashboardLayouts: [],
   dashboardLayout: cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT),
@@ -713,31 +724,46 @@ function cloneDashboardLayout(layout) {
   }));
 }
 
-function createDashboardLayoutPreset(id, name, components) {
+function createLayoutPreset(id, name, components, kind = "dashboard") {
   return {
     id,
     name,
+    kind,
     canvas: {
       width: DASHBOARD_PREVIEW.width,
       height: DASHBOARD_PREVIEW.height,
     },
-    components: dashboardLayoutWithLabels(components),
+    components:
+      kind === "dashboard"
+        ? dashboardLayoutWithLabels(components)
+        : cloneDashboardLayout(components),
   };
 }
 
 function defaultDashboardLayoutPreset() {
-  return createDashboardLayoutPreset(
+  return createLayoutPreset(
     DEFAULT_LAYOUT_ID,
     DEFAULT_LAYOUT_NAME,
     DEFAULT_DASHBOARD_LAYOUT,
+    "dashboard",
+  );
+}
+
+function defaultClassicLayoutPreset() {
+  return createLayoutPreset(
+    DEFAULT_CLASSIC_LAYOUT_ID,
+    DEFAULT_CLASSIC_LAYOUT_NAME,
+    DEFAULT_CLASSIC_LAYOUT,
+    "classic",
   );
 }
 
 function blankDashboardLayoutPreset() {
-  return createDashboardLayoutPreset(
+  return createLayoutPreset(
     uniqueLayoutId("dashboard-blank"),
     t("layout.blankName"),
     DEFAULT_DASHBOARD_LAYOUT.map((item) => ({ ...item, visible: false })),
+    "dashboard",
   );
 }
 
@@ -753,25 +779,65 @@ function uniqueLayoutId(prefix = "dashboard-custom") {
 }
 
 function normalizeDashboardLayoutPreset(layout, fallback = defaultDashboardLayoutPreset()) {
-  return createDashboardLayoutPreset(
+  const kind = layout?.kind === "classic" || layout?.id === DEFAULT_CLASSIC_LAYOUT_ID
+    ? "classic"
+    : "dashboard";
+  return createLayoutPreset(
     String(layout?.id || fallback.id || DEFAULT_LAYOUT_ID),
     String(layout?.name || fallback.name || DEFAULT_LAYOUT_NAME),
     Array.isArray(layout?.components) ? layout.components : fallback.components,
+    kind,
   );
+}
+
+function ensureBaseLayoutPresets(layouts) {
+  const normalizedLayouts = Array.isArray(layouts) ? [...layouts] : [];
+  const hasClassic = normalizedLayouts.some(
+    (layout) => layout.id === DEFAULT_CLASSIC_LAYOUT_ID,
+  );
+  const hasDashboard = normalizedLayouts.some(
+    (layout) => layout.id === DEFAULT_LAYOUT_ID,
+  );
+  if (!hasClassic) {
+    normalizedLayouts.unshift(defaultClassicLayoutPreset());
+  }
+  if (!hasDashboard) {
+    normalizedLayouts.push(defaultDashboardLayoutPreset());
+  }
+  return normalizedLayouts;
+}
+
+function activeLayoutPreset() {
+  return (
+    state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
+    state.dashboardLayouts[0] ||
+    defaultDashboardLayoutPreset()
+  );
+}
+
+function activeLayoutKind() {
+  return activeLayoutPreset().kind === "classic" ? "classic" : "dashboard";
+}
+
+function isBuiltInLayoutId(id) {
+  return BUILT_IN_LAYOUT_IDS.includes(id);
 }
 
 function layoutDocumentFromState() {
   const activeLayout = state.dashboardLayouts.find(
     (layout) => layout.id === state.activeLayoutId,
   );
-  const layouts = state.dashboardLayouts.length
-    ? state.dashboardLayouts
-    : [defaultDashboardLayoutPreset()];
+  const layouts = ensureBaseLayoutPresets(
+    state.dashboardLayouts.length
+      ? state.dashboardLayouts
+      : [defaultClassicLayoutPreset(), defaultDashboardLayoutPreset()],
+  );
   return {
     activeLayoutId: activeLayout?.id || DEFAULT_LAYOUT_ID,
     layouts: layouts.map((layout) => ({
       id: layout.id,
       name: layout.name,
+      kind: layout.kind || "dashboard",
       canvas: {
         width: DASHBOARD_PREVIEW.width,
         height: DASHBOARD_PREVIEW.height,
@@ -811,8 +877,8 @@ function loadLayoutPresets() {
     if (!document || !Array.isArray(document.layouts)) {
       return;
     }
-    state.dashboardLayouts = document.layouts.map((layout) =>
-      normalizeDashboardLayoutPreset(layout),
+    state.dashboardLayouts = ensureBaseLayoutPresets(
+      document.layouts.map((layout) => normalizeDashboardLayoutPreset(layout)),
     );
     state.activeLayoutId = String(document.activeLayoutId || state.dashboardLayouts[0]?.id || DEFAULT_LAYOUT_ID);
     const activeLayout =
@@ -823,18 +889,22 @@ function loadLayoutPresets() {
       state.activeLayoutId = activeLayout.id;
     }
   } catch {
-    state.dashboardLayouts = [defaultDashboardLayoutPreset()];
+    state.dashboardLayouts = [defaultClassicLayoutPreset(), defaultDashboardLayoutPreset()];
     state.activeLayoutId = DEFAULT_LAYOUT_ID;
     state.dashboardLayout = cloneDashboardLayout(DEFAULT_DASHBOARD_LAYOUT);
   }
 }
 
 function dashboardLayoutWithLabels(layout) {
-  return DEFAULT_DASHBOARD_LAYOUT.map((defaultItem) => {
+  return DEFAULT_LAYOUT_COMPONENTS.map((defaultItem) => {
     const savedItem =
       layout.find(
         (item) => item.id === defaultItem.id || item.type === defaultItem.type,
       ) || {};
+    const hasSavedVisibility = Object.prototype.hasOwnProperty.call(
+      savedItem,
+      "visible",
+    );
     return {
       ...defaultItem,
       ...savedItem,
@@ -846,7 +916,9 @@ function dashboardLayoutWithLabels(layout) {
         ...defaultItem.props,
         ...(savedItem.props || {}),
       },
-      visible: savedItem.visible !== false,
+      visible: hasSavedVisibility
+        ? savedItem.visible !== false
+        : defaultItem.visible !== false,
     };
   });
 }
@@ -870,6 +942,7 @@ function layoutDocumentFromComponents(components) {
       {
         id: DEFAULT_LAYOUT_ID,
         name: DEFAULT_LAYOUT_NAME,
+        kind: "dashboard",
         canvas: {
           width: DASHBOARD_PREVIEW.width,
           height: DASHBOARD_PREVIEW.height,
@@ -1859,6 +1932,14 @@ function drawClassicPreviewInfo(canvas) {
     DASHBOARD_PREVIEW_SAMPLE.comfortFace, INK.text, false);
 }
 
+function drawPreviewClassicTime(canvas) {
+  const c = CLASSIC_RENDER_CONSTANTS;
+  canvas.fillCanvas(INK.white);
+  previewSegmentRenderer.drawText(canvas, 7, c.timeDigitY,
+    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    INK.text, INK.edgeText);
+}
+
 const DASHBOARD_COMPONENT_RENDERERS = Object.freeze({
   date: drawPreviewDate,
   battery: drawPreviewBattery,
@@ -1866,6 +1947,8 @@ const DASHBOARD_COMPONENT_RENDERERS = Object.freeze({
   time: drawPreviewTime,
   market: drawPreviewMarket,
   climate: drawPreviewClimate,
+  "classic-time": drawPreviewClassicTime,
+  "classic-info": drawClassicPreviewInfo,
 });
 
 function renderDashboardPreviewCanvas(ctx) {
@@ -1933,10 +2016,11 @@ function setDashboardLayout(layout, { dirty = false } = {}) {
   } else {
     state.dashboardLayouts = [
       ...state.dashboardLayouts,
-      createDashboardLayoutPreset(
+      createLayoutPreset(
         state.activeLayoutId || DEFAULT_LAYOUT_ID,
         DEFAULT_LAYOUT_NAME,
         state.dashboardLayout,
+        "dashboard",
       ),
     ];
   }
@@ -1975,17 +2059,18 @@ function duplicateDashboardPreset() {
   const source =
     state.dashboardLayouts.find((layout) => layout.id === state.activeLayoutId) ||
     defaultDashboardLayoutPreset();
-  const preset = createDashboardLayoutPreset(
+  const preset = createLayoutPreset(
     uniqueLayoutId(`${source.id}-copy`),
     `${source.name} ${t("layout.copySuffix")}`,
     source.components,
+    "dashboard",
   );
   state.dashboardLayouts = [...state.dashboardLayouts, preset];
   setActiveDashboardLayout(preset.id, { dirty: true });
 }
 
 function deleteDashboardPreset() {
-  if (state.activeLayoutId === DEFAULT_LAYOUT_ID) {
+  if (isBuiltInLayoutId(state.activeLayoutId)) {
     return;
   }
   const nextLayouts = state.dashboardLayouts.filter(
@@ -2359,15 +2444,16 @@ function setConnected(connected) {
   elements.syncButton.disabled = !allowDeviceActions;
   elements.refreshButton.disabled = !allowDeviceActions;
   elements.rebootButton.disabled = !allowDeviceActions;
-  elements.layoutPresetSelect.disabled = state.activeClockStyle === "classic";
-  elements.layoutNewButton.disabled = state.activeClockStyle === "classic";
-  elements.layoutDuplicateButton.disabled = state.activeClockStyle === "classic";
+  const editingClassicLayout = activeLayoutKind() === "classic";
+  elements.layoutPresetSelect.disabled = false;
+  elements.layoutNewButton.disabled = editingClassicLayout;
+  elements.layoutDuplicateButton.disabled = editingClassicLayout;
   elements.layoutDeleteButton.disabled =
-    state.activeClockStyle === "classic" || state.activeLayoutId === DEFAULT_LAYOUT_ID;
+    editingClassicLayout || isBuiltInLayoutId(state.activeLayoutId);
   elements.layoutSaveButton.disabled =
-    state.activeClockStyle === "classic" || !allowDeviceActions || !state.layoutDirty;
+    !allowDeviceActions || !state.layoutDirty;
   elements.layoutResetButton.disabled =
-    state.activeClockStyle === "classic" || !allowDeviceActions;
+    !allowDeviceActions;
   elements.checkUpdateButton.disabled = state.busyCount > 0;
   elements.otaUpdateButton.disabled =
     !allowDeviceActions ||
@@ -2442,19 +2528,17 @@ function renderDashboardLayoutEditor() {
 
   elements.layoutPreview.innerHTML = "";
   const previewCanvas = createDashboardPreviewCanvas();
-  if (state.activeClockStyle === "classic") {
+  if (activeLayoutKind() === "classic") {
     renderClassicPreviewCanvas(previewCanvas.ctx);
     elements.layoutPreview.appendChild(previewCanvas.canvas);
     elements.layoutComponentList.innerHTML = "";
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = localized(
-      "经典数字样式使用固定布局，不需要位置编辑。",
+      "经典数字布局使用固定位置，不需要位置编辑。",
       "Classic digits use a fixed layout and do not need position editing.",
     );
     elements.layoutComponentList.appendChild(empty);
-    elements.layoutSaveButton.disabled = true;
-    elements.layoutResetButton.disabled = true;
     return;
   }
 
@@ -2677,7 +2761,7 @@ function renderLayoutPresetControls() {
   elements.layoutPresetSelect.innerHTML = "";
   const layouts = state.dashboardLayouts.length
     ? state.dashboardLayouts
-    : [defaultDashboardLayoutPreset()];
+    : [defaultClassicLayoutPreset(), defaultDashboardLayoutPreset()];
   for (const layout of layouts) {
     const option = document.createElement("option");
     option.value = layout.id;
@@ -2686,8 +2770,8 @@ function renderLayoutPresetControls() {
   }
   elements.layoutPresetSelect.value = state.activeLayoutId;
   elements.layoutDeleteButton.disabled =
-    state.activeClockStyle === "classic" ||
-    state.activeLayoutId === DEFAULT_LAYOUT_ID ||
+    activeLayoutKind() === "classic" ||
+    isBuiltInLayoutId(state.activeLayoutId) ||
     state.busyCount > 0;
 }
 
@@ -2795,7 +2879,7 @@ function isEditableTextTarget(target) {
 
 function handleLayoutKeyboardNudge(event) {
   if (
-    state.activeClockStyle === "classic" ||
+    activeLayoutKind() === "classic" ||
     !state.selectedLayoutId ||
     isEditableTextTarget(event.target)
   ) {
@@ -2824,7 +2908,7 @@ function handleLayoutKeyboardNudge(event) {
 }
 
 function addDashboardLayoutItem(id) {
-  const defaultItem = DEFAULT_DASHBOARD_LAYOUT.find((item) => item.id === id);
+  const defaultItem = DEFAULT_LAYOUT_COMPONENTS.find((item) => item.id === id);
   state.selectedLayoutId = id;
   const nextLayout = state.dashboardLayout.map((item) => {
     if (item.id !== id) {
@@ -2865,7 +2949,7 @@ function nudgeDashboardLayoutItem(id, dx, dy) {
 }
 
 function resetDashboardLayoutItem(id) {
-  const defaultItem = DEFAULT_DASHBOARD_LAYOUT.find((item) => item.id === id);
+  const defaultItem = DEFAULT_LAYOUT_COMPONENTS.find((item) => item.id === id);
   if (!defaultItem) {
     return;
   }
@@ -3044,12 +3128,12 @@ function updateStatus(status) {
         ? `UTC+${status.timezone}`
         : `UTC${status.timezone}`
       : "-";
-  elements.clockStyleLabel.textContent =
-    status.clockStyle === "dashboard"
-      ? t("clockStyle.dashboard")
-      : status.clockStyle === "classic"
-        ? t("clockStyle.classic")
-        : "-";
+  const statusLayoutId = String(status.activeLayoutId || "");
+  const statusLayout =
+    state.dashboardLayouts.find((layout) => layout.id === statusLayoutId) ||
+    activeLayoutFromDocument(status.layoutDocument);
+  elements.layoutLabel.textContent =
+    statusLayout?.name || statusLayoutId || "-";
   const marketDisplayName = status.marketDisplayName || t("market.defaultName");
   const marketCode = status.marketCode || "000001";
   elements.marketLabel.textContent = `${marketDisplayName} · ${marketCode}`;
@@ -3075,11 +3159,6 @@ function updateStatus(status) {
 
   if (typeof status.timezone === "number") {
     elements.timezoneSelect.value = String(status.timezone);
-  }
-  if (status.clockStyle) {
-    state.activeClockStyle = status.clockStyle === "classic" ? "classic" : "dashboard";
-    elements.clockStyleSelect.value = status.clockStyle;
-    renderDashboardLayoutEditor();
   }
   applyRefreshInputs({
     partialCleanInterval:
@@ -3802,7 +3881,6 @@ async function saveSettings({ connectNow, syncTime }) {
   const ssid = typedSsid || savedSsid;
   const password = elements.passwordInput.value;
   const timezone = Number(elements.timezoneSelect.value);
-  const clockStyle = elements.clockStyleSelect.value;
   const comfortSettings = readComfortSettingsFromInputs();
   const refreshSettings = readRefreshSettingsFromInputs();
 
@@ -3818,7 +3896,6 @@ async function saveSettings({ connectNow, syncTime }) {
 
   const payload = {
     timezone,
-    clockStyle,
     connectNow,
     syncTime,
     ...refreshSettings,
@@ -3855,7 +3932,7 @@ async function saveDashboardLayout() {
   if (!state.connected) {
     throw new Error(localized("请先连接设备，再保存布局", "Connect the device before saving the layout"));
   }
-  setMessage(localized("正在保存仪表盘布局。", "Saving dashboard layout."));
+  setMessage(localized("正在保存布局。", "Saving layout."));
   const localLayoutDocument = layoutDocumentFromState();
   const localActiveLayoutId = localLayoutDocument.activeLayoutId;
   const data = await sendCommand(
@@ -3878,17 +3955,35 @@ async function saveDashboardLayout() {
   saveLayoutPresets();
   renderDashboardLayoutEditor();
   setConnected(state.connected);
-  setMessage(localized("仪表盘布局已保存。", "Dashboard layout saved."));
+  setMessage(localized("布局已保存。", "Layout saved."));
 }
 
 async function resetDashboardLayout() {
   if (!state.connected) {
     throw new Error(localized("请先连接设备，再恢复默认布局", "Connect the device before resetting the layout"));
   }
-  setMessage(localized("正在恢复默认仪表盘布局。", "Resetting dashboard layout."));
+  setMessage(localized("正在恢复默认布局。", "Resetting layout."));
   const data = await sendCommand("apply_layout", { reset: true }, REQUEST_TIMEOUT_MS);
+  state.layoutDirty = false;
   updateStatus(data);
-  setMessage(localized("仪表盘布局已恢复默认。", "Dashboard layout reset."));
+  const activeLayout = activeLayoutFromDocument(data.layoutDocument);
+  if (activeLayout?.components) {
+    const normalized = normalizeDashboardLayoutPreset(activeLayout);
+    const existingIndex = state.dashboardLayouts.findIndex(
+      (layout) => layout.id === normalized.id,
+    );
+    if (existingIndex >= 0) {
+      state.dashboardLayouts[existingIndex] = normalized;
+    } else {
+      state.dashboardLayouts = [...state.dashboardLayouts, normalized];
+    }
+    state.activeLayoutId = normalized.id;
+    state.dashboardLayout = cloneDashboardLayout(normalized.components);
+    saveLayoutPresets();
+    renderDashboardLayoutEditor();
+    setConnected(state.connected);
+  }
+  setMessage(localized("布局已恢复默认。", "Layout reset."));
 }
 
 async function syncTime() {
@@ -4430,11 +4525,6 @@ function installEventHandlers() {
     withBusyWork(() => searchMarkets()).catch(handleActionError),
   );
 
-  elements.clockStyleSelect.addEventListener("change", () => {
-    state.activeClockStyle =
-      elements.clockStyleSelect.value === "classic" ? "classic" : "dashboard";
-    renderDashboardLayoutEditor();
-  });
   elements.layoutPresetSelect.addEventListener("change", () => {
     setActiveDashboardLayout(elements.layoutPresetSelect.value, { dirty: true });
   });
@@ -4548,7 +4638,7 @@ async function initialize() {
   applyTranslations();
   renderTimezoneOptions();
   applyComfortInputs(DEFAULT_COMFORT_SETTINGS);
-  state.dashboardLayouts = [defaultDashboardLayoutPreset()];
+  state.dashboardLayouts = [defaultClassicLayoutPreset(), defaultDashboardLayoutPreset()];
   loadLayoutPresets();
   elements.otaManifestInput.value = DEFAULT_OTA_MANIFEST_URL;
   elements.webFlashManifestInput.value = DEFAULT_WEB_FLASH_MANIFEST_URL;

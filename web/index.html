@@ -22,7 +22,7 @@
             </label>
           </div>
           <p class="lead" data-i18n="intro.lead">
-            通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和时钟样式。
+            通过 USB 或蓝牙连接设备，保存 Wi-Fi、时区和布局。
           </p>
           <ol class="steps">
             <li data-i18n="intro.step.connect">连接 USB 或蓝牙</li>
@@ -119,8 +119,8 @@
               <strong id="timezone-label">-</strong>
             </div>
             <div class="status-tile">
-              <span class="status-label" data-i18n="status.style">样式</span>
-              <strong id="clock-style-label">-</strong>
+              <span class="status-label" data-i18n="status.layout">布局</span>
+              <strong id="layout-label">-</strong>
             </div>
             <div class="status-tile">
               <span class="status-label">RTC</span>
@@ -195,13 +195,6 @@
               <label class="field">
                 <span data-i18n="settings.timezone">时区</span>
                 <select id="timezone-select"></select>
-              </label>
-              <label class="field">
-                <span data-i18n="settings.clockStyle">时钟样式</span>
-                <select id="clock-style-select">
-                  <option value="dashboard" data-i18n="clockStyle.dashboard">仪表盘</option>
-                  <option value="classic" data-i18n="clockStyle.classic">经典数字</option>
-                </select>
               </label>
               <label class="field">
                 <span data-i18n="settings.partialCleanInterval">墨水屏清晰度校准频率</span>
@@ -455,7 +448,7 @@
             </div>
 
             <p class="update-warning" data-i18n="update.fullFlashWarning">
-              可能清除设备配置，包括 Wi-Fi、时区、时钟样式、行情标的和表情条件。
+              可能清除设备配置，包括 Wi-Fi、时区、布局、行情标的和表情条件。
             </p>
 
             <label class="field update-field">

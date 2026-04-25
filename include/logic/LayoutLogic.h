@@ -8,6 +8,8 @@ namespace logic {
 
 static constexpr int16_t kLayoutScreenWidth = 960;
 static constexpr int16_t kLayoutScreenHeight = 540;
+static constexpr const char* kClassicLayoutId = "classic-default";
+static constexpr const char* kClassicLayoutName = "经典数字";
 static constexpr const char* kDefaultLayoutId = "dashboard-default";
 static constexpr const char* kDefaultLayoutName = "仪表盘";
 
@@ -18,6 +20,8 @@ enum class DashboardComponentId : uint8_t {
     Time,
     Summary,
     Climate,
+    ClassicTime,
+    ClassicInfo,
     Count
 };
 
@@ -53,6 +57,10 @@ inline DashboardLayout DefaultDashboardLayout() {
          86, true, "summary-card"},
         {DashboardComponentId::Climate, "climate-main", "climate", 428, 392,
          456, 86, true, "compact-card"},
+        {DashboardComponentId::ClassicTime, "classic-time", "classic-time",
+         100, 72, 760, 300, false, "large-digits"},
+        {DashboardComponentId::ClassicInfo, "classic-info", "classic-info",
+         100, 378, 760, 120, false, "metrics"},
     }};
 }
 

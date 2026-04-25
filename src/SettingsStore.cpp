@@ -17,7 +17,8 @@ AppSettings SettingsStore::load() const {
     settings.password = preferences_.getString("password", "");
     settings.timezone = preferences_.getChar("timezone", settings.timezone);
     settings.time_synced = preferences_.getBool("time_synced", false);
-    settings.clock_style = preferences_.getUChar("clock_style", settings.clock_style);
+    settings.active_layout_id =
+        preferences_.getString("active_layout_id", settings.active_layout_id);
     settings.market_symbol =
         preferences_.getString("market_symbol", settings.market_symbol);
     settings.market_name =
@@ -75,7 +76,7 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("password", settings.password);
     preferences_.putChar("timezone", settings.timezone);
     preferences_.putBool("time_synced", settings.time_synced);
-    preferences_.putUChar("clock_style", settings.clock_style);
+    preferences_.putString("active_layout_id", settings.active_layout_id);
     preferences_.putString("market_symbol", settings.market_symbol);
     preferences_.putString("market_name", settings.market_name);
     preferences_.putString("ble_token", settings.ble_pairing_token);
@@ -116,11 +117,11 @@ void SettingsStore::saveTimeSynced(bool time_synced) {
     preferences_.putBool("time_synced", time_synced);
 }
 
-void SettingsStore::saveClockStyle(uint8_t clock_style) {
+void SettingsStore::saveActiveLayoutId(const String& active_layout_id) {
     if (!started_) {
         return;
     }
-    preferences_.putUChar("clock_style", clock_style);
+    preferences_.putString("active_layout_id", active_layout_id);
 }
 
 void SettingsStore::saveMarket(const String& market_symbol,

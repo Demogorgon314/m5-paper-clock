@@ -31,7 +31,6 @@ private:
     friend class BleConfigServerCallbacks;
 
     enum class PageId { Settings, WifiScan, Password, Clock };
-    enum class ClockStyle : uint8_t { Classic = 0, Dashboard = 1 };
     enum class ConfigTransport : uint8_t { Serial = 0, Bluetooth = 1 };
     enum class ConfigConnectionIcon : uint8_t {
         None = 0,
@@ -182,8 +181,8 @@ private:
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
     void refreshCurrentPage();
-    void cycleClockStyle(int delta);
-    bool usesDashboardClockStyle() const;
+    void cycleClockLayout(int delta);
+    bool usesDashboardLayout() const;
     void startBackgroundReconnect();
     void handleBackgroundConnectivity();
     void cancelBackgroundConnectivity();
@@ -215,13 +214,15 @@ private:
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void populateLayoutDocument(JsonObject document) const;
+    void populateClassicLayoutComponents(JsonArray components) const;
     void populateLayoutComponents(JsonArray components) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
     void sendConfigLine(const String& line, ConfigTransport transport) const;
     const char* currentPageName() const;
-    const char* clockStyleName() const;
+    const char* activeLayoutKind() const;
     const logic::DashboardLayoutItem& dashboardLayoutItem(
         logic::DashboardComponentId id) const;
+    bool dashboardComponentVisible(logic::DashboardComponentId id) const;
     int16_t dashboardComponentX(logic::DashboardComponentId id) const;
     int16_t dashboardComponentY(logic::DashboardComponentId id) const;
     bool applyLayoutDocument(JsonObjectConst document, String& error_message);
@@ -316,7 +317,6 @@ private:
     bool first_settings_render_ = true;
     bool touch_down_ = false;
     bool center_button_long_press_handled_ = false;
-    ClockStyle clock_style_ = ClockStyle::Dashboard;
     BackgroundConnectivityTask background_connectivity_task_ =
         BackgroundConnectivityTask::Idle;
     bool littlefs_ready_ = false;
@@ -340,9 +340,13 @@ private:
     uint32_t last_serial_config_at_ms_ = 0;
 
     String last_time_text_rendered_;
+    String last_dashboard_time_text_rendered_;
     String last_humidity_text_rendered_;
     String last_temperature_text_rendered_;
     String last_comfort_face_rendered_;
+    String last_dashboard_humidity_text_rendered_;
+    String last_dashboard_temperature_text_rendered_;
+    String last_dashboard_comfort_face_rendered_;
     String last_market_summary_rendered_;
     String last_dashboard_summary_title_rendered_;
     String last_dashboard_summary_price_rendered_;
