@@ -315,6 +315,35 @@ void drawFauxBoldString(M5EPD_Canvas& canvas, const String& text, int16_t x,
     }
 }
 
+String joinDateTextParts(const String& first, const String& second,
+                         const String& third) {
+    String output;
+    const String parts[] = {first, second, third};
+    for (const String& part : parts) {
+        if (part.isEmpty()) {
+            continue;
+        }
+        if (!output.isEmpty()) {
+            output += "  ";
+        }
+        output += part;
+    }
+    return output;
+}
+
+uint8_t fitDateTextSize(M5EPD_Canvas& canvas, const String& text,
+                        uint8_t preferred_size, uint8_t minimum_size,
+                        int16_t max_width) {
+    for (uint8_t size = preferred_size; size > minimum_size; --size) {
+        setCanvasTextSize(canvas, true, size);
+        if (canvas.textWidth(text) + 1 <= max_width) {
+            return size;
+        }
+    }
+    setCanvasTextSize(canvas, true, minimum_size);
+    return minimum_size;
+}
+
 String formatTwoDigits(int value) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%02d", value);
@@ -390,6 +419,51 @@ String formatDateOnly(const rtc_date_t& date) {
 
     char buf[24];
     snprintf(buf, sizeof(buf), "%04d-%02d-%02d", date.year, date.mon, date.day);
+    return String(buf);
+}
+
+String normalizeDateFormat(const String& value) {
+    if (value == "yyyy/mm/dd" || value == "mm-dd" ||
+        value == "yyyy年m月d日") {
+        return value;
+    }
+    return "yyyy-mm-dd";
+}
+
+String normalizeWeekdayFormat(const String& value) {
+    if (value == "long" || value == "narrow" || value == "english-short") {
+        return value;
+    }
+    return "short";
+}
+
+String normalizeDateLayout(const String& value) {
+    if (value == "date-only" || value == "holiday-only" ||
+        value == "two-line") {
+        return value;
+    }
+    return "inline";
+}
+
+String formatConfiguredDate(const rtc_date_t& date, const String& format) {
+    if (date.year < 2020) {
+        return String("");
+    }
+
+    const String normalized = normalizeDateFormat(format);
+    char buf[32];
+    if (normalized == "yyyy/mm/dd") {
+        snprintf(buf, sizeof(buf), "%04d/%02d/%02d", date.year, date.mon,
+                 date.day);
+    } else if (normalized == "mm-dd") {
+        snprintf(buf, sizeof(buf), "%02d-%02d", date.mon, date.day);
+    } else if (normalized == "yyyy年m月d日") {
+        snprintf(buf, sizeof(buf), "%04d年%d月%d日", date.year, date.mon,
+                 date.day);
+    } else {
+        snprintf(buf, sizeof(buf), "%04d-%02d-%02d", date.year, date.mon,
+                 date.day);
+    }
     return String(buf);
 }
 
@@ -472,6 +546,55 @@ String weekdayLabel(uint8_t week) {
         default:
             return String(u8"周六");
     }
+}
+
+String weekdayLabel(uint8_t week, const String& format) {
+    const uint8_t normalized_week = week % 7;
+    const String normalized = normalizeWeekdayFormat(format);
+    if (normalized == "long") {
+        switch (normalized_week) {
+            case 0:
+                return String(u8"星期日");
+            case 1:
+                return String(u8"星期一");
+            case 2:
+                return String(u8"星期二");
+            case 3:
+                return String(u8"星期三");
+            case 4:
+                return String(u8"星期四");
+            case 5:
+                return String(u8"星期五");
+            case 6:
+            default:
+                return String(u8"星期六");
+        }
+    }
+    if (normalized == "narrow") {
+        switch (normalized_week) {
+            case 0:
+                return String(u8"日");
+            case 1:
+                return String(u8"一");
+            case 2:
+                return String(u8"二");
+            case 3:
+                return String(u8"三");
+            case 4:
+                return String(u8"四");
+            case 5:
+                return String(u8"五");
+            case 6:
+            default:
+                return String(u8"六");
+        }
+    }
+    if (normalized == "english-short") {
+        static constexpr const char* kLabels[] = {"Sun", "Mon", "Tue", "Wed",
+                                                  "Thu", "Fri", "Sat"};
+        return String(kLabels[normalized_week]);
+    }
+    return weekdayLabel(normalized_week);
 }
 
 String calendarWeekdayLabel(uint8_t week) {
@@ -656,6 +779,7 @@ String formatDashboardTemperature(const EnvironmentReading& reading) {
 }
 
 void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
+                        int16_t center_y,
                         const logic::HolidayDisplay& display,
                         bool show_progress) {
     if (!display.valid() || display.id == logic::HolidayId::None) {
@@ -667,8 +791,14 @@ void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
     setCanvasTextSize(canvas, true, kDateCjkTextSize);
     const String text = formatHolidayDisplayText(display, show_progress);
     if (!text.isEmpty()) {
-        drawFauxBoldString(canvas, text, start_x, kDateH / 2);
+        drawFauxBoldString(canvas, text, start_x, center_y);
     }
+}
+
+void drawHolidayDisplay(M5EPD_Canvas& canvas, int16_t start_x,
+                        const logic::HolidayDisplay& display,
+                        bool show_progress) {
+    drawHolidayDisplay(canvas, start_x, kDateH / 2, display, show_progress);
 }
 
 PartialRegion makePartialRegion(int16_t x, int16_t y, int16_t w, int16_t h) {
@@ -1096,6 +1226,9 @@ void ClockApp::begin() {
     if (settings_.market_name.isEmpty()) {
         settings_.market_name = "上证指数";
     }
+    settings_.date_format = normalizeDateFormat(settings_.date_format);
+    settings_.weekday_format = normalizeWeekdayFormat(settings_.weekday_format);
+    settings_.date_layout = normalizeDateLayout(settings_.date_layout);
     settings_.comfort_settings =
         logic::NormalizeComfortSettings(settings_.comfort_settings);
     if (settings_.active_layout_id.isEmpty()) {
@@ -1877,19 +2010,44 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         !dashboardComponentVisible(logic::DashboardComponentId::Date)) {
         return;
     }
+    if (usesDashboardLayout() && full_refresh && fast_dashboard_entry_render_) {
+        rtc_date_t current_date;
+        M5.RTC.getDate(&current_date);
+        const String date_text = formatDateOnly(current_date);
+        const int16_t date_x =
+            dashboardComponentX(logic::DashboardComponentId::Date);
+        const int16_t date_y =
+            dashboardComponentY(logic::DashboardComponentId::Date);
+        date_canvas_.fillCanvas(kWhite);
+        date_canvas_.setTextDatum(CL_DATUM);
+        date_canvas_.setTextColor(kText);
+        setCanvasTextSize(date_canvas_, false, 3);
+        date_canvas_.drawString(date_text, 0, kDateH / 2);
+        date_canvas_.pushCanvas(date_x, date_y, UPDATE_MODE_NONE);
+        last_date_text_rendered_ = "";
+        last_holiday_display_rendered_ = "";
+        last_weekday_rendered_ = 255;
+        return;
+    }
 
     rtc_date_t current_date;
     M5.RTC.getDate(&current_date);
 
-    const String date_text = formatDateOnly(current_date);
+    const String date_text =
+        formatConfiguredDate(current_date, settings_.date_format);
     const uint8_t week = calculateWeekday(current_date);
     const logic::HolidayDisplay holiday_display = logic::HolidayDisplayForDate(
         current_date.year, current_date.mon, current_date.day);
-    const String holiday_signature = formatHolidayDisplaySignature(holiday_display);
+    const String holiday_signature =
+        settings_.show_holiday ? formatHolidayDisplaySignature(holiday_display)
+                               : String("");
     const String pairing_signature =
         blePairingCodeActive() ? "ble:" + ble_pairing_code_ : "";
     const String holiday_pairing_signature =
-        holiday_signature + "|" + pairing_signature;
+        holiday_signature + "|" + pairing_signature + "|" +
+        normalizeDateFormat(settings_.date_format) + "|" +
+        normalizeWeekdayFormat(settings_.weekday_format) + "|" +
+        normalizeDateLayout(settings_.date_layout);
     if (date_text == last_date_text_rendered_ &&
         week == last_weekday_rendered_ &&
         holiday_pairing_signature == last_holiday_display_rendered_) {
@@ -1900,8 +2058,8 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     const bool weekday_changed = week != last_weekday_rendered_;
     const bool holiday_changed =
         holiday_pairing_signature != last_holiday_display_rendered_;
-    const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
-    bool use_date_cjk = date_cjk_font_ready_ && !fast_ascii_only;
+    const bool fast_ascii_only = false;
+    bool use_date_cjk = date_cjk_font_ready_;
     if (use_date_cjk &&
         !ensureCjkCanvas(date_cjk_canvas_, kDateW, kDateH, {2, 3, 7})) {
         use_date_cjk = false;
@@ -1911,35 +2069,55 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         use_date_cjk ? date_cjk_canvas_ : date_canvas_;
 
     active_date_canvas.fillCanvas(kWhite);
-    const String weekday_text = weekdayLabel(week);
+    const String weekday_text = weekdayLabel(week, settings_.weekday_format);
+    const String date_layout = normalizeDateLayout(settings_.date_layout);
+    const bool show_date = date_layout != "holiday-only";
+    const bool show_weekday =
+        date_layout != "date-only" && date_layout != "holiday-only";
+    const bool show_holiday =
+        settings_.show_holiday && date_layout != "date-only" &&
+        holiday_display.valid();
 
     active_date_canvas.setTextDatum(CL_DATUM);
     active_date_canvas.setTextColor(kText);
     if (use_date_cjk) {
-        setCanvasTextSize(active_date_canvas, true, kDateCjkTextSize);
-        if (!date_text.isEmpty()) {
-            drawFauxBoldString(active_date_canvas, date_text, kDateCjkDateX,
-                               kDateH / 2);
-        }
-        if (!weekday_text.isEmpty()) {
-            drawFauxBoldString(active_date_canvas, weekday_text,
-                               kDateCjkWeekdayX, kDateH / 2);
-        }
-        int16_t pairing_x = 520;
-        if (holiday_display.valid()) {
-            bool show_progress =
-                holiday_display.state == logic::HolidayDisplayState::InHoliday;
-            drawHolidayDisplay(active_date_canvas, kDateCjkHolidayX,
-                               holiday_display, show_progress);
-        }
-        if (blePairingCodeActive()) {
-            drawFauxBoldString(active_date_canvas,
-                               "蓝牙配对码 " + ble_pairing_code_,
-                               pairing_x, kDateH / 2);
+        const String holiday_text =
+            show_holiday ? formatHolidayDisplayText(
+                               holiday_display,
+                               holiday_display.state ==
+                                   logic::HolidayDisplayState::InHoliday)
+                         : String("");
+        if (date_layout == "two-line") {
+            const String first_line = joinDateTextParts(
+                show_date ? date_text : String(""),
+                show_weekday ? weekday_text : String(""), String(""));
+            fitDateTextSize(active_date_canvas, first_line, 2, 2, kDateW);
+            if (!first_line.isEmpty()) {
+                drawFauxBoldString(active_date_canvas, first_line, 0, 12);
+            }
+            if (!holiday_text.isEmpty()) {
+                fitDateTextSize(active_date_canvas, holiday_text, 2, 2, kDateW);
+                drawFauxBoldString(active_date_canvas, holiday_text, 0, 34);
+            }
+        } else {
+            const String line = joinDateTextParts(
+                show_date ? date_text : String(""),
+                show_weekday ? weekday_text : String(""), holiday_text);
+            fitDateTextSize(active_date_canvas, line, kDateCjkTextSize, 5,
+                            kDateW);
+            if (!line.isEmpty()) {
+                drawFauxBoldString(active_date_canvas, line, 0, kDateH / 2);
+            }
+            if (blePairingCodeActive()) {
+                int16_t pairing_x = 520;
+                drawFauxBoldString(active_date_canvas,
+                                   "蓝牙配对码 " + ble_pairing_code_,
+                                   pairing_x, kDateH / 2);
+            }
         }
     } else {
         setCanvasTextSize(active_date_canvas, false, 3);
-        if (!date_text.isEmpty()) {
+        if (show_date && !date_text.isEmpty()) {
             active_date_canvas.drawString(date_text, 0, kDateH / 2);
         }
     }
@@ -1958,7 +2136,15 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
             nextPartialMode(date_partial_count_, settings_.partial_clean_interval);
         if (use_date_cjk) {
             DirtyRect dirty;
-            if (date_changed) {
+            if (holiday_changed) {
+                DirtyRect rect;
+                rect.x = 0;
+                rect.y = 0;
+                rect.w = kDateW;
+                rect.h = kDateH;
+                rect.valid = true;
+                includeDirtyRect(dirty, rect);
+            } else if (date_changed) {
                 DirtyRect rect;
                 rect.x = kDateDateAreaX;
                 rect.y = 0;
@@ -1972,15 +2158,6 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
                 rect.x = kDateWeekdayAreaX;
                 rect.y = 0;
                 rect.w = kDateWeekdayAreaW;
-                rect.h = kDateH;
-                rect.valid = true;
-                includeDirtyRect(dirty, rect);
-            }
-            if (holiday_changed) {
-                DirtyRect rect;
-                rect.x = kDateHolidayAreaX;
-                rect.y = 0;
-                rect.w = kDateHolidayAreaW;
                 rect.h = kDateH;
                 rect.valid = true;
                 includeDirtyRect(dirty, rect);
@@ -4745,6 +4922,10 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["marketSymbol"] = settings_.market_symbol;
     data["marketCode"] = currentMarketCode();
     data["marketDisplayName"] = currentMarketDisplayName();
+    data["dateFormat"] = settings_.date_format;
+    data["weekdayFormat"] = settings_.weekday_format;
+    data["dateLayout"] = settings_.date_layout;
+    data["showHoliday"] = settings_.show_holiday;
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
     data["partialCleanInterval"] = settings_.partial_clean_interval;
@@ -4788,7 +4969,14 @@ void ClockApp::populateLayoutPreviewState(JsonObject data) const {
     date["iso"] = formatDateOnly(current_date);
     const uint8_t weekday = calculateWeekday(current_date);
     date["weekdayIndex"] = weekday;
+    date["dateFormat"] = settings_.date_format;
+    date["weekdayFormat"] = settings_.weekday_format;
+    date["layoutStyle"] = settings_.date_layout;
+    date["showHoliday"] = settings_.show_holiday;
+    date["displayDate"] =
+        formatConfiguredDate(current_date, settings_.date_format);
     date["weekdayLabel"] = weekdayLabel(weekday);
+    date["displayWeekday"] = weekdayLabel(weekday, settings_.weekday_format);
     date["monthLabel"] = formatDashboardMonth(current_date);
     date["daysInMonth"] = daysInMonth(current_date.year, current_date.mon);
     rtc_date_t first_day = current_date;
@@ -4797,7 +4985,9 @@ void ClockApp::populateLayoutPreviewState(JsonObject data) const {
     const logic::HolidayDisplay holiday_display =
         logic::HolidayDisplayForDate(current_date.year, current_date.mon,
                                      current_date.day);
-    date["holidayText"] = formatHolidayDisplayText(holiday_display, false);
+    date["holidayText"] = settings_.show_holiday
+        ? formatHolidayDisplayText(holiday_display, false)
+        : String("");
 
     JsonObject status = render_data.createNestedObject("status");
     const bool wifi_connected = connectivity_.isConnected();
@@ -4910,6 +5100,12 @@ void ClockApp::populateClassicLayoutComponents(JsonArray components) const {
         component["lockedSize"] = true;
         JsonObject props = component.createNestedObject("props");
         props["variant"] = item.variant;
+        if (String(item.type) == "date") {
+            props["dateFormat"] = settings_.date_format;
+            props["weekdayFormat"] = settings_.weekday_format;
+            props["showHoliday"] = settings_.show_holiday;
+            props["layoutStyle"] = settings_.date_layout;
+        }
     }
 }
 
@@ -4926,7 +5122,12 @@ void ClockApp::populateLayoutComponents(JsonArray components) const {
         component["lockedSize"] = true;
         JsonObject props = component.createNestedObject("props");
         props["variant"] = item.variant;
-        if (item.id == logic::DashboardComponentId::Summary) {
+        if (item.id == logic::DashboardComponentId::Date) {
+            props["dateFormat"] = settings_.date_format;
+            props["weekdayFormat"] = settings_.weekday_format;
+            props["showHoliday"] = settings_.show_holiday;
+            props["layoutStyle"] = settings_.date_layout;
+        } else if (item.id == logic::DashboardComponentId::Summary) {
             props["symbol"] = settings_.market_symbol;
         } else if (item.id == logic::DashboardComponentId::Climate ||
                    item.id == logic::DashboardComponentId::ClassicInfo) {
@@ -5063,6 +5264,11 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
 
     logic::DashboardLayout next_layout = settings_.dashboard_layout;
     String next_market_symbol = settings_.market_symbol;
+    String next_date_format = settings_.date_format;
+    String next_weekday_format = settings_.weekday_format;
+    String next_date_layout = settings_.date_layout;
+    bool next_show_holiday = settings_.show_holiday;
+    bool date_settings_changed = false;
     logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
     bool comfort_settings_changed = false;
     std::array<bool, logic::kDashboardComponentCount> seen {};
@@ -5093,7 +5299,30 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         item.visible = component["visible"] | item.visible;
         item = logic::ClampDashboardLayoutItem(item);
 
-        if (id == logic::DashboardComponentId::Summary) {
+        if (id == logic::DashboardComponentId::Date) {
+            JsonObjectConst props = component["props"].as<JsonObjectConst>();
+            if (!props.isNull()) {
+                if (props.containsKey("dateFormat")) {
+                    next_date_format =
+                        normalizeDateFormat(String(props["dateFormat"] | ""));
+                    date_settings_changed = true;
+                }
+                if (props.containsKey("weekdayFormat")) {
+                    next_weekday_format = normalizeWeekdayFormat(
+                        String(props["weekdayFormat"] | ""));
+                    date_settings_changed = true;
+                }
+                if (props.containsKey("layoutStyle")) {
+                    next_date_layout =
+                        normalizeDateLayout(String(props["layoutStyle"] | ""));
+                    date_settings_changed = true;
+                }
+                if (props.containsKey("showHoliday")) {
+                    next_show_holiday = props["showHoliday"].as<bool>();
+                    date_settings_changed = true;
+                }
+            }
+        } else if (id == logic::DashboardComponentId::Summary) {
             JsonObjectConst props = component["props"].as<JsonObjectConst>();
             if (!props.isNull()) {
                 const String prop_symbol = String(props["symbol"] | "");
@@ -5158,6 +5387,21 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         last_comfort_face_rendered_ = "";
         last_dashboard_comfort_face_rendered_ = "";
         store_.saveComfortSettings(settings_.comfort_settings);
+    }
+    if (date_settings_changed &&
+        (next_date_format != settings_.date_format ||
+         next_weekday_format != settings_.weekday_format ||
+         next_date_layout != settings_.date_layout ||
+         next_show_holiday != settings_.show_holiday)) {
+        settings_.date_format = next_date_format;
+        settings_.weekday_format = next_weekday_format;
+        settings_.date_layout = next_date_layout;
+        settings_.show_holiday = next_show_holiday;
+        last_date_text_rendered_ = "";
+        last_holiday_display_rendered_ = "";
+        last_weekday_rendered_ = 255;
+        store_.saveDateDisplay(settings_.date_format, settings_.weekday_format,
+                               settings_.date_layout, settings_.show_holiday);
     }
     return true;
 }

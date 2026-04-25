@@ -15,6 +15,10 @@ struct AppSettings {
     String active_layout_id = logic::kDefaultLayoutId;
     String market_symbol = "sh000001";
     String market_name = "上证指数";
+    String date_format = "yyyy-mm-dd";
+    String weekday_format = "short";
+    String date_layout = "inline";
+    bool show_holiday = true;
     String ble_pairing_token;
     logic::ComfortSettings comfort_settings;
     uint8_t partial_clean_interval = logic::kDefaultPartialCleanInterval;
@@ -31,6 +35,10 @@ public:
     void saveTimeSynced(bool time_synced);
     void saveActiveLayoutId(const String& active_layout_id);
     void saveMarket(const String& market_symbol, const String& market_name);
+    void saveDateDisplay(const String& date_format,
+                         const String& weekday_format,
+                         const String& date_layout,
+                         bool show_holiday);
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
     void savePartialCleanInterval(uint8_t partial_clean_interval);
     void saveDashboardLayout(const logic::DashboardLayout& dashboard_layout);

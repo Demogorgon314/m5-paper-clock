@@ -187,6 +187,22 @@ const I18N = Object.freeze({
     "layout.component.classicInfo": "经典温湿度",
     "layout.prop.symbol": "行情代码",
     "layout.prop.symbolPlaceholder": "例如 sh000001",
+    "layout.prop.dateFormat": "日期格式",
+    "layout.prop.weekdayFormat": "星期格式",
+    "layout.prop.dateLayout": "显示模式",
+    "layout.prop.showHoliday": "显示节假日倒计时",
+    "layout.dateFormat.yyyyMmDd": "2026-04-25",
+    "layout.dateFormat.yyyySlashMmDd": "2026/04/25",
+    "layout.dateFormat.mmDd": "04-25",
+    "layout.dateFormat.zhLong": "2026年4月25日",
+    "layout.weekdayFormat.short": "周六",
+    "layout.weekdayFormat.long": "星期六",
+    "layout.weekdayFormat.narrow": "六",
+    "layout.weekdayFormat.englishShort": "Sat",
+    "layout.dateLayout.inline": "单行",
+    "layout.dateLayout.twoLine": "两行",
+    "layout.dateLayout.dateOnly": "仅日期",
+    "layout.dateLayout.holidayOnly": "仅倒计时",
     "layout.noProperties": "这个组件暂时没有可配置属性。",
     "layout.nudge": "微调",
     "layout.resetComponent": "重置此组件",
@@ -360,6 +376,22 @@ const I18N = Object.freeze({
     "layout.component.classicInfo": "Classic Climate",
     "layout.prop.symbol": "Market symbol",
     "layout.prop.symbolPlaceholder": "For example sh000001",
+    "layout.prop.dateFormat": "Date format",
+    "layout.prop.weekdayFormat": "Weekday format",
+    "layout.prop.dateLayout": "Display mode",
+    "layout.prop.showHoliday": "Show holiday countdown",
+    "layout.dateFormat.yyyyMmDd": "2026-04-25",
+    "layout.dateFormat.yyyySlashMmDd": "2026/04/25",
+    "layout.dateFormat.mmDd": "04-25",
+    "layout.dateFormat.zhLong": "2026年4月25日",
+    "layout.weekdayFormat.short": "周六",
+    "layout.weekdayFormat.long": "星期六",
+    "layout.weekdayFormat.narrow": "六",
+    "layout.weekdayFormat.englishShort": "Sat",
+    "layout.dateLayout.inline": "Single line",
+    "layout.dateLayout.twoLine": "Two lines",
+    "layout.dateLayout.dateOnly": "Date only",
+    "layout.dateLayout.holidayOnly": "Countdown only",
     "layout.noProperties": "This component has no configurable properties yet.",
     "layout.nudge": "Nudge",
     "layout.resetComponent": "Reset component",
@@ -643,8 +675,12 @@ function currentDashboardPreviewSample() {
   const changePrefix = marketPositive ? "+" : "";
   return {
     ...DASHBOARD_PREVIEW_SAMPLE,
-    date: date.iso || DASHBOARD_PREVIEW_SAMPLE.date,
-    weekdayZh: date.weekdayLabel || DASHBOARD_PREVIEW_SAMPLE.weekdayZh,
+    date: date.displayDate || date.iso || DASHBOARD_PREVIEW_SAMPLE.date,
+    isoDate: date.iso || DASHBOARD_PREVIEW_SAMPLE.date,
+    weekdayZh:
+      date.displayWeekday ||
+      date.weekdayLabel ||
+      DASHBOARD_PREVIEW_SAMPLE.weekdayZh,
     holidayZh:
       typeof date.holidayText === "string"
         ? date.holidayText
@@ -1688,17 +1724,92 @@ function drawComponentFrame(canvas, item) {
   canvas.drawRoundRect(0, 0, item.w, item.h, 6, INK.border);
 }
 
+function formatPreviewDate(dateText, format) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+  if (!match) {
+    return dateText;
+  }
+  const [, year, month, day] = match;
+  if (format === "yyyy/mm/dd") {
+    return `${year}/${month}/${day}`;
+  }
+  if (format === "mm-dd") {
+    return `${month}-${day}`;
+  }
+  if (format === "yyyy年m月d日") {
+    return `${year}年${Number(month)}月${Number(day)}日`;
+  }
+  return `${year}-${month}-${day}`;
+}
+
+function formatPreviewWeekday(weekday, format) {
+  const weekdays = {
+    short: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
+    long: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"],
+    narrow: ["日", "一", "二", "三", "四", "五", "六"],
+    "english-short": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  };
+  const index = Math.max(0, Math.min(6, Number(weekday) || 0));
+  return (weekdays[format] || weekdays.short)[index];
+}
+
+function joinPreviewDateTextParts(...parts) {
+  return parts.filter((part) => part).join("  ");
+}
+
+function fitPreviewDateTextSize(canvas, text, preferredSize, minimumSize, maxWidth) {
+  for (let size = preferredSize; size > minimumSize; size -= 1) {
+    canvas.setTextSize(size, true);
+    if (canvas.textWidth(text) + 1 <= maxWidth) {
+      return size;
+    }
+  }
+  canvas.setTextSize(minimumSize, true);
+  return minimumSize;
+}
+
 function drawPreviewDate(canvas, item) {
-  const c = DASHBOARD_RENDER_CONSTANTS;
   const sample = currentDashboardPreviewSample();
-  const weekday = sample.weekdayZh;
-  const holiday = sample.holidayZh;
+  const props = item.props || {};
+  const layoutStyle = props.layoutStyle || "inline";
+  const dateText = formatPreviewDate(
+    sample.isoDate || sample.date,
+    props.dateFormat || "yyyy-mm-dd",
+  );
+  const weekday = formatPreviewWeekday(
+    (sample.firstWeekday + sample.day - 1) % 7,
+    props.weekdayFormat || "short",
+  );
+  const holiday = props.showHoliday === false ? "" : sample.holidayZh;
+  const showDate = layoutStyle !== "holiday-only";
+  const showWeekday = layoutStyle !== "date-only" && layoutStyle !== "holiday-only";
+  const showHoliday = Boolean(holiday) && layoutStyle !== "date-only";
   canvas.setTextDatum(TEXT_DATUM.CL);
   canvas.setTextColor(INK.text);
-  canvas.setTextSize(c.dateCjkTextSize, true);
-  canvas.drawFauxBoldString(sample.date, c.dateCjkDateX, item.h / 2);
-  canvas.drawFauxBoldString(weekday, c.dateCjkWeekdayX, item.h / 2);
-  canvas.drawFauxBoldString(holiday, c.dateCjkHolidayX, item.h / 2);
+  if (layoutStyle === "two-line") {
+    const firstLine = joinPreviewDateTextParts(
+      showDate ? dateText : "",
+      showWeekday ? weekday : "",
+    );
+    fitPreviewDateTextSize(canvas, firstLine, 2, 2, item.w);
+    if (firstLine) {
+      canvas.drawFauxBoldString(firstLine, 0, 12);
+    }
+    if (showHoliday) {
+      fitPreviewDateTextSize(canvas, holiday, 2, 2, item.w);
+      canvas.drawFauxBoldString(holiday, 0, 34);
+    }
+    return;
+  }
+  const line = joinPreviewDateTextParts(
+    showDate ? dateText : "",
+    showWeekday ? weekday : "",
+    showHoliday ? holiday : "",
+  );
+  fitPreviewDateTextSize(canvas, line, DASHBOARD_RENDER_CONSTANTS.dateCjkTextSize, 5, item.w);
+  if (line) {
+    canvas.drawFauxBoldString(line, 0, item.h / 2);
+  }
 }
 
 function drawWifiStatusIcon(canvas, originX, originY, connected = true) {
@@ -2983,6 +3094,20 @@ function updateDashboardLayoutItemProps(id, patch) {
   setDashboardLayout(nextLayout, { dirty: true });
 }
 
+async function saveDashboardLayoutItemProps(id, props) {
+  updateDashboardLayoutItemProps(id, props);
+  if (state.connected) {
+    await saveDashboardLayout();
+    return;
+  }
+  setMessage(
+    localized(
+      "属性已保存到布局草稿。连接设备后点击“保存布局”写入设备。",
+      "Properties saved to the layout draft. Connect the device and click Save Layout to write them.",
+    ),
+  );
+}
+
 function selectDashboardLayoutItem(id) {
   const item = state.dashboardLayout.find(
     (layoutItem) => layoutItem.id === id && layoutItem.visible !== false,
@@ -3040,25 +3165,104 @@ function renderComponentPropertiesPanel(item) {
         </label>
       `;
     }
+    if (field.type === "select") {
+      const options = (field.options || []).map((option) => `
+        <option value="${escapeHtml(option.value)}"${value === option.value ? " selected" : ""}>
+          ${escapeHtml(t(option.labelKey))}
+        </option>
+      `).join("");
+      return `
+        <label>
+          <span>${escapeHtml(t(field.labelKey))}</span>
+          <select data-prop="${escapeHtml(field.key)}" data-id="${escapeHtml(item.id)}">
+            ${options}
+          </select>
+        </label>
+      `;
+    }
+    if (field.type === "checkbox") {
+      return `
+        <label class="checkbox-field">
+          <input
+            type="checkbox"
+            data-prop="${escapeHtml(field.key)}"
+            data-id="${escapeHtml(item.id)}"
+            ${value !== false ? "checked" : ""}
+          />
+          <span>${escapeHtml(t(field.labelKey))}</span>
+        </label>
+      `;
+    }
     return "";
   }).join("");
+  const defaultProps = definition?.defaultItem?.props || {};
 
   panel.innerHTML = `
     <div class="layout-position-section-title">${escapeHtml(t("layout.properties"))}</div>
     ${
       fields
-        ? `<div class="layout-property-fields">${fields}</div>`
+        ? `
+          <div class="layout-property-fields">${fields}</div>
+          <div class="layout-property-actions">
+            <button class="action-button primary" type="button" data-props-save="true">
+              <span>${escapeHtml(t("comfort.save"))}</span>
+            </button>
+            <button class="action-button subtle" type="button" data-props-reset="true">
+              <span>${escapeHtml(t("comfort.restoreDefaults"))}</span>
+            </button>
+          </div>
+        `
         : `<p class="layout-position-hint">${escapeHtml(t("layout.noProperties"))}</p>`
     }
   `;
-  panel.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("change", () => {
-      updateDashboardLayoutItemProps(input.dataset.id, {
-        [input.dataset.prop]: input.value.trim(),
-      });
+  panel.querySelector("[data-props-save]")?.addEventListener("click", async () => {
+    try {
+      await saveDashboardLayoutItemProps(item.id, readSchemaPropsFromPanel(panel));
+    } catch (error) {
+      handleActionError(error);
+    }
+  });
+  panel.querySelector("[data-props-reset]")?.addEventListener("click", async () => {
+    applySchemaPropsToPanel(panel, schema, defaultProps);
+    try {
+      await saveDashboardLayoutItemProps(item.id, defaultProps);
+    } catch (error) {
+      handleActionError(error);
+    }
+  });
+  panel.querySelectorAll("input, select").forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        panel.querySelector("[data-props-save]")?.click();
+      }
     });
   });
   return panel;
+}
+
+function readSchemaPropsFromPanel(panel) {
+  const props = {};
+  panel.querySelectorAll("[data-prop]").forEach((input) => {
+    props[input.dataset.prop] =
+      input.type === "checkbox" ? input.checked : input.value.trim();
+  });
+  return props;
+}
+
+function applySchemaPropsToPanel(panel, schema, props) {
+  for (const field of schema) {
+    const input = panel.querySelector(`[data-prop="${CSS.escape(field.key)}"]`);
+    if (!input) {
+      continue;
+    }
+    const value = props[field.key];
+    if (input.type === "checkbox") {
+      input.checked = value !== false;
+    } else {
+      input.value = value ?? "";
+    }
+  }
 }
 
 function comfortSettingsFromLayoutItem(item) {
@@ -3137,16 +3341,20 @@ function renderClimatePropertiesPanel(item) {
       </button>
     </div>
   `;
-  panel.querySelector("[data-comfort-save]")?.addEventListener("click", () => {
+  panel.querySelector("[data-comfort-save]")?.addEventListener("click", async () => {
     try {
-      updateDashboardLayoutItemProps(item.id, readComfortSettingsFromPanel(panel));
+      await saveDashboardLayoutItemProps(item.id, readComfortSettingsFromPanel(panel));
     } catch (error) {
       handleActionError(error);
     }
   });
-  panel.querySelector("[data-comfort-reset]")?.addEventListener("click", () => {
+  panel.querySelector("[data-comfort-reset]")?.addEventListener("click", async () => {
     applyComfortSettingsToPanel(panel, DEFAULT_COMFORT_SETTINGS);
-    updateDashboardLayoutItemProps(item.id, DEFAULT_COMFORT_SETTINGS);
+    try {
+      await saveDashboardLayoutItemProps(item.id, DEFAULT_COMFORT_SETTINGS);
+    } catch (error) {
+      handleActionError(error);
+    }
   });
   panel.querySelectorAll("[data-comfort-prop]").forEach((input) => {
     input.addEventListener("keydown", (event) => {

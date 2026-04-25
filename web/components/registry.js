@@ -32,7 +32,10 @@ export const DEFAULT_CLASSIC_LAYOUT = Object.freeze([
   Object.freeze({
     ...dateComponent.defaultItem,
     id: "classic-date",
-    props: Object.freeze({ variant: "classic-header" }),
+    props: Object.freeze({
+      ...dateComponent.defaultItem.props,
+      variant: "classic-header",
+    }),
   }),
   Object.freeze({
     ...batteryComponent.defaultItem,

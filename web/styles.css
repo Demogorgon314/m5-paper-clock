@@ -1017,6 +1017,17 @@ button:focus {
   min-width: 0;
 }
 
+.layout-property-fields .checkbox-field {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.layout-property-fields .checkbox-field input {
+  width: auto;
+}
+
 .market-properties-panel {
   display: grid;
   gap: 12px;
@@ -1033,12 +1044,14 @@ button:focus {
   margin-top: 0;
 }
 
+.layout-property-actions,
 .climate-property-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
+.layout-property-actions .action-button,
 .climate-property-actions .action-button {
   width: 100%;
 }

@@ -23,6 +23,14 @@ AppSettings SettingsStore::load() const {
         preferences_.getString("market_symbol", settings.market_symbol);
     settings.market_name =
         preferences_.getString("market_name", settings.market_name);
+    settings.date_format =
+        preferences_.getString("date_format", settings.date_format);
+    settings.weekday_format =
+        preferences_.getString("weekday_fmt", settings.weekday_format);
+    settings.date_layout =
+        preferences_.getString("date_layout", settings.date_layout);
+    settings.show_holiday =
+        preferences_.getBool("show_holiday", settings.show_holiday);
     settings.ble_pairing_token = preferences_.getString("ble_token", "");
     settings.partial_clean_interval = static_cast<uint8_t>(
         logic::ClampPartialCleanInterval(preferences_.getUChar(
@@ -79,6 +87,10 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("active_layout_id", settings.active_layout_id);
     preferences_.putString("market_symbol", settings.market_symbol);
     preferences_.putString("market_name", settings.market_name);
+    preferences_.putString("date_format", settings.date_format);
+    preferences_.putString("weekday_fmt", settings.weekday_format);
+    preferences_.putString("date_layout", settings.date_layout);
+    preferences_.putBool("show_holiday", settings.show_holiday);
     preferences_.putString("ble_token", settings.ble_pairing_token);
     preferences_.putUChar(
         "partial_gc16",
@@ -131,6 +143,19 @@ void SettingsStore::saveMarket(const String& market_symbol,
     }
     preferences_.putString("market_symbol", market_symbol);
     preferences_.putString("market_name", market_name);
+}
+
+void SettingsStore::saveDateDisplay(const String& date_format,
+                                    const String& weekday_format,
+                                    const String& date_layout,
+                                    bool show_holiday) {
+    if (!started_) {
+        return;
+    }
+    preferences_.putString("date_format", date_format);
+    preferences_.putString("weekday_fmt", weekday_format);
+    preferences_.putString("date_layout", date_layout);
+    preferences_.putBool("show_holiday", show_holiday);
 }
 
 void SettingsStore::saveComfortSettings(
