@@ -3159,7 +3159,7 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
     DynamicJsonDocument request_doc(12288);
     DeserializationError parse_error =
         deserializeJson(request_doc, line.c_str());
-    DynamicJsonDocument response_doc(12288);
+    DynamicJsonDocument response_doc(16384);
     const uint32_t request_id = request_doc["id"] | 0;
     response_doc["id"] = request_id;
 
@@ -3214,6 +3214,14 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
         response_doc["ok"] = true;
         JsonObject data = response_doc.createNestedObject("data");
         populateSerialStatus(data);
+        sendConfigDoc(response_doc, transport);
+        return;
+    }
+
+    if (command == "layout_preview_state") {
+        response_doc["ok"] = true;
+        JsonObject data = response_doc.createNestedObject("data");
+        populateLayoutPreviewState(data);
         sendConfigDoc(response_doc, transport);
         return;
     }
@@ -4750,6 +4758,94 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["statusMessage"] = status_message_;
     data["statusError"] = status_error_;
     populateLayoutDocument(data.createNestedObject("layoutDocument"));
+}
+
+void ClockApp::populateLayoutPreviewState(JsonObject data) const {
+    rtc_time_t current_time;
+    rtc_date_t current_date;
+    M5.RTC.getTime(&current_time);
+    M5.RTC.getDate(&current_date);
+
+    data["protocolVersion"] = 1;
+    data["generatedAtMs"] = millis();
+    data["activeLayoutId"] = settings_.active_layout_id;
+    data["layoutKind"] = activeLayoutKind();
+    populateLayoutDocument(data.createNestedObject("layoutDocument"));
+
+    JsonObject render_data = data.createNestedObject("renderData");
+
+    JsonObject time = render_data.createNestedObject("time");
+    time["hour"] = current_time.hour;
+    time["minute"] = current_time.min;
+    time["text"] = formatTimeDigits(current_time);
+    time["display"] = formatTwoDigits(current_time.hour) + ":" +
+                      formatTwoDigits(current_time.min);
+
+    JsonObject date = render_data.createNestedObject("date");
+    date["year"] = current_date.year;
+    date["month"] = current_date.mon;
+    date["day"] = current_date.day;
+    date["iso"] = formatDateOnly(current_date);
+    const uint8_t weekday = calculateWeekday(current_date);
+    date["weekdayIndex"] = weekday;
+    date["weekdayLabel"] = weekdayLabel(weekday);
+    date["monthLabel"] = formatDashboardMonth(current_date);
+    date["daysInMonth"] = daysInMonth(current_date.year, current_date.mon);
+    rtc_date_t first_day = current_date;
+    first_day.day = 1;
+    date["firstWeekday"] = calculateWeekday(first_day);
+    const logic::HolidayDisplay holiday_display =
+        logic::HolidayDisplayForDate(current_date.year, current_date.mon,
+                                     current_date.day);
+    date["holidayText"] = formatHolidayDisplayText(holiday_display, false);
+
+    JsonObject status = render_data.createNestedObject("status");
+    const bool wifi_connected = connectivity_.isConnected();
+    status["batteryPercent"] = batteryPercentage();
+    status["wifiConnected"] = wifi_connected;
+    status["wifiSignalLevel"] =
+        wifi_connected ? wifiBitmapLevel(wifiSignalLevelFromRssi(WiFi.RSSI()))
+                       : 1;
+    switch (activeConfigConnectionIcon()) {
+        case ConfigConnectionIcon::Serial:
+            status["configConnectionIcon"] = "serial";
+            break;
+        case ConfigConnectionIcon::Bluetooth:
+            status["configConnectionIcon"] = "bluetooth";
+            break;
+        case ConfigConnectionIcon::None:
+        default:
+            status["configConnectionIcon"] = "none";
+            break;
+    }
+
+    const bool market_open = logic::IsCnAShareMarketOpen(
+        current_date.year, current_date.mon, current_date.day,
+        current_time.hour, current_time.min);
+    JsonObject market = render_data.createNestedObject("market");
+    market["requestSymbol"] = settings_.market_symbol;
+    market["code"] = currentMarketCode();
+    market["displayName"] = marketDisplayLabel(market_quote_, true);
+    market["valid"] = market_quote_.valid;
+    market["price"] = market_quote_.valid ? market_quote_.price : "--";
+    market["change"] = market_quote_.valid ? market_quote_.change : "";
+    market["changePercent"] =
+        market_quote_.valid ? market_quote_.change_percent : "";
+    market["positive"] = market_quote_.positive;
+    market["statusLabel"] = market_quote_.valid
+        ? marketStatusLabel(market_quote_, market_open, true)
+        : (!market_quote_.error_message.isEmpty()
+               ? market_quote_.error_message
+               : (wifi_connected ? String(u8"数据不可用") : String(u8"Wi-Fi 离线")));
+
+    JsonObject climate = render_data.createNestedObject("climate");
+    climate["valid"] = last_environment_.valid;
+    climate["humidity"] = formatDashboardHumidity(last_environment_);
+    climate["temperature"] = formatDashboardTemperature(last_environment_);
+    climate["rawHumidity"] = last_environment_.humidity;
+    climate["rawTemperature"] = last_environment_.temperature;
+    climate["comfortFace"] =
+        comfortFace(last_environment_, settings_.comfort_settings);
 }
 
 void ClockApp::populateLayoutDocument(JsonObject document) const {

@@ -607,6 +607,7 @@ const state = {
   supportsBluetooth: false,
   bleAuthToken: window.localStorage.getItem(BLE_AUTH_STORAGE_KEY) || "",
   lastStatus: null,
+  layoutPreviewState: null,
   otaManifest: null,
   otaManifestUrl: "",
   otaUpdateAvailable: false,
@@ -627,6 +628,59 @@ const state = {
   previewFontReady: false,
   previewWifiBitmaps: null,
 };
+
+function currentDashboardPreviewSample() {
+  const renderData = state.layoutPreviewState?.renderData || {};
+  const date = renderData.date || {};
+  const time = renderData.time || {};
+  const status = renderData.status || {};
+  const market = renderData.market || {};
+  const climate = renderData.climate || {};
+  const marketPositive = Boolean(market.positive);
+  const changePrefix = marketPositive ? "+" : "";
+  return {
+    ...DASHBOARD_PREVIEW_SAMPLE,
+    date: date.iso || DASHBOARD_PREVIEW_SAMPLE.date,
+    weekdayZh: date.weekdayLabel || DASHBOARD_PREVIEW_SAMPLE.weekdayZh,
+    holidayZh:
+      typeof date.holidayText === "string"
+        ? date.holidayText
+        : DASHBOARD_PREVIEW_SAMPLE.holidayZh,
+    month: Number(date.month || 0) || 4,
+    day: Number(date.day || 0) || 24,
+    daysInMonth: Number(date.daysInMonth || 0) || 30,
+    firstWeekday:
+      typeof date.firstWeekday === "number"
+        ? date.firstWeekday
+        : 3,
+    batteryPercent:
+      typeof status.batteryPercent === "number"
+        ? status.batteryPercent
+        : DASHBOARD_PREVIEW_SAMPLE.batteryPercent,
+    wifiConnected:
+      typeof status.wifiConnected === "boolean"
+        ? status.wifiConnected
+        : DASHBOARD_PREVIEW_SAMPLE.wifiConnected,
+    wifiSignalLevel:
+      typeof status.wifiSignalLevel === "number"
+        ? status.wifiSignalLevel
+        : DASHBOARD_PREVIEW_SAMPLE.wifiSignalLevel,
+    configConnectionIcon:
+      status.configConnectionIcon || DASHBOARD_PREVIEW_SAMPLE.configConnectionIcon,
+    time: time.display || DASHBOARD_PREVIEW_SAMPLE.time,
+    marketNameZh: market.displayName || DASHBOARD_PREVIEW_SAMPLE.marketNameZh,
+    marketValue: market.price || DASHBOARD_PREVIEW_SAMPLE.marketValue,
+    marketStatusZh: market.statusLabel || DASHBOARD_PREVIEW_SAMPLE.marketStatusZh,
+    marketChangeValue:
+      market.change ? `${changePrefix}${market.change}` : "-13.35",
+    marketChangePercent:
+      market.changePercent ? `${changePrefix}${market.changePercent}%` : "-0.33%",
+    marketPositive,
+    humidity: climate.humidity || DASHBOARD_PREVIEW_SAMPLE.humidity,
+    temperature: climate.temperature || DASHBOARD_PREVIEW_SAMPLE.temperature,
+    comfortFace: climate.comfortFace || DASHBOARD_PREVIEW_SAMPLE.comfortFace,
+  };
+}
 
 function detectInitialLocale() {
   const savedLocale = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
@@ -1150,7 +1204,7 @@ const DASHBOARD_RENDER_CONSTANTS = Object.freeze({
   timeDigitH: 210,
   timeGap: 18,
   timeColonW: 30,
-  timeDrawX: 7,
+  timeDrawX: 1,
   timeDigitY: 13,
   summaryW: 332,
   summaryH: 86,
@@ -1633,18 +1687,21 @@ function drawComponentFrame(canvas, item) {
 
 function drawPreviewDate(canvas, item) {
   const c = DASHBOARD_RENDER_CONSTANTS;
-  const weekday = DASHBOARD_PREVIEW_SAMPLE.weekdayZh;
-  const holiday = DASHBOARD_PREVIEW_SAMPLE.holidayZh;
+  const sample = currentDashboardPreviewSample();
+  const weekday = sample.weekdayZh;
+  const holiday = sample.holidayZh;
   canvas.setTextDatum(TEXT_DATUM.CL);
   canvas.setTextColor(INK.text);
   canvas.setTextSize(c.dateCjkTextSize, true);
-  canvas.drawFauxBoldString(DASHBOARD_PREVIEW_SAMPLE.date, c.dateCjkDateX, item.h / 2);
+  canvas.drawFauxBoldString(sample.date, c.dateCjkDateX, item.h / 2);
   canvas.drawFauxBoldString(weekday, c.dateCjkWeekdayX, item.h / 2);
   canvas.drawFauxBoldString(holiday, c.dateCjkHolidayX, item.h / 2);
 }
 
 function drawWifiStatusIcon(canvas, originX, originY, connected = true) {
-  const bitmap = previewWifiBitmapForLevel(DASHBOARD_PREVIEW_SAMPLE.wifiSignalLevel);
+  const bitmap = previewWifiBitmapForLevel(
+    currentDashboardPreviewSample().wifiSignalLevel,
+  );
   if (bitmap) {
     canvas.pushImage4bpp(originX, originY, bitmap.width, bitmap.height, bitmap.data);
   } else {
@@ -1752,7 +1809,8 @@ function drawClassicComfortInfoAt(canvas, centerX, centerY, face, color, useCjkF
 
 function drawPreviewBattery(canvas) {
   const c = DASHBOARD_RENDER_CONSTANTS;
-  const battery = DASHBOARD_PREVIEW_SAMPLE.batteryPercent;
+  const sample = currentDashboardPreviewSample();
+  const battery = sample.batteryPercent;
   const batteryLabel = `${String(battery).padStart(3, " ")}%`;
   const bodyW = 38;
   const bodyH = 20;
@@ -1783,12 +1841,12 @@ function drawPreviewBattery(canvas) {
   const transportX = wifiX - transportGap - transportSize;
   const transportY = 10;
   canvas.drawString(batteryLabel, labelRight, c.batteryH / 2);
-  if (DASHBOARD_PREVIEW_SAMPLE.configConnectionIcon === "serial") {
+  if (sample.configConnectionIcon === "serial") {
     drawUsbStatusIcon(canvas, transportX, transportY);
-  } else if (DASHBOARD_PREVIEW_SAMPLE.configConnectionIcon === "bluetooth") {
+  } else if (sample.configConnectionIcon === "bluetooth") {
     drawBluetoothStatusIcon(canvas, transportX, transportY);
   }
-  drawWifiStatusIcon(canvas, wifiX, wifiY, true);
+  drawWifiStatusIcon(canvas, wifiX, wifiY, sample.wifiConnected);
   canvas.drawRoundRect(bodyX, bodyY, bodyW, bodyH, 3, INK.text);
   canvas.fillRect(capX, capY, capW, capH, INK.text);
   if (fillW > 0) {
@@ -1798,11 +1856,12 @@ function drawPreviewBattery(canvas) {
 
 function drawPreviewCalendar(canvas) {
   const c = DASHBOARD_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   canvas.fillCanvas(INK.white);
   canvas.setTextColor(INK.text);
   canvas.setTextDatum(TEXT_DATUM.CC);
   canvas.setTextSize(5, false);
-  canvas.drawString("04", c.calendarW / 2, 24, { weight: 700 });
+  canvas.drawString(String(sample.month).padStart(2, "0"), c.calendarW / 2, 24, { weight: 700 });
   const weekdays =
     ["日", "一", "二", "三", "四", "五", "六"];
   weekdays.forEach((day, index) => {
@@ -1811,21 +1870,21 @@ function drawPreviewCalendar(canvas) {
       Math.floor((c.calendarCellW - 2) / 2), c.calendarHeaderY + 8);
   });
   canvas.setTextSize(2, false);
-  for (let day = 1; day <= 30; day += 1) {
-    const slot = day + 2;
+  for (let day = 1; day <= sample.daysInMonth; day += 1) {
+    const slot = day + sample.firstWeekday - 1;
     const row = Math.floor(slot / 7);
     const col = slot % 7;
     const x = c.calendarStartX + col * c.calendarCellW;
     const y = c.calendarGridY + row * c.calendarCellH;
-    if (day === 24) {
+    if (day === sample.day) {
       canvas.fillRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2,
         INK.calendarTodayFill);
-    } else if (day < 24) {
+    } else if (day < sample.day) {
       canvas.fillRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2,
         INK.calendarPastFill);
     }
     canvas.drawRect(x, y, c.calendarCellW - 2, c.calendarCellH - 2, INK.border);
-    canvas.setTextColor(day === 24 ? INK.white : INK.text);
+    canvas.setTextColor(day === sample.day ? INK.white : INK.text);
     canvas.drawString(String(day), x + Math.floor((c.calendarCellW - 2) / 2),
       y + Math.floor((c.calendarCellH - 2) / 2), { weight: 700 });
   }
@@ -1833,26 +1892,28 @@ function drawPreviewCalendar(canvas) {
 
 function drawPreviewTime(canvas) {
   const c = DASHBOARD_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   canvas.fillCanvas(INK.white);
   previewSegmentRenderer.drawText(canvas, c.timeDrawX, c.timeDigitY,
-    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    sample.time, c.timeDigitW, c.timeDigitH, c.timeGap,
     INK.text, INK.edgeText);
 }
 
 function drawPreviewMarket(canvas, item) {
+  const sample = currentDashboardPreviewSample();
   drawComponentFrame(canvas, item);
-  const name = DASHBOARD_PREVIEW_SAMPLE.marketNameZh;
-  const status = DASHBOARD_PREVIEW_SAMPLE.marketStatusZh;
+  const name = sample.marketNameZh;
+  const status = sample.marketStatusZh;
   canvas.setTextDatum(TEXT_DATUM.TL);
   canvas.setTextColor(INK.text);
   canvas.setTextSize(2, true);
   canvas.drawFauxBoldString(name, 16, 9);
   canvas.setTextDatum(TEXT_DATUM.TR);
   canvas.setTextSize(4, false);
-  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.marketValue, item.w - 14, 10);
+  canvas.drawString(sample.marketValue, item.w - 14, 10);
   canvas.setTextSize(2, false);
-  const percentValue = "-0.33%";
-  const changeValue = "-13.35";
+  const percentValue = sample.marketChangePercent;
+  const changeValue = sample.marketChangeValue;
   const percentRight = item.w - 14;
   const percentWidth = canvas.textWidth(percentValue);
   const changeRight = percentRight - percentWidth - DASHBOARD_RENDER_CONSTANTS.summaryValueGap;
@@ -1860,8 +1921,13 @@ function drawPreviewMarket(canvas, item) {
   const changeLeft = changeRight - changeWidth;
   const arrowCenterX = changeLeft - DASHBOARD_RENDER_CONSTANTS.summaryArrowGap;
   const arrowCenterY = DASHBOARD_RENDER_CONSTANTS.summaryBottomY + 5;
-  canvas.fillTriangle(arrowCenterX - 8, arrowCenterY - 6, arrowCenterX,
-    arrowCenterY + 6, arrowCenterX + 8, arrowCenterY - 6, INK.text);
+  if (sample.marketPositive) {
+    canvas.fillTriangle(arrowCenterX - 8, arrowCenterY + 6, arrowCenterX,
+      arrowCenterY - 6, arrowCenterX + 8, arrowCenterY + 6, INK.text);
+  } else {
+    canvas.fillTriangle(arrowCenterX - 8, arrowCenterY - 6, arrowCenterX,
+      arrowCenterY + 6, arrowCenterX + 8, arrowCenterY - 6, INK.text);
+  }
   canvas.setTextDatum(TEXT_DATUM.TL);
   canvas.setTextColor(INK.mutedText);
   canvas.setTextSize(2, true);
@@ -1875,6 +1941,7 @@ function drawPreviewMarket(canvas, item) {
 
 function drawPreviewClimate(canvas, item) {
   const c = DASHBOARD_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   drawComponentFrame(canvas, item);
   canvas.drawFastVLine(c.climateHumidityDividerX, 18, 50, INK.border);
   canvas.drawFastVLine(c.climateTemperatureDividerX, 18, 50, INK.border);
@@ -1882,35 +1949,36 @@ function drawPreviewClimate(canvas, item) {
   canvas.setTextDatum(TEXT_DATUM.CL);
   canvas.setTextColor(INK.text);
   canvas.setTextSize(5, false);
-  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.humidity, 18, climateValueY);
-  const humidityWidth = canvas.textWidth(DASHBOARD_PREVIEW_SAMPLE.humidity);
+  canvas.drawString(sample.humidity, 18, climateValueY);
+  const humidityWidth = canvas.textWidth(sample.humidity);
   canvas.setTextSize(2, false);
   canvas.drawString("%", 18 + humidityWidth + 6, climateValueY + 14);
   canvas.setTextSize(5, false);
-  canvas.drawString(DASHBOARD_PREVIEW_SAMPLE.temperature, 134, climateValueY);
-  const temperatureWidth = canvas.textWidth(DASHBOARD_PREVIEW_SAMPLE.temperature);
+  canvas.drawString(sample.temperature, 134, climateValueY);
+  const temperatureWidth = canvas.textWidth(sample.temperature);
   const unitX = 134 + temperatureWidth + 4;
   canvas.setTextSize(2, false);
   canvas.drawString("o", unitX, climateValueY - 8);
   canvas.drawString("C", unitX + 14, climateValueY + 14);
   drawCompactComfortInfoAt(canvas,
     c.climateTemperatureDividerX + Math.floor((item.w - c.climateTemperatureDividerX) / 2),
-    Math.floor(c.climateH / 2) + 2, DASHBOARD_PREVIEW_SAMPLE.comfortFace,
+    Math.floor(c.climateH / 2) + 2, sample.comfortFace,
     INK.text, false);
 }
 
 function drawClassicPreviewInfo(canvas) {
   const c = CLASSIC_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   canvas.fillCanvas(INK.white);
   previewSegmentRenderer.drawText(canvas, c.humidityDigitX, c.infoDigitY,
-    DASHBOARD_PREVIEW_SAMPLE.humidity.padStart(3, " "), c.smallDigitW,
+    sample.humidity.padStart(3, " "), c.smallDigitW,
     c.smallDigitH, c.smallGap, INK.text, INK.mutedText);
   canvas.setTextDatum(TEXT_DATUM.TL);
   canvas.setTextColor(INK.text);
   canvas.setTextSize(3, false);
   canvas.drawString("%", c.humidityUnitX, c.humidityUnitY);
 
-  const temperatureDigits = DASHBOARD_PREVIEW_SAMPLE.temperature.replace(".", "").padStart(3, " ");
+  const temperatureDigits = sample.temperature.replace(".", "").padStart(3, " ");
   const temperatureDisplay = `${temperatureDigits.slice(0, 2)}.${temperatureDigits.slice(2)}`;
   previewSegmentRenderer.drawText(canvas, c.temperatureDigitX, c.infoDigitY,
     temperatureDisplay, c.smallDigitW, c.smallDigitH, c.smallGap,
@@ -1921,14 +1989,15 @@ function drawClassicPreviewInfo(canvas) {
   canvas.drawString("o", c.temperatureDegreeX, c.temperatureDegreeY);
 
   drawClassicComfortInfoAt(canvas, c.comfortCenterX, c.comfortCenterY,
-    DASHBOARD_PREVIEW_SAMPLE.comfortFace, INK.text, false);
+    sample.comfortFace, INK.text, false);
 }
 
 function drawPreviewClassicTime(canvas) {
   const c = CLASSIC_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   canvas.fillCanvas(INK.white);
   previewSegmentRenderer.drawText(canvas, 7, c.timeDigitY,
-    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    sample.time, c.timeDigitW, c.timeDigitH, c.timeGap,
     INK.text, INK.edgeText);
 }
 
@@ -1965,6 +2034,7 @@ function renderDashboardPreviewCanvas(ctx) {
 
 function renderClassicPreviewCanvas(ctx) {
   const c = CLASSIC_RENDER_CONSTANTS;
+  const sample = currentDashboardPreviewSample();
   const rootCanvas = new InkCanvas(ctx, DASHBOARD_PREVIEW.width, DASHBOARD_PREVIEW.height);
   rootCanvas.fillCanvas(INK.paper);
 
@@ -1984,7 +2054,7 @@ function renderClassicPreviewCanvas(ctx) {
   const timeCanvas = rootCanvas.child(c.timeX, c.timeY, c.timeW, c.timeH);
   timeCanvas.fillCanvas(INK.white);
   previewSegmentRenderer.drawText(timeCanvas, 7, c.timeDigitY,
-    DASHBOARD_PREVIEW_SAMPLE.time, c.timeDigitW, c.timeDigitH, c.timeGap,
+    sample.time, c.timeDigitW, c.timeDigitH, c.timeGap,
     INK.text, INK.edgeText);
   timeCanvas.restore();
 
@@ -3486,6 +3556,32 @@ function updateStatus(status) {
   renderMarketResults();
 }
 
+function updateLayoutPreviewState(previewState) {
+  if (!previewState) {
+    return;
+  }
+  state.layoutPreviewState = previewState;
+  if (!state.layoutDirty) {
+    const activeLayout = activeLayoutFromDocument(previewState.layoutDocument);
+    if (activeLayout?.components) {
+      const normalized = normalizeDashboardLayoutPreset(activeLayout);
+      const existingIndex = state.dashboardLayouts.findIndex(
+        (layout) => layout.id === normalized.id,
+      );
+      if (existingIndex >= 0) {
+        state.dashboardLayouts[existingIndex] = normalized;
+      } else {
+        state.dashboardLayouts = [...state.dashboardLayouts, normalized];
+      }
+      state.activeLayoutId = normalized.id;
+      state.dashboardLayout = cloneDashboardLayout(normalized.components);
+      state.layoutDirty = false;
+      saveLayoutPresets();
+    }
+  }
+  renderDashboardLayoutEditor();
+}
+
 async function writeJson(payload) {
   const line = `${JSON.stringify(payload)}\n`;
   const bytes = state.encoder.encode(line);
@@ -3804,6 +3900,13 @@ async function openPortAtBaud(port, baudRate) {
     SERIAL_HANDSHAKE_TIMEOUT_MS,
   );
   updateStatus(data);
+  updateLayoutPreviewState(
+    await sendCommand(
+      "layout_preview_state",
+      undefined,
+      SERIAL_HANDSHAKE_TIMEOUT_MS,
+    ),
+  );
   startPolling();
   await searchMarkets("", { silent: true });
 }
@@ -3978,6 +4081,19 @@ async function refreshStatus(options = {}) {
   }
   const data = await sendCommand("get_status");
   updateStatus(data);
+  try {
+    updateLayoutPreviewState(await sendCommand("layout_preview_state"));
+  } catch (error) {
+    if (!silent) {
+      appendLog(
+        localized(
+          `布局预览状态不可用: ${error.message}`,
+          `Layout preview state unavailable: ${error.message}`,
+        ),
+        "error",
+      );
+    }
+  }
 }
 
 async function ensureBluetoothPaired() {

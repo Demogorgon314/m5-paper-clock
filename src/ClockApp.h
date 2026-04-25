@@ -224,6 +224,7 @@ private:
     void sendLocalOtaProgress(ConfigTransport transport) const;
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
+    void populateLayoutPreviewState(JsonObject data) const;
     void populateLayoutDocument(JsonObject document) const;
     void populateClassicLayoutComponents(JsonArray components) const;
     void populateLayoutComponents(JsonArray components) const;
