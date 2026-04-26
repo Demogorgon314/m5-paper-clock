@@ -31,6 +31,8 @@ const MARKET_SEARCH_JSONP_URL =
 const MARKET_SEARCH_LIMIT = 20;
 const MARKET_SEARCH_DEBOUNCE_MS = 350;
 const MARKET_SEARCH_TIMEOUT_MS = 8000;
+const MAX_LOG_LINES = 1000;
+const MAX_RENDERED_LOG_LINES = 80;
 const MARKET_SEARCH_CLASSIFY = Object.freeze({
   AStock: "stock",
   Index: "index",
@@ -273,6 +275,27 @@ const I18N = Object.freeze({
     "log.error": "错误",
     "log.device": "设备",
     "log.info": "信息",
+    "log.helper": "监控当前连接发送和接收的设备数据。",
+    "log.filter.all": "全部",
+    "log.filter.tx": "发送",
+    "log.filter.rx": "接收",
+    "log.filter.error": "错误",
+    "log.column.time": "时间",
+    "log.column.direction": "方向",
+    "log.column.type": "类型",
+    "log.column.message": "消息",
+    "log.copy": "复制",
+    "log.copied": "已复制日志",
+    "log.tx": "发送",
+    "log.rx": "接收",
+    "log.system": "系统",
+    "log.paused": "已暂停",
+    "log.pause": "暂停",
+    "log.resume": "继续",
+    "log.autoScroll": "自动滚动",
+    "log.count": "显示 {shown} / {total} 条日志",
+    "log.empty": "暂无日志",
+    "log.exportName": "m5paper-log",
     "button.connectUsb": "连接 USB",
     "button.connectBluetooth": "连接蓝牙",
     "button.reconnectUsb": "恢复 USB",
@@ -293,6 +316,9 @@ const I18N = Object.freeze({
     "button.fullFlash": "完整刷写",
     "button.search": "搜索",
     "button.clear": "清空",
+    "button.export": "导出",
+    "button.pause": "暂停",
+    "button.resume": "继续",
     "button.newLayout": "新建空白",
     "button.duplicateLayout": "复制预设",
     "button.deleteLayout": "删除预设",
@@ -466,6 +492,27 @@ const I18N = Object.freeze({
     "log.error": "Error",
     "log.device": "Device",
     "log.info": "Info",
+    "log.helper": "Monitor data sent to and received from the device over the active connection.",
+    "log.filter.all": "All",
+    "log.filter.tx": "TX",
+    "log.filter.rx": "RX",
+    "log.filter.error": "Errors",
+    "log.column.time": "Time",
+    "log.column.direction": "Direction",
+    "log.column.type": "Type",
+    "log.column.message": "Message",
+    "log.copy": "Copy",
+    "log.copied": "Log copied",
+    "log.tx": "TX",
+    "log.rx": "RX",
+    "log.system": "System",
+    "log.paused": "Paused",
+    "log.pause": "Pause",
+    "log.resume": "Resume",
+    "log.autoScroll": "Auto-scroll",
+    "log.count": "Showing {shown} of {total} messages",
+    "log.empty": "No log messages",
+    "log.exportName": "m5paper-log",
     "button.connectUsb": "Connect USB",
     "button.connectBluetooth": "Connect Bluetooth",
     "button.reconnectUsb": "Reconnect USB",
@@ -486,6 +533,9 @@ const I18N = Object.freeze({
     "button.fullFlash": "Full Flash",
     "button.search": "Search",
     "button.clear": "Clear",
+    "button.export": "Export",
+    "button.pause": "Pause",
+    "button.resume": "Resume",
     "button.newLayout": "Blank",
     "button.duplicateLayout": "Duplicate",
     "button.deleteLayout": "Delete",
@@ -587,6 +637,11 @@ const elements = {
   localOtaUploadButton: document.querySelector("#local-ota-upload-button"),
   togglePasswordButton: document.querySelector("#toggle-password-button"),
   clearLogButton: document.querySelector("#clear-log-button"),
+  exportLogButton: document.querySelector("#export-log-button"),
+  pauseLogButton: document.querySelector("#pause-log-button"),
+  logFilterButtons: Array.from(document.querySelectorAll("[data-log-filter]")),
+  logCountLabel: document.querySelector("#log-count-label"),
+  logAutoscrollInput: document.querySelector("#log-autoscroll-input"),
   connectionState: document.querySelector("#connection-state"),
   connectionStateLabel: document.querySelector("#connection-state-label"),
   browserNote: document.querySelector("#browser-note"),
@@ -681,6 +736,10 @@ const state = {
   layoutDirty: false,
   previewFontReady: false,
   previewWifiBitmaps: null,
+  logEntries: [],
+  logFilter: "all",
+  logPaused: false,
+  logAutoScroll: true,
 };
 
 function currentDashboardPreviewSample() {
@@ -2814,20 +2873,131 @@ async function fetchMarketSearchResults(query) {
 }
 
 function appendLog(message, level = "info") {
-  const timestamp = new Date().toLocaleTimeString(state.locale, {
+  const now = new Date();
+  const timestamp = now.toLocaleTimeString(state.locale, {
     hour12: false,
+    fractionalSecondDigits: 3,
   });
-  const prefix =
-    level === "error"
-      ? `[${t("log.error")}]`
-      : level === "device"
-        ? `[${t("log.device")}]`
-        : `[${t("log.info")}]`;
-  const nextLine = `${timestamp} ${prefix} ${message}`;
-  elements.logOutput.textContent = elements.logOutput.textContent
-    ? `${elements.logOutput.textContent}\n${nextLine}`
-    : nextLine;
-  elements.logOutput.scrollTop = elements.logOutput.scrollHeight;
+  let normalizedMessage = String(message ?? "");
+
+  const isTx = normalizedMessage.startsWith("发送 ") || normalizedMessage.startsWith("Send ");
+  const entry = {
+    id: `${now.getTime()}-${state.logEntries.length}`,
+    time: timestamp,
+    direction: level === "device" ? "rx" : isTx ? "tx" : "system",
+    type:
+      level === "error"
+        ? "error"
+        : "info",
+    message: isTx
+      ? normalizedMessage.replace(/^(发送|Send)\s+/, "")
+      : normalizedMessage,
+    length: normalizedMessage.length,
+  };
+
+  state.logEntries.push(entry);
+  if (state.logEntries.length > MAX_LOG_LINES) {
+    state.logEntries.splice(0, state.logEntries.length - MAX_LOG_LINES);
+  }
+  if (!state.logPaused) {
+    renderLogOutput();
+  }
+}
+
+function filteredLogEntries() {
+  if (state.logFilter === "all") {
+    return state.logEntries;
+  }
+  if (state.logFilter === "tx" || state.logFilter === "rx") {
+    return state.logEntries.filter((entry) => entry.direction === state.logFilter);
+  }
+  return state.logEntries.filter((entry) => entry.type === state.logFilter);
+}
+
+function logDirectionLabel(direction) {
+  if (direction === "tx") {
+    return `→ ${t("log.tx")}`;
+  }
+  if (direction === "rx") {
+    return `← ${t("log.rx")}`;
+  }
+  return t("log.system");
+}
+
+function logEntryText(entry) {
+  return `${entry.time}\t${entry.direction.toUpperCase()}\t${entry.type.toUpperCase()}\t${entry.message}`;
+}
+
+function renderLogOutput() {
+  const filtered = filteredLogEntries();
+  const rendered = filtered.slice(-MAX_RENDERED_LOG_LINES);
+  elements.logOutput.replaceChildren(
+    ...rendered.map((entry) => {
+      const row = document.createElement("div");
+      row.className = `log-row ${entry.type}`;
+      row.innerHTML = `
+        <span class="log-time">${escapeHtml(entry.time)}</span>
+        <span class="log-direction">${escapeHtml(logDirectionLabel(entry.direction))}</span>
+        <span class="log-type">${escapeHtml(entry.type.toUpperCase())}</span>
+        <span class="log-message">${escapeHtml(entry.message)}</span>
+        <button class="log-copy-button" type="button" data-log-id="${escapeHtml(entry.id)}" title="${escapeHtml(t("log.copy"))}" aria-label="${escapeHtml(t("log.copy"))}">⧉</button>
+      `;
+      return row;
+    }),
+  );
+  if (rendered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "log-empty";
+    empty.textContent = t("log.empty");
+    elements.logOutput.append(empty);
+  }
+  elements.logCountLabel.textContent = t("log.count", {
+    shown: rendered.length,
+    total: filtered.length,
+  });
+  elements.pauseLogButton.textContent = state.logPaused
+    ? t("button.resume")
+    : t("button.pause");
+  elements.logFilterButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.logFilter === state.logFilter);
+  });
+  if (state.logAutoScroll) {
+    elements.logOutput.scrollTop = elements.logOutput.scrollHeight;
+  }
+}
+
+function exportLogs() {
+  const lines = state.logEntries.map(logEntryText);
+  const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+  const link = document.createElement("a");
+  const date = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
+  link.href = URL.createObjectURL(blob);
+  link.download = `${t("log.exportName")}-${date}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
+}
+
+async function copyLogEntry(logId) {
+  const entry = state.logEntries.find((item) => item.id === logId);
+  if (!entry) {
+    return;
+  }
+  const text = logEntryText(entry);
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+  setMessage(t("log.copied"));
 }
 
 function setMessage(message, isError = false) {
@@ -5537,7 +5707,35 @@ function installEventHandlers() {
   elements.togglePasswordButton.addEventListener("click", togglePasswordVisibility);
 
   elements.clearLogButton.addEventListener("click", () => {
-    elements.logOutput.textContent = "";
+    state.logEntries = [];
+    renderLogOutput();
+  });
+
+  elements.exportLogButton.addEventListener("click", exportLogs);
+
+  elements.pauseLogButton.addEventListener("click", () => {
+    state.logPaused = !state.logPaused;
+    renderLogOutput();
+  });
+
+  elements.logAutoscrollInput.addEventListener("change", () => {
+    state.logAutoScroll = elements.logAutoscrollInput.checked;
+    renderLogOutput();
+  });
+
+  elements.logFilterButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.logFilter = button.dataset.logFilter || "all";
+      renderLogOutput();
+    });
+  });
+
+  elements.logOutput.addEventListener("click", (event) => {
+    const button = event.target.closest(".log-copy-button");
+    if (!button) {
+      return;
+    }
+    copyLogEntry(button.dataset.logId || "").catch(handleActionError);
   });
 
   elements.ssidInput.addEventListener("input", () => {
@@ -5573,6 +5771,7 @@ async function initialize() {
   renderMarketHotList();
   renderMarketResults();
   renderDashboardLayoutEditor();
+  renderLogOutput();
   void loadDashboardPreviewFont();
   void loadDashboardWifiBitmaps();
   installEventHandlers();

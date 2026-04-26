@@ -457,12 +457,49 @@
 
       <section class="band log-band">
         <div class="band-heading">
-          <h2 data-i18n="log.heading">通信日志</h2>
-          <button id="clear-log-button" class="action-button subtle small">
-            <span data-i18n="button.clear">清空</span>
-          </button>
+          <div>
+            <h2 data-i18n="log.heading">通信日志</h2>
+            <p class="helper-text" data-i18n="log.helper">
+              监控当前连接发送和接收的设备数据。
+            </p>
+          </div>
         </div>
-        <pre id="log-output" class="log-output" aria-live="polite"></pre>
+        <div class="log-toolbar">
+          <div class="log-filter-group" aria-label="Log filters">
+            <button class="log-filter active" type="button" data-log-filter="all" data-i18n="log.filter.all">全部</button>
+            <button class="log-filter" type="button" data-log-filter="tx" data-i18n="log.filter.tx">发送</button>
+            <button class="log-filter" type="button" data-log-filter="rx" data-i18n="log.filter.rx">接收</button>
+            <button class="log-filter" type="button" data-log-filter="error" data-i18n="log.filter.error">错误</button>
+          </div>
+          <div class="log-actions">
+            <button id="clear-log-button" class="action-button subtle small danger-lite">
+              <span data-i18n="button.clear">清空</span>
+            </button>
+            <button id="export-log-button" class="action-button subtle small">
+              <span data-i18n="button.export">导出</span>
+            </button>
+            <button id="pause-log-button" class="action-button subtle small">
+              <span data-i18n="button.pause">暂停</span>
+            </button>
+          </div>
+        </div>
+        <div class="log-console">
+          <div class="log-table log-table-head" aria-hidden="true">
+            <span data-i18n="log.column.time">时间</span>
+            <span data-i18n="log.column.direction">方向</span>
+            <span data-i18n="log.column.type">类型</span>
+            <span data-i18n="log.column.message">消息</span>
+            <span></span>
+          </div>
+          <div id="log-output" class="log-output" aria-live="polite"></div>
+          <div class="log-footer">
+            <span id="log-count-label">-</span>
+            <label class="log-autoscroll">
+              <input id="log-autoscroll-input" type="checkbox" checked />
+              <span data-i18n="log.autoScroll">自动滚动</span>
+            </label>
+          </div>
+        </div>
       </section>
     </main>
 
