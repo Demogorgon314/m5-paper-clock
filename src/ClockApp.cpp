@@ -445,6 +445,13 @@ String normalizeDateLayout(const String& value) {
     return "inline";
 }
 
+uint8_t normalizeDateTextSize(uint8_t value) {
+    if (value == 2 || value == 3 || value == 7) {
+        return value;
+    }
+    return kDateCjkTextSize;
+}
+
 String formatConfiguredDate(const rtc_date_t& date, const String& format) {
     if (date.year < 2020) {
         return String("");
@@ -1229,6 +1236,7 @@ void ClockApp::begin() {
     settings_.date_format = normalizeDateFormat(settings_.date_format);
     settings_.weekday_format = normalizeWeekdayFormat(settings_.weekday_format);
     settings_.date_layout = normalizeDateLayout(settings_.date_layout);
+    settings_.date_text_size = normalizeDateTextSize(settings_.date_text_size);
     settings_.comfort_settings =
         logic::NormalizeComfortSettings(settings_.comfort_settings);
     if (settings_.active_layout_id.isEmpty()) {
@@ -2067,7 +2075,8 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
         holiday_signature + "|" + pairing_signature + "|" +
         normalizeDateFormat(settings_.date_format) + "|" +
         normalizeWeekdayFormat(settings_.weekday_format) + "|" +
-        normalizeDateLayout(settings_.date_layout);
+        normalizeDateLayout(settings_.date_layout) + "|" +
+        String(normalizeDateTextSize(settings_.date_text_size));
     if (date_text == last_date_text_rendered_ &&
         week == last_weekday_rendered_ &&
         holiday_pairing_signature == last_holiday_display_rendered_) {
@@ -2091,6 +2100,8 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
     active_date_canvas.fillCanvas(kWhite);
     const String weekday_text = weekdayLabel(week, settings_.weekday_format);
     const String date_layout = normalizeDateLayout(settings_.date_layout);
+    const uint8_t date_text_size =
+        normalizeDateTextSize(settings_.date_text_size);
     const bool show_date = date_layout != "holiday-only";
     const bool show_weekday =
         date_layout != "date-only" && date_layout != "holiday-only";
@@ -2108,23 +2119,26 @@ void ClockApp::updateDateCanvas(bool full_refresh) {
                                    logic::HolidayDisplayState::InHoliday)
                          : String("");
         if (date_layout == "two-line") {
+            const uint8_t two_line_text_size =
+                std::min<uint8_t>(date_text_size, 2);
             const String first_line = joinDateTextParts(
                 show_date ? date_text : String(""),
                 show_weekday ? weekday_text : String(""), String(""));
-            fitDateTextSize(active_date_canvas, first_line, 2, 2, kDateW);
+            fitDateTextSize(active_date_canvas, first_line, two_line_text_size,
+                            2, kDateW);
             if (!first_line.isEmpty()) {
                 drawFauxBoldString(active_date_canvas, first_line, 0, 12);
             }
             if (!holiday_text.isEmpty()) {
-                fitDateTextSize(active_date_canvas, holiday_text, 2, 2, kDateW);
+                fitDateTextSize(active_date_canvas, holiday_text,
+                                two_line_text_size, 2, kDateW);
                 drawFauxBoldString(active_date_canvas, holiday_text, 0, 34);
             }
         } else {
             const String line = joinDateTextParts(
                 show_date ? date_text : String(""),
                 show_weekday ? weekday_text : String(""), holiday_text);
-            fitDateTextSize(active_date_canvas, line, kDateCjkTextSize, 5,
-                            kDateW);
+            fitDateTextSize(active_date_canvas, line, date_text_size, 2, kDateW);
             if (!line.isEmpty()) {
                 drawFauxBoldString(active_date_canvas, line, 0, kDateH / 2);
             }
@@ -5115,6 +5129,7 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["dateFormat"] = settings_.date_format;
     data["weekdayFormat"] = settings_.weekday_format;
     data["dateLayout"] = settings_.date_layout;
+    data["dateTextSize"] = settings_.date_text_size;
     data["showHoliday"] = settings_.show_holiday;
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
@@ -5162,6 +5177,7 @@ void ClockApp::populateLayoutPreviewState(JsonObject data) const {
     date["dateFormat"] = settings_.date_format;
     date["weekdayFormat"] = settings_.weekday_format;
     date["layoutStyle"] = settings_.date_layout;
+    date["textSize"] = settings_.date_text_size;
     date["showHoliday"] = settings_.show_holiday;
     date["displayDate"] =
         formatConfiguredDate(current_date, settings_.date_format);
@@ -5321,6 +5337,7 @@ void ClockApp::populateClassicLayoutComponents(JsonArray components) const {
             props["weekdayFormat"] = settings_.weekday_format;
             props["showHoliday"] = settings_.show_holiday;
             props["layoutStyle"] = settings_.date_layout;
+            props["textSize"] = settings_.date_text_size;
         }
     }
 }
@@ -5349,6 +5366,7 @@ void ClockApp::populateDashboardLayoutComponents(
             props["weekdayFormat"] = settings_.weekday_format;
             props["showHoliday"] = settings_.show_holiday;
             props["layoutStyle"] = settings_.date_layout;
+            props["textSize"] = settings_.date_text_size;
         } else if (item.id == logic::DashboardComponentId::Climate ||
                    item.id == logic::DashboardComponentId::ClassicInfo) {
             props["comfortTemperatureMin"] =
@@ -5496,7 +5514,8 @@ bool ClockApp::applyLayoutDocument(JsonObjectConst document,
         settings_.layout_presets = next_presets;
         settings_.active_layout_id = layout_id;
         if (!applyDashboardLayout(layout["components"].as<JsonArrayConst>(),
-                                  error_message)) {
+                                  error_message,
+                                  layout_id == active_layout_id)) {
             settings_.layout_presets = previous_presets;
             settings_.active_layout_id = previous_active_layout_id;
             settings_.dashboard_layout = previous_dashboard_layout;
@@ -5542,7 +5561,8 @@ bool ClockApp::applyLayoutDocument(JsonObjectConst document,
 }
 
 bool ClockApp::applyDashboardLayout(JsonArrayConst components,
-                                    String& error_message) {
+                                    String& error_message,
+                                    bool apply_shared_settings) {
     if (components.isNull()) {
         error_message = "Missing dashboard layout components";
         return false;
@@ -5554,6 +5574,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
     String next_date_format = settings_.date_format;
     String next_weekday_format = settings_.weekday_format;
     String next_date_layout = settings_.date_layout;
+    uint8_t next_date_text_size = settings_.date_text_size;
     bool next_show_holiday = settings_.show_holiday;
     bool date_settings_changed = false;
     logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
@@ -5625,7 +5646,7 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         item.visible = component["visible"] | item.visible;
         item = logic::ClampDashboardLayoutItem(item);
 
-        if (id == logic::DashboardComponentId::Date) {
+        if (id == logic::DashboardComponentId::Date && apply_shared_settings) {
             JsonObjectConst props = component["props"].as<JsonObjectConst>();
             if (!props.isNull()) {
                 if (props.containsKey("dateFormat")) {
@@ -5643,6 +5664,12 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
                         normalizeDateLayout(String(props["layoutStyle"] | ""));
                     date_settings_changed = true;
                 }
+                if (props.containsKey("textSize")) {
+                    next_date_text_size = normalizeDateTextSize(
+                        static_cast<uint8_t>(
+                            String(props["textSize"] | "").toInt()));
+                    date_settings_changed = true;
+                }
                 if (props.containsKey("showHoliday")) {
                     next_show_holiday = props["showHoliday"].as<bool>();
                     date_settings_changed = true;
@@ -5656,8 +5683,9 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
                     next_market_symbol = prop_symbol;
                 }
             }
-        } else if (id == logic::DashboardComponentId::Climate ||
-                   id == logic::DashboardComponentId::ClassicInfo) {
+        } else if (apply_shared_settings &&
+                   (id == logic::DashboardComponentId::Climate ||
+                    id == logic::DashboardComponentId::ClassicInfo)) {
             JsonObjectConst props = component["props"].as<JsonObjectConst>();
             if (!props.isNull()) {
                 if (props.containsKey("comfortTemperatureMin")) {
@@ -5734,16 +5762,19 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
         (next_date_format != settings_.date_format ||
          next_weekday_format != settings_.weekday_format ||
          next_date_layout != settings_.date_layout ||
+         next_date_text_size != settings_.date_text_size ||
          next_show_holiday != settings_.show_holiday)) {
         settings_.date_format = next_date_format;
         settings_.weekday_format = next_weekday_format;
         settings_.date_layout = next_date_layout;
+        settings_.date_text_size = next_date_text_size;
         settings_.show_holiday = next_show_holiday;
         last_date_text_rendered_ = "";
         last_holiday_display_rendered_ = "";
         last_weekday_rendered_ = 255;
         store_.saveDateDisplay(settings_.date_format, settings_.weekday_format,
-                               settings_.date_layout, settings_.show_holiday);
+                               settings_.date_layout, settings_.date_text_size,
+                               settings_.show_holiday);
     }
     return true;
 }

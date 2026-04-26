@@ -200,6 +200,7 @@ const I18N = Object.freeze({
     "layout.prop.weekdayFormat": "星期格式",
     "layout.prop.dateLayout": "显示模式",
     "layout.prop.showHoliday": "显示节假日倒计时",
+    "layout.prop.dateTextSize": "字体大小",
     "layout.dateFormat.yyyyMmDd": "2026-04-25",
     "layout.dateFormat.yyyySlashMmDd": "2026/04/25",
     "layout.dateFormat.mmDd": "04-25",
@@ -212,6 +213,9 @@ const I18N = Object.freeze({
     "layout.dateLayout.twoLine": "两行",
     "layout.dateLayout.dateOnly": "仅日期",
     "layout.dateLayout.holidayOnly": "仅倒计时",
+    "layout.dateTextSize.small": "小",
+    "layout.dateTextSize.default": "默认",
+    "layout.dateTextSize.large": "大",
     "layout.noProperties": "这个组件暂时没有可配置属性。",
     "layout.nudge": "微调",
     "layout.resetComponent": "重置此组件",
@@ -389,6 +393,7 @@ const I18N = Object.freeze({
     "layout.prop.weekdayFormat": "Weekday format",
     "layout.prop.dateLayout": "Display mode",
     "layout.prop.showHoliday": "Show holiday countdown",
+    "layout.prop.dateTextSize": "Font size",
     "layout.dateFormat.yyyyMmDd": "2026-04-25",
     "layout.dateFormat.yyyySlashMmDd": "2026/04/25",
     "layout.dateFormat.mmDd": "04-25",
@@ -401,6 +406,9 @@ const I18N = Object.freeze({
     "layout.dateLayout.twoLine": "Two lines",
     "layout.dateLayout.dateOnly": "Date only",
     "layout.dateLayout.holidayOnly": "Countdown only",
+    "layout.dateTextSize.small": "Small",
+    "layout.dateTextSize.default": "Default",
+    "layout.dateTextSize.large": "Large",
     "layout.noProperties": "This component has no configurable properties yet.",
     "layout.nudge": "Nudge",
     "layout.resetComponent": "Reset component",
@@ -1844,6 +1852,13 @@ function fitPreviewDateTextSize(canvas, text, preferredSize, minimumSize, maxWid
   return minimumSize;
 }
 
+function normalizePreviewDateTextSize(value) {
+  const size = Number(value);
+  return size === 2 || size === 3 || size === 7
+    ? size
+    : DASHBOARD_RENDER_CONSTANTS.dateCjkTextSize;
+}
+
 function drawPreviewDate(canvas, item) {
   const sample = currentDashboardPreviewSample();
   const props = item.props || {};
@@ -1857,22 +1872,24 @@ function drawPreviewDate(canvas, item) {
     props.weekdayFormat || "short",
   );
   const holiday = props.showHoliday === false ? "" : sample.holidayZh;
+  const textSize = normalizePreviewDateTextSize(props.textSize);
   const showDate = layoutStyle !== "holiday-only";
   const showWeekday = layoutStyle !== "date-only" && layoutStyle !== "holiday-only";
   const showHoliday = Boolean(holiday) && layoutStyle !== "date-only";
   canvas.setTextDatum(TEXT_DATUM.CL);
   canvas.setTextColor(INK.text);
   if (layoutStyle === "two-line") {
+    const twoLineTextSize = Math.min(textSize, 2);
     const firstLine = joinPreviewDateTextParts(
       showDate ? dateText : "",
       showWeekday ? weekday : "",
     );
-    fitPreviewDateTextSize(canvas, firstLine, 2, 2, item.w);
+    fitPreviewDateTextSize(canvas, firstLine, twoLineTextSize, 2, item.w);
     if (firstLine) {
       canvas.drawFauxBoldString(firstLine, 0, 12);
     }
     if (showHoliday) {
-      fitPreviewDateTextSize(canvas, holiday, 2, 2, item.w);
+      fitPreviewDateTextSize(canvas, holiday, twoLineTextSize, 2, item.w);
       canvas.drawFauxBoldString(holiday, 0, 34);
     }
     return;
@@ -1882,7 +1899,7 @@ function drawPreviewDate(canvas, item) {
     showWeekday ? weekday : "",
     showHoliday ? holiday : "",
   );
-  fitPreviewDateTextSize(canvas, line, DASHBOARD_RENDER_CONSTANTS.dateCjkTextSize, 5, item.w);
+  fitPreviewDateTextSize(canvas, line, textSize, 2, item.w);
   if (line) {
     canvas.drawFauxBoldString(line, 0, item.h / 2);
   }
@@ -3375,7 +3392,7 @@ function renderComponentPropertiesPanel(item) {
     }
     if (field.type === "select") {
       const options = (field.options || []).map((option) => `
-        <option value="${escapeHtml(option.value)}"${value === option.value ? " selected" : ""}>
+        <option value="${escapeHtml(option.value)}"${String(value) === String(option.value) ? " selected" : ""}>
           ${escapeHtml(t(option.labelKey))}
         </option>
       `).join("");

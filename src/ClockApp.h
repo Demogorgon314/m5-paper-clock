@@ -267,7 +267,8 @@ private:
     void applyDashboardPreset(const SavedDashboardLayout& preset);
     void upsertActiveDashboardPreset(const String& name = String());
     bool applyLayoutDocument(JsonObjectConst document, String& error_message);
-    bool applyDashboardLayout(JsonArrayConst components, String& error_message);
+    bool applyDashboardLayout(JsonArrayConst components, String& error_message,
+                              bool apply_shared_settings = true);
     String currentIpAddress() const;
     String currentMarketCode() const;
     String currentMarketDisplayName() const;

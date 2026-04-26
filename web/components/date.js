@@ -15,6 +15,7 @@ export const dateComponent = Object.freeze({
       weekdayFormat: "short",
       showHoliday: true,
       layoutStyle: "inline",
+      textSize: "7",
     }),
   }),
   propsSchema: Object.freeze([
@@ -55,6 +56,16 @@ export const dateComponent = Object.freeze({
       key: "showHoliday",
       type: "checkbox",
       labelKey: "layout.prop.showHoliday",
+    }),
+    Object.freeze({
+      key: "textSize",
+      type: "select",
+      labelKey: "layout.prop.dateTextSize",
+      options: Object.freeze([
+        Object.freeze({ value: "2", labelKey: "layout.dateTextSize.small" }),
+        Object.freeze({ value: "7", labelKey: "layout.dateTextSize.default" }),
+        Object.freeze({ value: "3", labelKey: "layout.dateTextSize.large" }),
+      ]),
     }),
   ]),
 });

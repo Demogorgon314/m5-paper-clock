@@ -34,6 +34,7 @@ struct AppSettings {
     String date_format = "yyyy-mm-dd";
     String weekday_format = "short";
     String date_layout = "inline";
+    uint8_t date_text_size = 7;
     bool show_holiday = true;
     String ble_pairing_token;
     logic::ComfortSettings comfort_settings;
@@ -56,6 +57,7 @@ public:
     void saveDateDisplay(const String& date_format,
                          const String& weekday_format,
                          const String& date_layout,
+                         uint8_t date_text_size,
                          bool show_holiday);
     void saveComfortSettings(const logic::ComfortSettings& comfort_settings);
     void savePartialCleanInterval(uint8_t partial_clean_interval);

@@ -96,6 +96,8 @@ AppSettings SettingsStore::load() const {
         preferences_.getString("weekday_fmt", settings.weekday_format);
     settings.date_layout =
         preferences_.getString("date_layout", settings.date_layout);
+    settings.date_text_size =
+        preferences_.getUChar("date_txt_sz", settings.date_text_size);
     settings.show_holiday =
         preferences_.getBool("show_holiday", settings.show_holiday);
     settings.ble_pairing_token = preferences_.getString("ble_token", "");
@@ -286,6 +288,7 @@ void SettingsStore::save(const AppSettings& settings) {
     preferences_.putString("date_format", settings.date_format);
     preferences_.putString("weekday_fmt", settings.weekday_format);
     preferences_.putString("date_layout", settings.date_layout);
+    preferences_.putUChar("date_txt_sz", settings.date_text_size);
     preferences_.putBool("show_holiday", settings.show_holiday);
     preferences_.putString("ble_token", settings.ble_pairing_token);
     preferences_.putUChar(
@@ -346,6 +349,7 @@ void SettingsStore::saveMarket(const String& market_symbol,
 void SettingsStore::saveDateDisplay(const String& date_format,
                                     const String& weekday_format,
                                     const String& date_layout,
+                                    uint8_t date_text_size,
                                     bool show_holiday) {
     if (!started_) {
         return;
@@ -353,6 +357,7 @@ void SettingsStore::saveDateDisplay(const String& date_format,
     preferences_.putString("date_format", date_format);
     preferences_.putString("weekday_fmt", weekday_format);
     preferences_.putString("date_layout", date_layout);
+    preferences_.putUChar("date_txt_sz", date_text_size);
     preferences_.putBool("show_holiday", show_holiday);
 }
 
