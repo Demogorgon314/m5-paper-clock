@@ -114,6 +114,14 @@ AppSettings SettingsStore::load() const {
     settings.partial_clean_interval = static_cast<uint8_t>(
         logic::ClampPartialCleanInterval(preferences_.getUChar(
             "partial_gc16", settings.partial_clean_interval)));
+    settings.mqtt.enabled = preferences_.getBool("mqtt_en", false);
+    settings.mqtt.host = preferences_.getString("mqtt_host", settings.mqtt.host);
+    settings.mqtt.port = preferences_.getUShort("mqtt_port", settings.mqtt.port);
+    settings.mqtt.username = preferences_.getString("mqtt_user", "");
+    settings.mqtt.password = preferences_.getString("mqtt_pass", "");
+    settings.mqtt.discovery_prefix =
+        preferences_.getString("mqtt_pref", settings.mqtt.discovery_prefix);
+    settings.mqtt.base_topic = preferences_.getString("mqtt_base", "");
     settings.dashboard_layout = logic::DefaultDashboardLayout();
     for (logic::DashboardLayoutItem& item : settings.dashboard_layout) {
         const String key_prefix = dashboardComponentStoragePrefix(item);
@@ -320,6 +328,7 @@ void SettingsStore::save(const AppSettings& settings) {
         "partial_gc16",
         static_cast<uint8_t>(
             logic::ClampPartialCleanInterval(settings.partial_clean_interval)));
+    saveMqtt(settings.mqtt);
     saveDashboardLayout(settings.dashboard_layout);
     saveMarketLayout(settings.market_layout);
     saveLayoutPresets(settings.layout_presets);
@@ -492,6 +501,19 @@ void SettingsStore::saveLayoutPresets(
             preferences_.putBool((market_prefix + "v").c_str(), item.visible);
         }
     }
+}
+
+void SettingsStore::saveMqtt(const MqttSettings& mqtt_settings) {
+    if (!started_) {
+        return;
+    }
+    preferences_.putBool("mqtt_en", mqtt_settings.enabled);
+    preferences_.putString("mqtt_host", mqtt_settings.host);
+    preferences_.putUShort("mqtt_port", mqtt_settings.port);
+    preferences_.putString("mqtt_user", mqtt_settings.username);
+    preferences_.putString("mqtt_pass", mqtt_settings.password);
+    preferences_.putString("mqtt_pref", mqtt_settings.discovery_prefix);
+    preferences_.putString("mqtt_base", mqtt_settings.base_topic);
 }
 
 void SettingsStore::saveBlePairingToken(const String& token) {

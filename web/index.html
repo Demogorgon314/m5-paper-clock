@@ -248,6 +248,44 @@
               </label>
             </div>
 
+            <div class="config-action-section">
+              <p class="config-action-title" data-i18n="ha.heading">Home Assistant</p>
+              <p class="action-help" data-i18n="ha.helper">
+                默认关闭；启用后设备会通过 MQTT Discovery 自动出现在 Home Assistant。
+              </p>
+              <label class="field checkbox-field">
+                <input id="mqtt-enabled-input" type="checkbox" />
+                <span data-i18n="ha.enable">启用 MQTT Discovery</span>
+              </label>
+              <div class="field-grid">
+                <label class="field">
+                  <span data-i18n="ha.host">Broker 地址</span>
+                  <input id="mqtt-host-input" type="text" placeholder="homeassistant.local" />
+                </label>
+                <label class="field">
+                  <span data-i18n="ha.port">端口</span>
+                  <input id="mqtt-port-input" type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="1883" />
+                </label>
+                <label class="field">
+                  <span data-i18n="ha.username">用户名</span>
+                  <input id="mqtt-username-input" type="text" autocomplete="username" />
+                </label>
+                <label class="field">
+                  <span data-i18n="ha.password">密码</span>
+                  <input id="mqtt-password-input" type="password" autocomplete="new-password" data-i18n-placeholder="ha.passwordPlaceholder" placeholder="留空表示不修改" />
+                </label>
+                <label class="field">
+                  <span data-i18n="ha.discoveryPrefix">Discovery prefix</span>
+                  <input id="mqtt-discovery-prefix-input" type="text" placeholder="homeassistant" />
+                </label>
+                <label class="field">
+                  <span data-i18n="ha.baseTopic">Base topic</span>
+                  <input id="mqtt-base-topic-input" type="text" placeholder="自动生成" />
+                </label>
+              </div>
+              <p id="mqtt-status-label" class="action-help">-</p>
+            </div>
+
             <div class="config-actions">
               <div class="config-action-section">
                 <p class="config-action-title" data-i18n="settings.saveSection">配置保存</p>

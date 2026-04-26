@@ -1254,6 +1254,9 @@ void ClockApp::begin() {
         preset.market_layout = settings_.market_layout;
         settings_.layout_presets.push_back(preset);
     }
+    mqtt_device_id_ = String(static_cast<uint32_t>(ESP.getEfuseMac() >> 32), HEX) +
+                      String(static_cast<uint32_t>(ESP.getEfuseMac()), HEX);
+    configureMqtt();
     seedMarketQuoteFromSettings();
     M5.RTC.getTime(&last_time_);
     M5.RTC.getDate(&last_date_);
@@ -1347,6 +1350,7 @@ void ClockApp::loop() {
     handleHardwareButtons();
     handleTouch();
     handleBackgroundConnectivity();
+    handleMqtt();
 
     if (pending_serial_reboot_ &&
         millis() >= pending_serial_reboot_at_ms_) {
@@ -1386,6 +1390,32 @@ void ClockApp::loop() {
             updateBatteryCanvas(false);
         }
         updateClockPage();
+    }
+}
+
+void ClockApp::configureMqtt() {
+    mqtt_.configure(settings_.mqtt, mqtt_device_id_);
+    mqtt_.setCommandCallback([this](const String& topic,
+                                    const String& payload) {
+        handleMqttCommand(topic, payload);
+    });
+}
+
+void ClockApp::handleMqtt() {
+    const bool just_connected = mqtt_.loop(connectivity_.isConnected());
+    if (!mqtt_.connected()) {
+        return;
+    }
+    if (just_connected || mqtt_.discoveryNeeded()) {
+        publishMqttDiscovery();
+        mqtt_.markDiscoveryPublished();
+        publishMqttState();
+        last_mqtt_state_publish_ms_ = millis();
+        return;
+    }
+    if (millis() - last_mqtt_state_publish_ms_ >= 60000) {
+        publishMqttState();
+        last_mqtt_state_publish_ms_ = millis();
     }
 }
 
@@ -3568,6 +3598,48 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
             store_.savePartialCleanInterval(settings_.partial_clean_interval);
             settings_changed = true;
         }
+        bool mqtt_changed = false;
+        MqttSettings next_mqtt = settings_.mqtt;
+        if (data.containsKey("mqttEnabled")) {
+            next_mqtt.enabled = data["mqttEnabled"].as<bool>();
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttHost")) {
+            next_mqtt.host = String(data["mqttHost"] | "");
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttPort")) {
+            const int port = data["mqttPort"].as<int>();
+            next_mqtt.port = static_cast<uint16_t>(
+                port > 0 && port <= 65535 ? port : 1883);
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttUsername")) {
+            next_mqtt.username = String(data["mqttUsername"] | "");
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttPassword")) {
+            next_mqtt.password = String(data["mqttPassword"] | "");
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttDiscoveryPrefix")) {
+            next_mqtt.discovery_prefix =
+                String(data["mqttDiscoveryPrefix"] | "homeassistant");
+            if (next_mqtt.discovery_prefix.isEmpty()) {
+                next_mqtt.discovery_prefix = "homeassistant";
+            }
+            mqtt_changed = true;
+        }
+        if (data.containsKey("mqttBaseTopic")) {
+            next_mqtt.base_topic = String(data["mqttBaseTopic"] | "");
+            mqtt_changed = true;
+        }
+        if (mqtt_changed) {
+            settings_.mqtt = next_mqtt;
+            store_.saveMqtt(settings_.mqtt);
+            configureMqtt();
+            settings_changed = true;
+        }
         logic::ComfortSettings next_comfort_settings = settings_.comfort_settings;
         bool comfort_settings_changed = false;
         if (data.containsKey("comfortTemperatureMin")) {
@@ -3765,9 +3837,13 @@ void ClockApp::processConfigLine(const String& line, ConfigTransport transport) 
             store_.saveMarketLayout(settings_.market_layout);
             store_.saveLayoutPresets(settings_.layout_presets);
             store_.saveActiveLayoutId(settings_.active_layout_id);
+            mqtt_.markDiscoveryDirty();
         } else if (data["layoutDocument"].is<JsonObjectConst>()) {
             ok = applyLayoutDocument(data["layoutDocument"].as<JsonObjectConst>(),
                                      error_message);
+            if (ok) {
+                mqtt_.markDiscoveryDirty();
+            }
         } else {
             ok = applyDashboardLayout(
                 data["dashboardLayout"].as<JsonArrayConst>(), error_message);
@@ -5138,6 +5214,14 @@ void ClockApp::populateSerialStatus(JsonObject data) const {
     data["rtc"] = formatRtcTimestamp();
     data["batteryPercent"] = batteryPercentage();
     data["partialCleanInterval"] = settings_.partial_clean_interval;
+    data["mqttEnabled"] = settings_.mqtt.enabled;
+    data["mqttConnected"] = mqtt_.connected();
+    data["mqttHost"] = settings_.mqtt.host;
+    data["mqttPort"] = settings_.mqtt.port;
+    data["mqttUsername"] = settings_.mqtt.username;
+    data["mqttPasswordSet"] = !settings_.mqtt.password.isEmpty();
+    data["mqttDiscoveryPrefix"] = settings_.mqtt.discovery_prefix;
+    data["mqttBaseTopic"] = mqtt_.baseTopic();
     data["comfortTemperatureMin"] = settings_.comfort_settings.min_temperature;
     data["comfortTemperatureMax"] = settings_.comfort_settings.max_temperature;
     data["comfortHumidityMin"] = settings_.comfort_settings.min_humidity;
@@ -5561,6 +5645,7 @@ bool ClockApp::applyLayoutDocument(JsonObjectConst document,
     }
     store_.saveActiveLayoutId(settings_.active_layout_id);
     store_.saveLayoutPresets(settings_.layout_presets);
+    mqtt_.markDiscoveryDirty();
     return true;
 }
 
@@ -5781,6 +5866,186 @@ bool ClockApp::applyDashboardLayout(JsonArrayConst components,
                                settings_.show_holiday);
     }
     return true;
+}
+
+String ClockApp::mqttObjectId(const String& suffix) const {
+    return "m5paper_" + mqtt_device_id_ + "_" + suffix;
+}
+
+void ClockApp::populateMqttDevice(JsonObject device) const {
+    JsonArray identifiers = device.createNestedArray("identifiers");
+    identifiers.add("m5paper_" + mqtt_device_id_);
+    device["name"] = "M5Paper Ink Clock";
+    device["manufacturer"] = "M5Stack";
+    device["model"] = "M5Paper";
+    device["sw_version"] = FIRMWARE_VERSION;
+}
+
+void ClockApp::publishMqttDiscovery() {
+    if (!mqtt_.connected()) {
+        return;
+    }
+
+    auto publishEntity = [&](const String& component, const String& suffix,
+                             const std::function<void(JsonObject)>& build) {
+        DynamicJsonDocument doc(2048);
+        JsonObject root = doc.to<JsonObject>();
+        build(root);
+        root["unique_id"] = mqttObjectId(suffix);
+        root["availability_topic"] = mqtt_.availabilityTopic();
+        root["payload_available"] = "online";
+        root["payload_not_available"] = "offline";
+        populateMqttDevice(root.createNestedObject("device"));
+        String payload;
+        serializeJson(root, payload);
+        mqtt_.publish(mqtt_.discoveryTopic(component, mqttObjectId(suffix)),
+                      payload, true);
+    };
+
+    publishEntity("sensor", "battery", [&](JsonObject root) {
+        root["name"] = "Battery";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.battery }}";
+        root["unit_of_measurement"] = "%";
+        root["device_class"] = "battery";
+    });
+    publishEntity("sensor", "temperature", [&](JsonObject root) {
+        root["name"] = "Temperature";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.temperature }}";
+        root["unit_of_measurement"] = "°C";
+        root["device_class"] = "temperature";
+    });
+    publishEntity("sensor", "humidity", [&](JsonObject root) {
+        root["name"] = "Humidity";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.humidity }}";
+        root["unit_of_measurement"] = "%";
+        root["device_class"] = "humidity";
+    });
+    publishEntity("sensor", "active_layout", [&](JsonObject root) {
+        root["name"] = "Active Layout";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.activeLayoutId }}";
+        root["icon"] = "mdi:view-dashboard-outline";
+    });
+    publishEntity("sensor", "market_symbol", [&](JsonObject root) {
+        root["name"] = "Market Symbol";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.marketSymbol }}";
+        root["icon"] = "mdi:chart-line";
+    });
+    publishEntity("binary_sensor", "wifi_connected", [&](JsonObject root) {
+        root["name"] = "Wi-Fi Connected";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ 'ON' if value_json.wifiConnected else 'OFF' }}";
+        root["payload_on"] = "ON";
+        root["payload_off"] = "OFF";
+        root["device_class"] = "connectivity";
+    });
+    publishEntity("number", "partial_clean_interval", [&](JsonObject root) {
+        root["name"] = "Screen Clarity Refresh Frequency";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.partialCleanInterval }}";
+        root["command_topic"] = mqtt_.commandTopic("partial_clean_interval");
+        root["min"] = 1;
+        root["max"] = 30;
+        root["step"] = 1;
+        root["mode"] = "box";
+        root["icon"] = "mdi:refresh";
+    });
+    publishEntity("select", "layout", [&](JsonObject root) {
+        root["name"] = "Layout";
+        root["state_topic"] = mqtt_.stateTopic();
+        root["value_template"] = "{{ value_json.activeLayoutId }}";
+        root["command_topic"] = mqtt_.commandTopic("layout");
+        JsonArray options = root.createNestedArray("options");
+        options.add(logic::kClassicLayoutId);
+        for (const SavedDashboardLayout& preset : settings_.layout_presets) {
+            options.add(preset.id);
+        }
+        root["icon"] = "mdi:view-dashboard";
+    });
+    publishEntity("button", "full_refresh", [&](JsonObject root) {
+        root["name"] = "Full Refresh";
+        root["command_topic"] = mqtt_.commandTopic("refresh_screen");
+        root["icon"] = "mdi:refresh";
+    });
+    publishEntity("button", "sync_time", [&](JsonObject root) {
+        root["name"] = "Sync Time";
+        root["command_topic"] = mqtt_.commandTopic("sync_time");
+        root["icon"] = "mdi:clock-sync-outline";
+    });
+    publishEntity("button", "reboot", [&](JsonObject root) {
+        root["name"] = "Reboot";
+        root["command_topic"] = mqtt_.commandTopic("reboot");
+        root["icon"] = "mdi:restart";
+        root["entity_category"] = "diagnostic";
+    });
+}
+
+void ClockApp::publishMqttState() {
+    if (!mqtt_.connected()) {
+        return;
+    }
+    DynamicJsonDocument doc(1024);
+    doc["battery"] = batteryPercentage();
+    doc["temperature"] = last_environment_.valid ? last_environment_.temperature : 0;
+    doc["humidity"] = last_environment_.valid ? last_environment_.humidity : 0;
+    doc["environmentValid"] = last_environment_.valid;
+    doc["wifiConnected"] = connectivity_.isConnected();
+    doc["ssid"] = connectivity_.currentSsid();
+    doc["ipAddress"] = currentIpAddress();
+    doc["timeSynced"] = settings_.time_synced;
+    doc["activeLayoutId"] = settings_.active_layout_id;
+    doc["marketSymbol"] = settings_.market_symbol;
+    doc["marketName"] = currentMarketDisplayName();
+    doc["partialCleanInterval"] = settings_.partial_clean_interval;
+    doc["firmwareVersion"] = FIRMWARE_VERSION;
+    doc["rtc"] = formatRtcTimestamp();
+    String payload;
+    serializeJson(doc, payload);
+    mqtt_.publish(mqtt_.stateTopic(), payload, true);
+}
+
+void ClockApp::handleMqttCommand(const String& topic, const String& payload) {
+    if (!topic.startsWith(mqtt_.baseTopic() + "/command/")) {
+        return;
+    }
+    const String command = topic.substring((mqtt_.baseTopic() + "/command/").length());
+    if (command == "refresh_screen") {
+        refreshCurrentPage();
+    } else if (command == "sync_time") {
+        trySyncTime(true);
+        refreshCurrentPage();
+    } else if (command == "reboot") {
+        pending_serial_reboot_ = true;
+        pending_serial_reboot_at_ms_ = millis() + 250;
+    } else if (command == "partial_clean_interval") {
+        settings_.partial_clean_interval = static_cast<uint8_t>(
+            logic::ClampPartialCleanInterval(payload.toInt()));
+        store_.savePartialCleanInterval(settings_.partial_clean_interval);
+    } else if (command == "layout") {
+        bool changed = false;
+        if (payload == logic::kClassicLayoutId) {
+            settings_.active_layout_id = logic::kClassicLayoutId;
+            changed = true;
+        } else {
+            for (const SavedDashboardLayout& preset : settings_.layout_presets) {
+                if (payload == preset.id) {
+                    applyDashboardPreset(preset);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (changed) {
+            store_.saveActiveLayoutId(settings_.active_layout_id);
+            renderClockPage(true);
+        }
+    }
+    publishMqttState();
+    last_mqtt_state_publish_ms_ = millis();
 }
 
 String ClockApp::currentIpAddress() const {

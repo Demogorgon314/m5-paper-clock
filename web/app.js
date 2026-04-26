@@ -154,6 +154,20 @@ const I18N = Object.freeze({
     "settings.saveHelp": "仅保存不会联网；保存并连接会写入配置、连接 Wi-Fi，并同步时间。",
     "settings.deviceSection": "设备操作",
     "settings.dangerSection": "危险操作",
+    "ha.heading": "Home Assistant",
+    "ha.helper": "默认关闭；启用后设备会通过 MQTT Discovery 自动出现在 Home Assistant。",
+    "ha.enable": "启用 MQTT Discovery",
+    "ha.host": "Broker 地址",
+    "ha.port": "端口",
+    "ha.username": "用户名",
+    "ha.password": "密码",
+    "ha.passwordPlaceholder": "留空表示不修改",
+    "ha.discoveryPrefix": "Discovery prefix",
+    "ha.baseTopic": "Base topic",
+    "ha.statusConnected": "MQTT 已连接，base topic：{topic}",
+    "ha.statusEnabled": "MQTT 已启用，等待设备联网或连接 broker。",
+    "ha.statusDisabled": "MQTT Discovery 已关闭。",
+    "ha.passwordSaved": "已保存密码；留空不会修改。",
     "comfort.heading": "表情条件",
     "comfort.helper": "舒适区间显示 <code>(^_^)</code>，超出范围显示 <code>(-^-)</code>。",
     "comfort.tempMin": "最低舒适温度",
@@ -347,6 +361,20 @@ const I18N = Object.freeze({
     "settings.saveHelp": "Save only does not connect; save and connect stores settings, connects Wi-Fi, and syncs time.",
     "settings.deviceSection": "Device Actions",
     "settings.dangerSection": "Danger Zone",
+    "ha.heading": "Home Assistant",
+    "ha.helper": "Disabled by default. When enabled, the device appears in Home Assistant through MQTT Discovery.",
+    "ha.enable": "Enable MQTT Discovery",
+    "ha.host": "Broker host",
+    "ha.port": "Port",
+    "ha.username": "Username",
+    "ha.password": "Password",
+    "ha.passwordPlaceholder": "Leave blank to keep unchanged",
+    "ha.discoveryPrefix": "Discovery prefix",
+    "ha.baseTopic": "Base topic",
+    "ha.statusConnected": "MQTT connected, base topic: {topic}",
+    "ha.statusEnabled": "MQTT enabled, waiting for Wi-Fi or broker connection.",
+    "ha.statusDisabled": "MQTT Discovery is disabled.",
+    "ha.passwordSaved": "Password is saved; leave blank to keep it.",
     "comfort.heading": "Face Conditions",
     "comfort.helper": "The comfortable range shows <code>(^_^)</code>; out-of-range values show <code>(-^-)</code>.",
     "comfort.tempMin": "Minimum comfort temperature",
@@ -610,6 +638,14 @@ const elements = {
   partialCleanIntervalInput: document.querySelector(
     "#partial-clean-interval-input",
   ),
+  mqttEnabledInput: document.querySelector("#mqtt-enabled-input"),
+  mqttHostInput: document.querySelector("#mqtt-host-input"),
+  mqttPortInput: document.querySelector("#mqtt-port-input"),
+  mqttUsernameInput: document.querySelector("#mqtt-username-input"),
+  mqttPasswordInput: document.querySelector("#mqtt-password-input"),
+  mqttDiscoveryPrefixInput: document.querySelector("#mqtt-discovery-prefix-input"),
+  mqttBaseTopicInput: document.querySelector("#mqtt-base-topic-input"),
+  mqttStatusLabel: document.querySelector("#mqtt-status-label"),
   layoutPreview: document.querySelector("#layout-preview"),
   layoutComponentList: document.querySelector("#layout-component-list"),
   layoutEditorStatus: document.querySelector("#layout-editor-status"),
@@ -2576,6 +2612,40 @@ function applyRefreshInputs(settings = DEFAULT_REFRESH_SETTINGS) {
   );
 }
 
+function setInputValueFromStatus(input, value) {
+  if (document.activeElement !== input) {
+    input.value = value;
+  }
+}
+
+function applyMqttInputs(status = {}) {
+  elements.mqttEnabledInput.checked = Boolean(status.mqttEnabled);
+  setInputValueFromStatus(
+    elements.mqttHostInput,
+    status.mqttHost || "homeassistant.local",
+  );
+  setInputValueFromStatus(elements.mqttPortInput, String(status.mqttPort || 1883));
+  setInputValueFromStatus(elements.mqttUsernameInput, status.mqttUsername || "");
+  setInputValueFromStatus(elements.mqttPasswordInput, "");
+  elements.mqttPasswordInput.placeholder = status.mqttPasswordSet
+    ? t("ha.passwordSaved")
+    : t("ha.passwordPlaceholder");
+  setInputValueFromStatus(
+    elements.mqttDiscoveryPrefixInput,
+    status.mqttDiscoveryPrefix || "homeassistant",
+  );
+  setInputValueFromStatus(elements.mqttBaseTopicInput, status.mqttBaseTopic || "");
+  if (status.mqttEnabled && status.mqttConnected) {
+    elements.mqttStatusLabel.textContent = t("ha.statusConnected", {
+      topic: status.mqttBaseTopic || "-",
+    });
+  } else if (status.mqttEnabled) {
+    elements.mqttStatusLabel.textContent = t("ha.statusEnabled");
+  } else {
+    elements.mqttStatusLabel.textContent = t("ha.statusDisabled");
+  }
+}
+
 function readNumberField(element, label, min, max) {
   const rawValue = String(element.value || "").trim();
   const value = Number(rawValue);
@@ -2653,6 +2723,24 @@ function readRefreshSettingsFromInputs() {
       REFRESH_LIMITS.partialCleanIntervalMax,
     ),
   };
+}
+
+function readMqttSettingsFromInputs() {
+  const port = readIntegerField(elements.mqttPortInput, t("ha.port"), 1, 65535);
+  const settings = {
+    mqttEnabled: elements.mqttEnabledInput.checked,
+    mqttHost: elements.mqttHostInput.value.trim() || "homeassistant.local",
+    mqttPort: port,
+    mqttUsername: elements.mqttUsernameInput.value.trim(),
+    mqttDiscoveryPrefix:
+      elements.mqttDiscoveryPrefixInput.value.trim() || "homeassistant",
+    mqttBaseTopic: elements.mqttBaseTopicInput.value.trim(),
+  };
+  const password = elements.mqttPasswordInput.value;
+  if (password) {
+    settings.mqttPassword = password;
+  }
+  return settings;
 }
 
 function localMarketMatches(item, query) {
@@ -4062,6 +4150,7 @@ function updateStatus(status) {
       status.partialCleanInterval ??
       DEFAULT_REFRESH_SETTINGS.partialCleanInterval,
   });
+  applyMqttInputs(status);
   if (shouldAdoptDeviceLayout(statusLayoutId)) {
     const activeLayout = activeLayoutFromDocument(status.layoutDocument);
     if (activeLayout?.components) {
@@ -4821,6 +4910,7 @@ async function saveSettings({ connectNow, syncTime }) {
   const password = elements.passwordInput.value;
   const timezone = Number(elements.timezoneSelect.value);
   const refreshSettings = readRefreshSettingsFromInputs();
+  const mqttSettings = readMqttSettingsFromInputs();
 
   if (!ssid) {
     throw new Error(localized("请先输入或选择 Wi-Fi 名称", "Enter or choose a Wi-Fi network name first"));
@@ -4837,6 +4927,7 @@ async function saveSettings({ connectNow, syncTime }) {
     connectNow,
     syncTime,
     ...refreshSettings,
+    ...mqttSettings,
   };
 
   if (!savedSsid || typedSsid !== savedSsid) {
@@ -5570,6 +5661,7 @@ async function initialize() {
   renderNetworks();
   state.marketResults = [];
   state.marketResultsVisible = false;
+  applyMqttInputs();
   renderMarketHotList();
   renderMarketResults();
   renderDashboardLayoutEditor();

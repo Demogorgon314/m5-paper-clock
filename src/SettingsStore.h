@@ -23,6 +23,16 @@ struct SavedDashboardLayout {
     std::vector<MarketLayoutItem> market_layout = {MarketLayoutItem {}};
 };
 
+struct MqttSettings {
+    bool enabled = false;
+    String host = "homeassistant.local";
+    uint16_t port = 1883;
+    String username;
+    String password;
+    String discovery_prefix = "homeassistant";
+    String base_topic;
+};
+
 struct AppSettings {
     String ssid;
     String password;
@@ -42,6 +52,7 @@ struct AppSettings {
     logic::DashboardLayout dashboard_layout = logic::DefaultDashboardLayout();
     std::vector<MarketLayoutItem> market_layout = {MarketLayoutItem {}};
     std::vector<SavedDashboardLayout> layout_presets;
+    MqttSettings mqtt;
 };
 
 class SettingsStore {
@@ -64,6 +75,7 @@ public:
     void saveDashboardLayout(const logic::DashboardLayout& dashboard_layout);
     void saveMarketLayout(const std::vector<MarketLayoutItem>& market_layout);
     void saveLayoutPresets(const std::vector<SavedDashboardLayout>& presets);
+    void saveMqtt(const MqttSettings& mqtt_settings);
     void saveBlePairingToken(const String& token);
 
 private:

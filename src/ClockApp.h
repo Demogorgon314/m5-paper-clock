@@ -12,6 +12,7 @@
 
 #include "ConnectivityService.h"
 #include "MarketService.h"
+#include "MqttService.h"
 #include "SegmentRenderer.h"
 #include "SensorService.h"
 #include "SettingsStore.h"
@@ -197,6 +198,7 @@ private:
     void handleTouch();
     void handleSerialConfig();
     void handleBleConfig();
+    void handleMqtt();
     void beginBleConfig();
     void enqueueBleConfigChunk(const std::string& chunk);
     void processConfigLine(const String& line, ConfigTransport transport);
@@ -247,6 +249,12 @@ private:
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void populateLayoutPreviewState(JsonObject data) const;
+    void publishMqttDiscovery();
+    void publishMqttState();
+    void handleMqttCommand(const String& topic, const String& payload);
+    void configureMqtt();
+    void populateMqttDevice(JsonObject device) const;
+    String mqttObjectId(const String& suffix) const;
     void populateLayoutDocument(JsonObject document) const;
     void populateClassicLayoutComponents(JsonArray components) const;
     void populateDashboardLayoutComponents(
@@ -287,6 +295,7 @@ private:
     SettingsStore store_;
     ConnectivityService connectivity_;
     MarketService market_;
+    MqttService mqtt_;
     SensorService sensor_;
 
     bool local_ota_active_ = false;
@@ -381,6 +390,8 @@ private:
     uint32_t pending_serial_reboot_at_ms_ = 0;
     uint32_t background_connectivity_due_ms_ = 0;
     uint32_t last_serial_config_at_ms_ = 0;
+    uint32_t last_mqtt_state_publish_ms_ = 0;
+    String mqtt_device_id_;
 
     String last_time_text_rendered_;
     String last_dashboard_time_text_rendered_;
