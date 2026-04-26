@@ -3,11 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Configure M5Paper Ink Clock Wi-Fi, timezone, layout presets, market data, and firmware updates from the browser."
+    />
+    <meta property="og:title" content="M5Paper Ink Clock 配置" />
+    <meta
+      property="og:description"
+      content="Browser configuration tool for M5Paper Ink Clock devices."
+    />
+    <meta property="og:type" content="website" />
     <title data-i18n="app.title">M5Paper Ink Clock 配置</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23f0ebe1'/%3E%3Crect x='12' y='10' width='40' height='44' rx='5' fill='%23ffffff' stroke='%230f7663' stroke-width='4'/%3E%3Cpath d='M20 24h24M20 34h16M20 44h20' stroke='%230d0c0b' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <main id="main-content" class="app-shell">
       <header class="band intro-band">
         <div class="intro-copy">
           <div class="intro-meta-row">
@@ -289,19 +310,23 @@
             <select id="layout-preset-select" class="layout-preset-select" aria-label="Layout preset"></select>
           </label>
           <div class="layout-toolbar-actions">
-            <button id="layout-new-button" class="action-button subtle" disabled>
-              <span data-i18n="button.newLayout">新建空白</span>
-            </button>
-            <button id="layout-duplicate-button" class="action-button subtle" disabled>
-              <span data-i18n="button.duplicateLayout">复制预设</span>
-            </button>
-            <button id="layout-delete-button" class="action-button subtle" disabled>
-              <span data-i18n="button.deleteLayout">删除预设</span>
-            </button>
-            <button id="layout-reset-button" class="action-button subtle" disabled>
-              <span data-i18n="button.resetLayout">恢复默认布局</span>
-            </button>
-            <button id="layout-save-button" class="action-button primary" disabled>
+            <div class="layout-action-group">
+              <button id="layout-new-button" class="action-button subtle" disabled>
+                <span data-i18n="button.newLayout">新建空白</span>
+              </button>
+              <button id="layout-duplicate-button" class="action-button subtle" disabled>
+                <span data-i18n="button.duplicateLayout">复制预设</span>
+              </button>
+            </div>
+            <div class="layout-action-group">
+              <button id="layout-delete-button" class="action-button subtle" disabled>
+                <span data-i18n="button.deleteLayout">删除预设</span>
+              </button>
+              <button id="layout-reset-button" class="action-button subtle" disabled>
+                <span data-i18n="button.resetLayout">恢复默认布局</span>
+              </button>
+            </div>
+            <button id="layout-save-button" class="action-button primary layout-save-action" disabled>
               <span data-i18n="button.saveLayout">保存布局</span>
             </button>
           </div>
@@ -439,7 +464,7 @@
         </div>
         <pre id="log-output" class="log-output" aria-live="polite"></pre>
       </section>
-    </div>
+    </main>
 
     <script
       type="module"
