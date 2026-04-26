@@ -1842,7 +1842,10 @@ function joinPreviewDateTextParts(...parts) {
 }
 
 function fitPreviewDateTextSize(canvas, text, preferredSize, minimumSize, maxWidth) {
-  for (let size = preferredSize; size > minimumSize; size -= 1) {
+  for (const size of [7, 3, 2]) {
+    if (size > preferredSize || size < minimumSize) {
+      continue;
+    }
     canvas.setTextSize(size, true);
     if (canvas.textWidth(text) + 1 <= maxWidth) {
       return size;

@@ -334,7 +334,11 @@ String joinDateTextParts(const String& first, const String& second,
 uint8_t fitDateTextSize(M5EPD_Canvas& canvas, const String& text,
                         uint8_t preferred_size, uint8_t minimum_size,
                         int16_t max_width) {
-    for (uint8_t size = preferred_size; size > minimum_size; --size) {
+    constexpr uint8_t kDateTextSizeCandidates[] = {7, 3, 2};
+    for (uint8_t size : kDateTextSizeCandidates) {
+        if (size > preferred_size || size < minimum_size) {
+            continue;
+        }
         setCanvasTextSize(canvas, true, size);
         if (canvas.textWidth(text) + 1 <= max_width) {
             return size;

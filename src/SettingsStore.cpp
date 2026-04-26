@@ -4,6 +4,16 @@ namespace {
 constexpr uint8_t kMaxSavedMarketLayoutItems = 6;
 constexpr uint8_t kMaxSavedDashboardLayouts = 5;
 constexpr const char* kActiveLayoutIdKey = "active_lid";
+constexpr uint8_t kPreferencesKeyMaxLength = 15;
+
+bool preferencesKeySafe(const String& key) {
+    return key.length() <= kPreferencesKeyMaxLength;
+}
+
+String dashboardComponentStoragePrefix(
+    const logic::DashboardLayoutItem& item) {
+    return "d" + String(logic::DashboardComponentIndex(item.id));
+}
 
 MarketLayoutItem defaultMarketLayoutItem(uint8_t index,
                                          const String& fallback_symbol,
@@ -106,19 +116,34 @@ AppSettings SettingsStore::load() const {
             "partial_gc16", settings.partial_clean_interval)));
     settings.dashboard_layout = logic::DefaultDashboardLayout();
     for (logic::DashboardLayoutItem& item : settings.dashboard_layout) {
-        const String key_prefix = String("dash_") + item.instance_id;
+        const String key_prefix = dashboardComponentStoragePrefix(item);
+        const String instance_key_prefix = String("dash_") + item.instance_id;
         const String legacy_key_prefix = String("dash_") + item.type;
-        item.x = preferences_.getShort(
-            (key_prefix + "_x").c_str(),
-            preferences_.getShort((legacy_key_prefix + "_x").c_str(), item.x));
-        item.y = preferences_.getShort(
-            (key_prefix + "_y").c_str(),
-            preferences_.getShort((legacy_key_prefix + "_y").c_str(), item.y));
-        item.visible =
-            preferences_.getBool((key_prefix + "_v").c_str(),
-                                 preferences_.getBool(
-                                     (legacy_key_prefix + "_v").c_str(),
-                                     item.visible));
+        auto getShort = [this](const String& key,
+                               int16_t fallback) -> int16_t {
+            if (!preferencesKeySafe(key)) {
+                return fallback;
+            }
+            return preferences_.getShort(key.c_str(), fallback);
+        };
+        auto getBool = [this](const String& key, bool fallback) -> bool {
+            if (!preferencesKeySafe(key)) {
+                return fallback;
+            }
+            return preferences_.getBool(key.c_str(), fallback);
+        };
+        item.x = getShort(
+            key_prefix + "_x",
+            getShort(instance_key_prefix + "_x",
+                     getShort(legacy_key_prefix + "_x", item.x)));
+        item.y = getShort(
+            key_prefix + "_y",
+            getShort(instance_key_prefix + "_y",
+                     getShort(legacy_key_prefix + "_y", item.y)));
+        item.visible = getBool(
+            key_prefix + "_v",
+            getBool(instance_key_prefix + "_v",
+                    getBool(legacy_key_prefix + "_v", item.visible)));
     }
     settings.dashboard_layout =
         logic::NormalizeDashboardLayout(settings.dashboard_layout);
@@ -392,7 +417,7 @@ void SettingsStore::saveDashboardLayout(
     const logic::DashboardLayout normalized =
         logic::NormalizeDashboardLayout(dashboard_layout);
     for (const logic::DashboardLayoutItem& item : normalized) {
-        const String key_prefix = String("dash_") + item.instance_id;
+        const String key_prefix = dashboardComponentStoragePrefix(item);
         preferences_.putShort((key_prefix + "_x").c_str(), item.x);
         preferences_.putShort((key_prefix + "_y").c_str(), item.y);
         preferences_.putBool((key_prefix + "_v").c_str(), item.visible);
