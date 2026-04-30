@@ -3,7 +3,9 @@
 #include <string>
 
 #include "logic/ComfortLogic.h"
+#include "logic/ClimateDisplayLogic.h"
 #include "logic/ComponentUpdateGroups.h"
+#include "logic/DateDisplayLogic.h"
 #include "logic/MarketLogic.h"
 #include "logic/HolidayLogic.h"
 #include "logic/LayoutLogic.h"
@@ -79,11 +81,89 @@ void test_component_update_groups_cover_expected_components() {
         static_cast<int>(logic::kMarketComponents.ids[0]));
 }
 
+void test_component_registry_exposes_defaults_and_labels() {
+    const logic::DashboardLayout layout = logic::DefaultDashboardLayout();
+
+    TEST_ASSERT_EQUAL(logic::kDashboardComponentCount, layout.size());
+    TEST_ASSERT_EQUAL_STRING(
+        "date",
+        logic::DashboardComponentPerfLabel(logic::DashboardComponentId::Date));
+    TEST_ASSERT_EQUAL_STRING(
+        "summary",
+        logic::DashboardComponentPerfLabel(logic::DashboardComponentId::Summary));
+    TEST_ASSERT_EQUAL_STRING(
+        "market",
+        logic::DashboardComponentDefinitionForId(
+            logic::DashboardComponentId::Summary).default_item.type);
+    TEST_ASSERT_EQUAL(332, logic::MarketComponentDefaultItem().w);
+    TEST_ASSERT_EQUAL(4,
+                      static_cast<int>(
+                          logic::kClassicLayoutComponentDefinitions.size()));
+    TEST_ASSERT_EQUAL_STRING(
+        "classic-time",
+        logic::kClassicLayoutComponentDefinitions[2].instance_id);
+}
+
 void test_wifi_pagination() {
     TEST_ASSERT_EQUAL(3, logic::PageCount(13, 6));
     TEST_ASSERT_EQUAL(6, logic::VisibleItemCount(13, 0, 6));
     TEST_ASSERT_EQUAL(6, logic::VisibleItemCount(13, 1, 6));
     TEST_ASSERT_EQUAL(1, logic::VisibleItemCount(13, 2, 6));
+}
+
+void test_wifi_signal_levels() {
+    TEST_ASSERT_EQUAL(4, logic::WifiSignalLevelFromRssi(-55));
+    TEST_ASSERT_EQUAL(3, logic::WifiSignalLevelFromRssi(-67));
+    TEST_ASSERT_EQUAL(2, logic::WifiSignalLevelFromRssi(-75));
+    TEST_ASSERT_EQUAL(1, logic::WifiSignalLevelFromRssi(-76));
+    TEST_ASSERT_EQUAL(3, logic::WifiBitmapLevel(4));
+    TEST_ASSERT_EQUAL(2, logic::WifiBitmapLevel(2));
+    TEST_ASSERT_EQUAL(1, logic::WifiBitmapLevel(1));
+}
+
+void test_password_mask_and_keyboard_layouts() {
+    TEST_ASSERT_EQUAL_STRING("<empty>", logic::MaskPassword("", false).c_str());
+    TEST_ASSERT_EQUAL_STRING("******",
+                             logic::MaskPassword("secret", false).c_str());
+    TEST_ASSERT_EQUAL_STRING("secret",
+                             logic::MaskPassword("secret", true).c_str());
+
+    const std::vector<std::string> lower = logic::KeyboardLayout(false, false);
+    TEST_ASSERT_EQUAL(26, static_cast<int>(lower.size()));
+    TEST_ASSERT_EQUAL_STRING("q", lower.front().c_str());
+    TEST_ASSERT_EQUAL_STRING("m", lower.back().c_str());
+
+    const std::vector<std::string> upper = logic::KeyboardLayout(true, false);
+    TEST_ASSERT_EQUAL_STRING("Q", upper.front().c_str());
+    TEST_ASSERT_EQUAL_STRING("M", upper.back().c_str());
+
+    const std::vector<std::string> symbols = logic::KeyboardLayout(false, true);
+    TEST_ASSERT_EQUAL(26, static_cast<int>(symbols.size()));
+    TEST_ASSERT_EQUAL_STRING("1", symbols.front().c_str());
+    TEST_ASSERT_EQUAL_STRING("&", symbols.back().c_str());
+}
+
+void test_date_display_normalization() {
+    TEST_ASSERT_EQUAL_STRING("yyyy-mm-dd",
+                             logic::NormalizeDateFormat("bad-format"));
+    TEST_ASSERT_EQUAL_STRING("mm-dd", logic::NormalizeDateFormat("mm-dd"));
+    TEST_ASSERT_EQUAL_STRING("short",
+                             logic::NormalizeWeekdayFormat("unexpected"));
+    TEST_ASSERT_EQUAL_STRING("english-short",
+                             logic::NormalizeWeekdayFormat("english-short"));
+    TEST_ASSERT_EQUAL_STRING("inline",
+                             logic::NormalizeDateLayout("stacked"));
+    TEST_ASSERT_EQUAL_STRING("two-line",
+                             logic::NormalizeDateLayout("two-line"));
+    TEST_ASSERT_EQUAL(7, logic::NormalizeDateTextSize(99));
+    TEST_ASSERT_EQUAL(3, logic::NormalizeDateTextSize(3));
+}
+
+void test_days_in_month_handles_boundaries_and_leap_years() {
+    TEST_ASSERT_EQUAL(29, logic::DaysInMonth(2024, 2));
+    TEST_ASSERT_EQUAL(28, logic::DaysInMonth(2026, 2));
+    TEST_ASSERT_EQUAL(30, logic::DaysInMonth(2026, 4));
+    TEST_ASSERT_EQUAL(30, logic::DaysInMonth(2026, 13));
 }
 
 void test_segment_masks() {
@@ -190,6 +270,32 @@ void test_infer_tencent_quote_symbols_for_known_index_and_stock() {
     TEST_ASSERT_EQUAL_STRING("sz300750", prefixed_candidates[0].c_str());
 }
 
+void test_market_display_helpers() {
+    TEST_ASSERT_EQUAL_STRING(
+        "000001", logic::MarketCodeFromRequestSymbol("sh000001").c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "abc", logic::MarketCodeFromRequestSymbol("abc").c_str());
+    TEST_ASSERT_TRUE(logic::MarketSearchMatchesQuery("sh000001", "000001",
+                                                     "000"));
+    TEST_ASSERT_TRUE(logic::MarketSearchMatchesQuery("sh000001", "000001",
+                                                     "sh"));
+    TEST_ASSERT_FALSE(logic::MarketSearchMatchesQuery("sh000001", "000001",
+                                                      "sz"));
+    TEST_ASSERT_EQUAL_STRING(
+        "10:57", logic::MarketQuoteTimeLabel("20260421105751").c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "Upd 10:57",
+        logic::MarketStatusLabel("20260421105751", true, false).c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "休市 10:57",
+        logic::MarketStatusLabel("20260421105751", false, true).c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "上证指数",
+        logic::MarketDisplayLabel("000001", "上证指数", true).c_str());
+    TEST_ASSERT_EQUAL_STRING(
+        "000001", logic::MarketDisplayLabel("000001", "上证指数", false).c_str());
+}
+
 void test_weekday_from_civil() {
     TEST_ASSERT_EQUAL(2, logic::WeekdayFromCivil(2026, 4, 21));
     TEST_ASSERT_EQUAL(0, logic::WeekdayFromCivil(2026, 4, 26));
@@ -240,6 +346,25 @@ void test_comfort_state_for_reading_respects_custom_thresholds() {
     TEST_ASSERT_EQUAL(
         static_cast<int>(logic::ComfortState::Offline),
         static_cast<int>(logic::ComfortStateForReading(24.5f, 48.0f, false, custom)));
+}
+
+void test_climate_display_formatting() {
+    TEST_ASSERT_EQUAL_STRING("24.5", logic::FormatTemperature(24.45f).c_str());
+    TEST_ASSERT_EQUAL_STRING("49", logic::FormatHumidity(48.6f).c_str());
+    TEST_ASSERT_EQUAL_STRING(" 49",
+                             logic::FormatClassicHumidityField(48.6f, true).c_str());
+    TEST_ASSERT_EQUAL_STRING(" --",
+                             logic::FormatClassicHumidityField(48.6f, false).c_str());
+    TEST_ASSERT_EQUAL_STRING("245",
+                             logic::FormatClassicTemperatureField(24.5f, true).c_str());
+    TEST_ASSERT_EQUAL_STRING("-35",
+                             logic::FormatClassicTemperatureField(-3.5f, true).c_str());
+    TEST_ASSERT_EQUAL_STRING("---",
+                             logic::FormatClassicTemperatureField(24.5f, false).c_str());
+    TEST_ASSERT_EQUAL_STRING("--",
+                             logic::FormatDashboardHumidity(48.6f, false).c_str());
+    TEST_ASSERT_EQUAL_STRING("--.-",
+                             logic::FormatDashboardTemperature(24.5f, false).c_str());
 }
 
 void test_holiday_display_countdown() {
@@ -315,7 +440,12 @@ int main() {
     RUN_TEST(test_dashboard_layout_clamps_to_screen);
     RUN_TEST(test_dashboard_component_id_from_key);
     RUN_TEST(test_component_update_groups_cover_expected_components);
+    RUN_TEST(test_component_registry_exposes_defaults_and_labels);
     RUN_TEST(test_wifi_pagination);
+    RUN_TEST(test_wifi_signal_levels);
+    RUN_TEST(test_password_mask_and_keyboard_layouts);
+    RUN_TEST(test_date_display_normalization);
+    RUN_TEST(test_days_in_month_handles_boundaries_and_leap_years);
     RUN_TEST(test_segment_masks);
     RUN_TEST(test_parse_tencent_quote);
     RUN_TEST(test_parse_tencent_quote_with_trade_details);
@@ -323,6 +453,7 @@ int main() {
     RUN_TEST(test_normalize_tencent_quote_name_keeps_utf8_name);
     RUN_TEST(test_known_market_request_symbol);
     RUN_TEST(test_infer_tencent_quote_symbols_for_known_index_and_stock);
+    RUN_TEST(test_market_display_helpers);
     RUN_TEST(test_weekday_from_civil);
     RUN_TEST(test_is_holiday_date);
     RUN_TEST(test_cn_a_share_market_open_during_session);
@@ -330,6 +461,7 @@ int main() {
     RUN_TEST(test_cn_a_share_market_closed_on_weekends_and_holidays);
     RUN_TEST(test_normalize_comfort_settings_clamps_and_swaps_ranges);
     RUN_TEST(test_comfort_state_for_reading_respects_custom_thresholds);
+    RUN_TEST(test_climate_display_formatting);
     RUN_TEST(test_holiday_display_countdown);
     RUN_TEST(test_holiday_name_zh);
     RUN_TEST(test_holiday_display_in_holiday);

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "ConnectivityService.h"
+#include "LayoutDocumentCodec.h"
 #include "MarketService.h"
 #include "SegmentRenderer.h"
 #include "SensorService.h"
@@ -106,10 +107,14 @@ private:
         String ssid;
         int32_t rssi = -100;
     };
-
     static constexpr int16_t kScreenWidth = 960;
     static constexpr int16_t kScreenHeight = 540;
     static constexpr int16_t kWifiPageSize = 6;
+    using ComponentUpdateHandler = void (ClockApp::*)(bool, bool);
+    struct ComponentUpdateBinding {
+        logic::DashboardComponentId id;
+        ComponentUpdateHandler handler;
+    };
 
     void initializeHardware();
     void createCanvases();
@@ -131,6 +136,16 @@ private:
     void updateLayoutComponents(const logic::DashboardComponentId* ids,
                                 size_t count, bool full_refresh,
                                 bool allow_fetch = true);
+    const ComponentUpdateBinding* componentUpdateBinding(
+        logic::DashboardComponentId id) const;
+    void updateDateComponent(bool full_refresh, bool allow_fetch);
+    void updateBatteryComponent(bool full_refresh, bool allow_fetch);
+    void updateCalendarComponent(bool full_refresh, bool allow_fetch);
+    void updateTimeComponent(bool full_refresh, bool allow_fetch);
+    void updateMarketComponent(bool full_refresh, bool allow_fetch);
+    void updateClimateComponent(bool full_refresh, bool allow_fetch);
+    void updateClassicTimeComponent(bool full_refresh, bool allow_fetch);
+    void updateClassicInfoComponent(bool full_refresh, bool allow_fetch);
     void updateDashboardLayoutComponents(bool full_refresh);
     void updateDashboardMinuteComponents();
     void updateDashboardDateComponents();
@@ -210,6 +225,20 @@ private:
     String generateBlePairingCode() const;
     String generateBlePairingToken() const;
     ConfigConnectionIcon activeConfigConnectionIcon() const;
+    void handleRemoteOtaConfigCommand(const JsonDocument& request_doc,
+                                      DynamicJsonDocument& response_doc,
+                                      ConfigTransport transport);
+    void handleLocalOtaBeginConfigCommand(const JsonDocument& request_doc,
+                                          DynamicJsonDocument& response_doc,
+                                          ConfigTransport transport);
+    void handleLocalOtaChunkConfigCommand(const JsonDocument& request_doc,
+                                          DynamicJsonDocument& response_doc,
+                                          ConfigTransport transport);
+    void handleLocalOtaStatusConfigCommand(DynamicJsonDocument& response_doc,
+                                           ConfigTransport transport);
+    void handleLocalOtaEndConfigCommand(DynamicJsonDocument& response_doc,
+                                        ConfigTransport transport);
+    void handleLocalOtaAbortConfigCommand(DynamicJsonDocument& response_doc);
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
@@ -253,6 +282,10 @@ private:
         JsonArray components,
         const logic::DashboardLayout& dashboard_layout,
         const std::vector<MarketLayoutItem>& market_layout) const;
+    void populateComponentProps(JsonObject props,
+                                logic::DashboardComponentId id,
+                                const char* variant,
+                                const String& symbol = String()) const;
     void populateLayoutComponents(JsonArray components) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
     void sendConfigLine(const String& line, ConfigTransport transport) const;
@@ -269,6 +302,7 @@ private:
     bool applyLayoutDocument(JsonObjectConst document, String& error_message);
     bool applyDashboardLayout(JsonArrayConst components, String& error_message,
                               bool apply_shared_settings = true);
+    void commitLayoutApplyDraft(const layoutdoc::LayoutApplyDraft& draft);
     String currentIpAddress() const;
     String currentMarketCode() const;
     String currentMarketDisplayName() const;

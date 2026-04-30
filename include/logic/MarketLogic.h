@@ -183,6 +183,59 @@ inline bool StartsWith(const std::string& value, const std::string& prefix) {
            value.compare(0, prefix.size(), prefix) == 0;
 }
 
+inline std::string MarketCodeFromRequestSymbol(
+    const std::string& request_symbol) {
+    if (request_symbol.size() >= 6) {
+        return request_symbol.substr(request_symbol.size() - 6);
+    }
+    return request_symbol;
+}
+
+inline bool MarketSearchMatchesQuery(const std::string& request_symbol,
+                                     const std::string& code,
+                                     const std::string& query) {
+    return query.empty() || StartsWith(code, query) ||
+           StartsWith(request_symbol, query);
+}
+
+inline std::string MarketQuoteTimeLabel(const std::string& updated_at) {
+    if (updated_at.size() < 12) {
+        return "";
+    }
+    return updated_at.substr(8, 2) + ":" + updated_at.substr(10, 2);
+}
+
+inline std::string MarketStatusLabel(const std::string& updated_at,
+                                     bool market_open,
+                                     bool use_cjk_font) {
+    const std::string quote_time = MarketQuoteTimeLabel(updated_at);
+    if (use_cjk_font) {
+        if (market_open) {
+            return quote_time.empty() ? std::string(u8"交易中")
+                                      : std::string(u8"更新 ") + quote_time;
+        }
+        return quote_time.empty() ? std::string(u8"休市")
+                                  : std::string(u8"休市 ") + quote_time;
+    }
+
+    if (market_open) {
+        return quote_time.empty() ? "Open" : "Upd " + quote_time;
+    }
+    return quote_time.empty() ? "Closed" : "Closed " + quote_time;
+}
+
+inline std::string MarketDisplayLabel(const std::string& symbol,
+                                      const std::string& display_name,
+                                      bool prefer_display_name) {
+    if (prefer_display_name && !display_name.empty()) {
+        return display_name;
+    }
+    if (!symbol.empty()) {
+        return symbol;
+    }
+    return u8"上证指数";
+}
+
 inline void AppendUniqueMarketSymbol(std::vector<std::string>& values,
                                      const std::string& next_value) {
     if (next_value.empty()) {

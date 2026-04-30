@@ -10,8 +10,7 @@ inline int DashboardComponentIndex(DashboardComponentId id) {
 
 inline const DashboardLayoutItem& DashboardLayoutDefaultItem(
     DashboardComponentId id) {
-    static const DashboardLayout defaults = DefaultDashboardLayout();
-    return defaults[DashboardComponentIndex(id)];
+    return DashboardComponentDefinitionForId(id).default_item;
 }
 
 inline const DashboardLayoutItem* FindDashboardLayoutItem(
@@ -72,8 +71,9 @@ inline bool StringsEqual(const char* left, const char* right) {
 
 inline DashboardComponentId DashboardComponentIdFromKey(const char* key,
                                                         bool& found) {
-    const DashboardLayout defaults = DefaultDashboardLayout();
-    for (const DashboardLayoutItem& item : defaults) {
+    for (const DashboardComponentDefinition& definition :
+         kDashboardComponentDefinitions) {
+        const DashboardLayoutItem& item = definition.default_item;
         if (StringsEqual(item.instance_id, key) || StringsEqual(item.type, key)) {
             found = true;
             return item.id;
