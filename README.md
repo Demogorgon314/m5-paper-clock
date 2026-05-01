@@ -116,7 +116,11 @@ The Web UI limits saved dashboard presets to five. The classic digital layout is
 kept as a built-in preset and can be selected with the device buttons or from the
 Web UI.
 
-![Web configuration setup screen](docs/images/web-config-setup.webp)
+![Device setup screen](docs/images/device-setup.webp)
+
+![Wi-Fi and settings screen](docs/images/web-config-settings.webp)
+
+![Firmware update screen](docs/images/firmware-update.webp)
 
 ![Layout editor with 1:1 e-ink preview](docs/images/layout-editor.webp)
 
