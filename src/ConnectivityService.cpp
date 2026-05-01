@@ -1,5 +1,10 @@
 #include "ConnectivityService.h"
 
+#include <M5EPD.h>
+#include <WiFi.h>
+
+#include <algorithm>
+
 namespace {
 constexpr const char* kNtpServer = "time.cloudflare.com";
 }
@@ -159,4 +164,42 @@ bool ConnectivityService::isConnected() const {
 
 String ConnectivityService::currentSsid() const {
     return isConnected() ? WiFi.SSID() : String("");
+}
+
+String ConnectivityService::currentIpAddress() const {
+    return isConnected() ? WiFi.localIP().toString() : String("");
+}
+
+int32_t ConnectivityService::currentRssi() const {
+    return isConnected() ? WiFi.RSSI() : -100;
+}
+
+std::vector<WiFiNetwork> ConnectivityService::scanNetworks() const {
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    delay(100);
+
+    std::vector<WiFiNetwork> networks;
+    const int count = WiFi.scanNetworks();
+    for (int index = 0; index < count; ++index) {
+        WiFiNetwork network;
+        network.ssid = WiFi.SSID(index);
+        network.rssi = WiFi.RSSI(index);
+        if (!network.ssid.isEmpty()) {
+            networks.push_back(network);
+        }
+    }
+    WiFi.scanDelete();
+
+    std::sort(networks.begin(), networks.end(),
+              [](const WiFiNetwork& left, const WiFiNetwork& right) {
+                  return left.rssi > right.rssi;
+              });
+    networks.erase(
+        std::unique(networks.begin(), networks.end(),
+                    [](const WiFiNetwork& left, const WiFiNetwork& right) {
+                        return left.ssid == right.ssid;
+                    }),
+        networks.end());
+    return networks;
 }

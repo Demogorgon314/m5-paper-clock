@@ -3,118 +3,47 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <M5EPD.h>
-#include <mbedtls/sha256.h>
 
 #include <array>
 #include <initializer_list>
 #include <string>
 #include <vector>
 
+#include "BackgroundConnectivityController.h"
+#include "BleConfigService.h"
 #include "ConnectivityService.h"
+#include "ConfigLineBuffer.h"
+#include "ConfigStatusDocument.h"
 #include "LayoutDocumentCodec.h"
+#include "LayoutPreviewDocument.h"
+#include "LayoutPresetService.h"
+#include "LayoutSettingsApplier.h"
+#include "LocalOtaSession.h"
 #include "MarketService.h"
+#include "RemoteOtaUpdate.h"
+#include "RenderState.h"
 #include "SegmentRenderer.h"
 #include "SensorService.h"
 #include "SettingsStore.h"
+#include "UiTypes.h"
 
-class BLECharacteristic;
-class BLEServer;
-class BleConfigRxCallbacks;
-class BleConfigServerCallbacks;
-
-class ClockApp {
+class ClockApp : private BleConfigServiceEvents,
+                 private BackgroundConnectivityEvents {
 public:
     void begin();
     void loop();
 
 private:
-    friend class BleConfigRxCallbacks;
-    friend class BleConfigServerCallbacks;
-
-    enum class PageId { Settings, WifiScan, Password, Clock };
+    using PageId = logic::AppPage;
     enum class ConfigTransport : uint8_t { Serial = 0, Bluetooth = 1 };
-    enum class ConfigConnectionIcon : uint8_t {
-        None = 0,
-        Serial = 1,
-        Bluetooth = 2,
-    };
-    enum class BackgroundConnectivityTask : uint8_t {
-        Idle = 0,
-        ReconnectScheduled,
-        Reconnecting,
-        SyncingTime,
-    };
-
-    enum ButtonId {
-        kButtonWifi = 1,
-        kButtonSyncTime,
-        kButtonEnterClock,
-        kButtonTimezoneMinus,
-        kButtonTimezonePlus,
-        kButtonBack,
-        kButtonRescan,
-        kButtonPrevPage,
-        kButtonNextPage,
-        kButtonBackspace,
-        kButtonSpace,
-        kButtonClear,
-        kButtonPasswordVisibility,
-        kButtonConnect,
-        kButtonKeyboardMode,
-        kButtonShift,
-        kButtonNetworkBase = 100,
-        kButtonKeyboardBase = 200,
-    };
-
-    struct Rect {
-        int16_t x = 0;
-        int16_t y = 0;
-        int16_t w = 0;
-        int16_t h = 0;
-
-        Rect() = default;
-        Rect(int16_t x_value, int16_t y_value, int16_t width_value,
-             int16_t height_value)
-            : x(x_value), y(y_value), w(width_value), h(height_value) {
-        }
-
-        bool contains(int16_t px, int16_t py) const {
-            return px >= x && px < x + w && py >= y && py < y + h;
-        }
-    };
-
-    struct Button {
-        int id = 0;
-        Rect bounds;
-        String label;
-        bool visible = true;
-        bool enabled = true;
-        bool primary = false;
-
-        Button() = default;
-        Button(int button_id, Rect button_bounds, const String& button_label,
-               bool is_visible, bool is_enabled, bool is_primary)
-            : id(button_id),
-              bounds(button_bounds),
-              label(button_label),
-              visible(is_visible),
-              enabled(is_enabled),
-              primary(is_primary) {
-        }
-    };
-
-    struct WiFiNetwork {
-        String ssid;
-        int32_t rssi = -100;
+    struct RemoteOtaCallbackContext {
+        ClockApp* app = nullptr;
+        ConfigTransport transport = ConfigTransport::Serial;
     };
     static constexpr int16_t kScreenWidth = 960;
     static constexpr int16_t kScreenHeight = 540;
     static constexpr int16_t kWifiPageSize = 6;
     using ComponentUpdateHandler = void (ClockApp::*)(bool, bool);
-    struct ComponentUpdateBinding {
-        logic::DashboardComponentId id;
-        ComponentUpdateHandler handler;
-    };
 
     void initializeHardware();
     void createCanvases();
@@ -136,7 +65,7 @@ private:
     void updateLayoutComponents(const logic::DashboardComponentId* ids,
                                 size_t count, bool full_refresh,
                                 bool allow_fetch = true);
-    const ComponentUpdateBinding* componentUpdateBinding(
+    ComponentUpdateHandler componentUpdateHandler(
         logic::DashboardComponentId id) const;
     void updateDateComponent(bool full_refresh, bool allow_fetch);
     void updateBatteryComponent(bool full_refresh, bool allow_fetch);
@@ -166,12 +95,7 @@ private:
         String symbol;
         MarketQuote quote;
         uint32_t last_fetch_ms = 0;
-        String last_signature;
-        String last_title;
-        String last_price;
-        String last_bottom;
-        uint8_t partial_count = 0;
-        bool last_valid = false;
+        render::DashboardMarketRenderState render_state;
     };
     MarketRenderState& marketRenderStateFor(const MarketLayoutItem& item);
     void syncMarketRenderStates();
@@ -188,18 +112,7 @@ private:
     void updatePasswordStatusCanvas(m5epd_update_mode_t mode);
     void updateSettingsStatusCanvas(m5epd_update_mode_t mode);
 
-    void drawHeader(const String& title, bool show_back);
-    void drawButton(const Button& button, bool pressed = false);
-    void drawCard(const Rect& rect, uint8_t fill = 0, uint8_t border = 11);
-    void drawButton(M5EPD_Canvas& canvas, const Button& button, bool pressed = false,
-                    bool use_cjk_font = true);
-    void drawSettingsStatusCard(M5EPD_Canvas& canvas, int16_t origin_x,
-                                int16_t origin_y, bool use_cjk_font = true);
-    void drawStatusLine(const String& label, const String& value, int16_t x,
-                        int16_t y);
-    void drawWifiRow(const Button& button, const WiFiNetwork& network);
-    void drawPasswordField(const Rect& rect);
-    void updateButtonCanvas(const Button& button, m5epd_update_mode_t mode,
+    void updateButtonCanvas(const UiButton& button, m5epd_update_mode_t mode,
                             bool pressed = false);
 
     void rebuildButtons();
@@ -213,10 +126,12 @@ private:
     void handleSerialConfig();
     void handleBleConfig();
     void beginBleConfig();
-    void enqueueBleConfigChunk(const std::string& chunk);
     void processConfigLine(const String& line, ConfigTransport transport);
+    void onBleConfigConnected(uint16_t conn_id) override;
+    void onBleConfigDisconnected() override;
+    void onBackgroundConnected() override;
+    void onBackgroundTimeSynced() override;
     bool authorizeBleRequest(const JsonDocument& request_doc);
-    bool bleCommandRequiresAuth(const String& command) const;
     bool blePairingCodeActive() const;
     void beginBlePairing(DynamicJsonDocument& response_doc);
     void verifyBlePairing(const JsonDocument& request_doc,
@@ -239,6 +154,17 @@ private:
     void handleLocalOtaEndConfigCommand(DynamicJsonDocument& response_doc,
                                         ConfigTransport transport);
     void handleLocalOtaAbortConfigCommand(DynamicJsonDocument& response_doc);
+    void handleScanWifiConfigCommand(DynamicJsonDocument& response_doc,
+                                     ConfigTransport transport);
+    void handleSearchMarketConfigCommand(const JsonDocument& request_doc,
+                                         DynamicJsonDocument& response_doc,
+                                         ConfigTransport transport);
+    void handleSetMarketConfigCommand(const JsonDocument& request_doc,
+                                      DynamicJsonDocument& response_doc,
+                                      ConfigTransport transport);
+    void handleApplySettingsConfigCommand(const JsonDocument& request_doc,
+                                          DynamicJsonDocument& response_doc,
+                                          ConfigTransport transport);
     void handleButtonPress(int button_id);
     int buttonIdAt(int16_t x, int16_t y) const;
     void switchPage(PageId page, bool force_full_refresh = true);
@@ -273,20 +199,13 @@ private:
     void sendOtaProgress(ConfigTransport transport, const char* stage,
                          size_t written, size_t size) const;
     void sendLocalOtaProgress(ConfigTransport transport) const;
+    static void handleRemoteOtaProgress(void* context, const char* stage,
+                                        size_t written, size_t size);
+    static void handleRemoteOtaCheckpoint(void* context, const char* phase);
+    static void handleRemoteOtaYield(void* context);
     void connectSelectedNetwork();
     void populateSerialStatus(JsonObject data) const;
     void populateLayoutPreviewState(JsonObject data) const;
-    void populateLayoutDocument(JsonObject document) const;
-    void populateClassicLayoutComponents(JsonArray components) const;
-    void populateDashboardLayoutComponents(
-        JsonArray components,
-        const logic::DashboardLayout& dashboard_layout,
-        const std::vector<MarketLayoutItem>& market_layout) const;
-    void populateComponentProps(JsonObject props,
-                                logic::DashboardComponentId id,
-                                const char* variant,
-                                const String& symbol = String()) const;
-    void populateLayoutComponents(JsonArray components) const;
     void sendConfigDoc(const JsonDocument& doc, ConfigTransport transport) const;
     void sendConfigLine(const String& line, ConfigTransport transport) const;
     const char* currentPageName() const;
@@ -322,14 +241,11 @@ private:
     ConnectivityService connectivity_;
     MarketService market_;
     SensorService sensor_;
+    BackgroundConnectivityController background_connectivity_ {connectivity_};
 
-    bool local_ota_active_ = false;
-    bool local_ota_binary_mode_ = false;
-    size_t local_ota_expected_size_ = 0;
-    size_t local_ota_written_ = 0;
+    RemoteOtaUpdate remote_ota_;
+    LocalOtaSession local_ota_;
     size_t local_ota_last_reported_ = 0;
-    String local_ota_expected_sha256_;
-    mbedtls_sha256_context local_ota_sha_context_;
     SegmentRenderer renderer_;
 
     AppSettings settings_;
@@ -338,45 +254,18 @@ private:
     std::vector<MarketRenderState> market_render_states_;
     rtc_time_t last_time_ {};
     rtc_date_t last_date_ {};
+    RenderResources render_;
+    mutable RenderCache render_cache_;
 
-    M5EPD_Canvas page_canvas_ {&M5.EPD};
-    M5EPD_Canvas time_canvas_ {&M5.EPD};
-    M5EPD_Canvas minute_canvas_ {&M5.EPD};
-    M5EPD_Canvas info_canvas_ {&M5.EPD};
-    M5EPD_Canvas humidity_canvas_ {&M5.EPD};
-    M5EPD_Canvas temperature_canvas_ {&M5.EPD};
-    M5EPD_Canvas comfort_canvas_ {&M5.EPD};
-    M5EPD_Canvas date_canvas_ {&M5.EPD};
-    M5EPD_Canvas date_cjk_canvas_ {&M5.EPD};
-    M5EPD_Canvas battery_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_calendar_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_time_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_minute_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_summary_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_summary_cjk_canvas_ {&M5.EPD};
-    M5EPD_Canvas dashboard_climate_canvas_ {&M5.EPD};
-    M5EPD_Canvas password_field_canvas_ {&M5.EPD};
-    M5EPD_Canvas password_status_canvas_ {&M5.EPD};
-    std::array<M5EPD_Canvas, 4> time_digit_canvases_ {};
-    std::array<M5EPD_Canvas, 3> humidity_digit_canvases_ {};
-    std::array<M5EPD_Canvas, 3> temperature_digit_canvases_ {};
-
-    std::vector<Button> buttons_;
+    std::vector<UiButton> buttons_;
     std::vector<WiFiNetwork> wifi_networks_;
 
     PageId current_page_ = PageId::Settings;
     int wifi_page_index_ = 0;
     int pressed_button_id_ = -1;
-    String serial_config_rx_buffer_;
-    String ble_config_rx_buffer_;
-    String ble_config_pending_chunks_;
-    portMUX_TYPE ble_config_rx_mux_ = portMUX_INITIALIZER_UNLOCKED;
-    BLECharacteristic* ble_config_tx_characteristic_ = nullptr;
-    bool ble_config_ready_ = false;
-    bool ble_config_client_connected_ = false;
+    ConfigLineBuffer serial_config_rx_buffer_ {8192};
+    BleConfigService ble_config_;
     bool ble_config_session_authorized_ = false;
-    BLEServer* ble_config_server_ = nullptr;
-    uint16_t ble_config_conn_id_ = 0;
     bool ble_pairing_prompt_visible_ = false;
     String ble_pairing_code_;
     uint8_t ble_pairing_attempts_ = 0;
@@ -394,8 +283,6 @@ private:
     bool first_settings_render_ = true;
     bool touch_down_ = false;
     bool center_button_long_press_handled_ = false;
-    BackgroundConnectivityTask background_connectivity_task_ =
-        BackgroundConnectivityTask::Idle;
     bool littlefs_ready_ = false;
     bool cjk_font_ready_ = false;
     bool date_cjk_font_ready_ = false;
@@ -413,44 +300,6 @@ private:
     bool pending_serial_reboot_ = false;
     bool battery_status_dirty_ = false;
     uint32_t pending_serial_reboot_at_ms_ = 0;
-    uint32_t background_connectivity_due_ms_ = 0;
     uint32_t last_serial_config_at_ms_ = 0;
 
-    String last_time_text_rendered_;
-    String last_dashboard_time_text_rendered_;
-    String last_humidity_text_rendered_;
-    String last_temperature_text_rendered_;
-    String last_comfort_face_rendered_;
-    String last_dashboard_humidity_text_rendered_;
-    String last_dashboard_temperature_text_rendered_;
-    String last_dashboard_comfort_face_rendered_;
-    String last_market_summary_rendered_;
-    String last_dashboard_summary_title_rendered_;
-    String last_dashboard_summary_price_rendered_;
-    String last_dashboard_summary_bottom_rendered_;
-    String last_date_text_rendered_;
-    String last_holiday_display_rendered_;
-    uint8_t last_weekday_rendered_ = 255;
-    uint8_t last_battery_percentage_ = 255;
-    mutable uint8_t stable_battery_percentage_ = 255;
-    mutable uint8_t battery_candidate_percentage_ = 255;
-    mutable uint8_t battery_candidate_count_ = 0;
-    bool last_wifi_connected_ = false;
-    uint8_t last_wifi_signal_level_ = 255;
-    ConfigConnectionIcon last_config_connection_icon_ =
-        ConfigConnectionIcon::None;
-    std::array<uint8_t, 4> time_digit_partial_counts_ {};
-    std::array<uint8_t, 3> humidity_digit_partial_counts_ {};
-    std::array<uint8_t, 3> temperature_digit_partial_counts_ {};
-    uint8_t battery_partial_count_ = 0;
-    uint8_t classic_time_partial_count_ = 0;
-    uint8_t classic_humidity_partial_count_ = 0;
-    uint8_t classic_temperature_partial_count_ = 0;
-    uint8_t classic_comfort_partial_count_ = 0;
-    uint8_t date_partial_count_ = 0;
-    uint8_t dashboard_calendar_partial_count_ = 0;
-    uint8_t dashboard_summary_partial_count_ = 0;
-    uint8_t dashboard_time_partial_count_ = 0;
-    uint8_t dashboard_climate_partial_count_ = 0;
-    bool last_dashboard_summary_valid_ = false;
 };

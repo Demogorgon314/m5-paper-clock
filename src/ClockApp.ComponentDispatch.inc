@@ -1,26 +1,25 @@
-// Included by ClockApp.cpp. This is the runtime component dispatch table:
-// adding a dashboard component should register its update handler here.
-const ClockApp::ComponentUpdateBinding* ClockApp::componentUpdateBinding(
+// Included by ClockApp.cpp. This is the runtime component dispatch table.
+// Keep it indexed by DashboardComponentId so enum/count changes fail at compile
+// time instead of silently skipping a component at runtime.
+ClockApp::ComponentUpdateHandler ClockApp::componentUpdateHandler(
     logic::DashboardComponentId id) const {
-    static const ComponentUpdateBinding kBindings[] = {
-        {logic::DashboardComponentId::Date, &ClockApp::updateDateComponent},
-        {logic::DashboardComponentId::Battery, &ClockApp::updateBatteryComponent},
-        {logic::DashboardComponentId::Calendar, &ClockApp::updateCalendarComponent},
-        {logic::DashboardComponentId::Time, &ClockApp::updateTimeComponent},
-        {logic::DashboardComponentId::Summary, &ClockApp::updateMarketComponent},
-        {logic::DashboardComponentId::Climate, &ClockApp::updateClimateComponent},
-        {logic::DashboardComponentId::ClassicTime,
-         &ClockApp::updateClassicTimeComponent},
-        {logic::DashboardComponentId::ClassicInfo,
-         &ClockApp::updateClassicInfoComponent},
-    };
+    static constexpr std::array<ComponentUpdateHandler,
+                                logic::kDashboardComponentCount>
+        kHandlers = {{
+            &ClockApp::updateDateComponent,
+            &ClockApp::updateBatteryComponent,
+            &ClockApp::updateCalendarComponent,
+            &ClockApp::updateTimeComponent,
+            &ClockApp::updateMarketComponent,
+            &ClockApp::updateClimateComponent,
+            &ClockApp::updateClassicTimeComponent,
+            &ClockApp::updateClassicInfoComponent,
+        }};
 
-    for (const ComponentUpdateBinding& binding : kBindings) {
-        if (binding.id == id) {
-            return &binding;
-        }
+    if (id == logic::DashboardComponentId::Count) {
+        return nullptr;
     }
-    return nullptr;
+    return kHandlers[static_cast<size_t>(id)];
 }
 
 void ClockApp::updateDateComponent(bool full_refresh, bool) {

@@ -29,7 +29,7 @@ String ClockApp::formatRtcTimestamp() const {
     rtc_date_t date;
     M5.RTC.getTime(&time);
     M5.RTC.getDate(&date);
-    return formatDateTime(date, time);
+    return DateTime(date, time);
 }
 
 uint8_t ClockApp::batteryPercentage() const {
@@ -50,37 +50,37 @@ uint8_t ClockApp::batteryPercentage() const {
     }
     const uint8_t raw_percentage =
         static_cast<uint8_t>(battery * 100.0f);
-    if (stable_battery_percentage_ == 255) {
-        stable_battery_percentage_ = raw_percentage;
-        battery_candidate_percentage_ = raw_percentage;
-        battery_candidate_count_ = 0;
-        return stable_battery_percentage_;
+    if (render_cache_.stable_battery_percentage == 255) {
+        render_cache_.stable_battery_percentage = raw_percentage;
+        render_cache_.battery_candidate_percentage = raw_percentage;
+        render_cache_.battery_candidate_count = 0;
+        return render_cache_.stable_battery_percentage;
     }
     const int delta = static_cast<int>(raw_percentage) -
-                      static_cast<int>(stable_battery_percentage_);
+                      static_cast<int>(render_cache_.stable_battery_percentage);
     if (delta >= 2 || delta <= -2) {
-        stable_battery_percentage_ = raw_percentage;
-        battery_candidate_percentage_ = raw_percentage;
-        battery_candidate_count_ = 0;
-        return stable_battery_percentage_;
+        render_cache_.stable_battery_percentage = raw_percentage;
+        render_cache_.battery_candidate_percentage = raw_percentage;
+        render_cache_.battery_candidate_count = 0;
+        return render_cache_.stable_battery_percentage;
     }
     if (delta == 0) {
-        battery_candidate_percentage_ = raw_percentage;
-        battery_candidate_count_ = 0;
-        return stable_battery_percentage_;
+        render_cache_.battery_candidate_percentage = raw_percentage;
+        render_cache_.battery_candidate_count = 0;
+        return render_cache_.stable_battery_percentage;
     }
-    if (battery_candidate_percentage_ != raw_percentage) {
-        battery_candidate_percentage_ = raw_percentage;
-        battery_candidate_count_ = 1;
-        return stable_battery_percentage_;
+    if (render_cache_.battery_candidate_percentage != raw_percentage) {
+        render_cache_.battery_candidate_percentage = raw_percentage;
+        render_cache_.battery_candidate_count = 1;
+        return render_cache_.stable_battery_percentage;
     }
-    if (battery_candidate_count_ < 3) {
-        ++battery_candidate_count_;
-        return stable_battery_percentage_;
+    if (render_cache_.battery_candidate_count < 3) {
+        ++render_cache_.battery_candidate_count;
+        return render_cache_.stable_battery_percentage;
     }
-    stable_battery_percentage_ = raw_percentage;
-    battery_candidate_count_ = 0;
-    return stable_battery_percentage_;
+    render_cache_.stable_battery_percentage = raw_percentage;
+    render_cache_.battery_candidate_count = 0;
+    return render_cache_.stable_battery_percentage;
 }
 
 String ClockApp::maskedPassword() const {

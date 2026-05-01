@@ -55,133 +55,107 @@ void ClockApp::handleHardwareButtons() {
 }
 
 void ClockApp::handleButtonPress(int button_id) {
-    if (current_page_ == PageId::Settings) {
-        switch (button_id) {
-            case kButtonWifi:
-                switchPage(PageId::WifiScan);
-                scanWiFi();
-                break;
-            case kButtonTimezoneMinus:
-                settings_.timezone = logic::ClampTimeZone(settings_.timezone - 1);
-                store_.saveTimezone(settings_.timezone);
-                renderPage(UPDATE_MODE_GL16);
-                break;
-            case kButtonTimezonePlus:
-                settings_.timezone = logic::ClampTimeZone(settings_.timezone + 1);
-                store_.saveTimezone(settings_.timezone);
-                renderPage(UPDATE_MODE_GL16);
-                break;
-            case kButtonSyncTime:
-                trySyncTime(true);
-                break;
-            case kButtonEnterClock:
-                switchPage(PageId::Clock);
-                break;
-        }
-        return;
-    }
+    const logic::ButtonActionDecision decision = logic::DecideButtonAction(
+        current_page_, button_id, wifi_page_index_,
+        static_cast<int>(wifi_networks_.size()), kWifiPageSize);
 
-    if (current_page_ == PageId::WifiScan) {
-        if (button_id == kButtonBack) {
-            switchPage(PageId::Settings);
-            return;
-        }
-        if (button_id == kButtonRescan) {
+    switch (decision.action) {
+        case logic::ButtonAction::OpenWifiScan:
+            switchPage(PageId::WifiScan);
             scanWiFi();
             return;
-        }
-        if (button_id == kButtonPrevPage && wifi_page_index_ > 0) {
+        case logic::ButtonAction::DecreaseTimezone:
+            settings_.timezone = logic::ClampTimeZone(settings_.timezone - 1);
+            store_.saveTimezone(settings_.timezone);
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        case logic::ButtonAction::IncreaseTimezone:
+            settings_.timezone = logic::ClampTimeZone(settings_.timezone + 1);
+            store_.saveTimezone(settings_.timezone);
+            renderPage(UPDATE_MODE_GL16);
+            return;
+        case logic::ButtonAction::SyncTime:
+            trySyncTime(true);
+            return;
+        case logic::ButtonAction::EnterClock:
+            switchPage(PageId::Clock);
+            return;
+        case logic::ButtonAction::BackToSettings:
+            switchPage(PageId::Settings);
+            return;
+        case logic::ButtonAction::RescanWifi:
+            scanWiFi();
+            return;
+        case logic::ButtonAction::PreviousWifiPage:
             --wifi_page_index_;
             renderPage(UPDATE_MODE_GL16);
             return;
-        }
-        if (button_id == kButtonNextPage &&
-            wifi_page_index_ + 1 <
-                logic::PageCount(static_cast<int>(wifi_networks_.size()),
-                                 kWifiPageSize)) {
+        case logic::ButtonAction::NextWifiPage:
             ++wifi_page_index_;
             renderPage(UPDATE_MODE_GL16);
             return;
-        }
-        if (button_id >= kButtonNetworkBase &&
-            button_id < kButtonNetworkBase + kWifiPageSize) {
-            const int index = logic::PageStart(wifi_page_index_, kWifiPageSize) +
-                              (button_id - kButtonNetworkBase);
-            if (index >= 0 && index < static_cast<int>(wifi_networks_.size())) {
-                selected_ssid_ = wifi_networks_[index].ssid;
-                password_input_.clear();
-                password_visible_ = false;
-                status_message_ = "Ready to connect";
-                status_error_ = false;
-                switchPage(PageId::Password);
-            }
-        }
-        return;
-    }
-
-    if (current_page_ == PageId::Password) {
-        if (button_id == kButtonBack) {
+        case logic::ButtonAction::SelectWifiNetwork:
+            selected_ssid_ = wifi_networks_[decision.index].ssid;
+            password_input_.clear();
+            password_visible_ = false;
+            status_message_ = "Ready to connect";
+            status_error_ = false;
+            switchPage(PageId::Password);
+            return;
+        case logic::ButtonAction::BackToWifiScan:
             switchPage(PageId::WifiScan);
             return;
-        }
-        if (button_id == kButtonShift) {
+        case logic::ButtonAction::ToggleKeyboardShift:
             keyboard_upper_ = !keyboard_upper_;
             renderPage(UPDATE_MODE_GL16);
             return;
-        }
-        if (button_id == kButtonKeyboardMode) {
+        case logic::ButtonAction::ToggleKeyboardMode:
             keyboard_symbols_ = !keyboard_symbols_;
             keyboard_upper_ = false;
             renderPage(UPDATE_MODE_GL16);
             return;
-        }
-        if (button_id == kButtonBackspace) {
+        case logic::ButtonAction::BackspacePassword:
             if (!password_input_.isEmpty()) {
                 password_input_.remove(password_input_.length() - 1);
                 updatePasswordFieldCanvas(UPDATE_MODE_GL16);
             }
             return;
-        }
-        if (button_id == kButtonSpace) {
+        case logic::ButtonAction::AppendPasswordSpace:
             appendPasswordChar(" ");
             return;
-        }
-        if (button_id == kButtonClear) {
+        case logic::ButtonAction::ClearPassword:
             password_input_.clear();
             updatePasswordFieldCanvas(UPDATE_MODE_GL16);
             return;
-        }
-        if (button_id == kButtonPasswordVisibility) {
+        case logic::ButtonAction::TogglePasswordVisibility:
             password_visible_ = !password_visible_;
             updatePasswordFieldCanvas(UPDATE_MODE_GL16);
             rebuildPasswordButtons();
-            for (const Button& button : buttons_) {
+            for (const UiButton& button : buttons_) {
                 if (button.id == kButtonPasswordVisibility) {
                     updateButtonCanvas(button, UPDATE_MODE_GL16);
                     break;
                 }
             }
             return;
-        }
-        if (button_id == kButtonConnect) {
+        case logic::ButtonAction::ConnectSelectedNetwork:
             connectSelectedNetwork();
             return;
-        }
-        if (button_id >= kButtonKeyboardBase &&
-            button_id < kButtonKeyboardBase + 26) {
-            appendPasswordChar(keyboardCharacterLabel(
-                static_cast<size_t>(button_id - kButtonKeyboardBase)));
-        }
-        return;
+        case logic::ButtonAction::AppendKeyboardCharacter:
+            appendPasswordChar(
+                keyboardCharacterLabel(static_cast<size_t>(decision.index)));
+            return;
+        case logic::ButtonAction::None:
+        default:
+            return;
     }
 }
 
 int ClockApp::buttonIdAt(int16_t x, int16_t y) const {
-    for (const Button& button : buttons_) {
+    for (const UiButton& button : buttons_) {
         if (button.visible && button.enabled && button.bounds.contains(x, y)) {
             return button.id;
         }
     }
     return -1;
 }
-

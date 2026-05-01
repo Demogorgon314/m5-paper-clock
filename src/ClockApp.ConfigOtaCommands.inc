@@ -52,11 +52,11 @@ void ClockApp::handleLocalOtaBeginConfigCommand(
         beginLocalOtaUpdate(size, sha256, binary_mode, error_message);
     response_doc["ok"] = ok;
     if (ok) {
+        const LocalOtaStatus status = local_ota_.status();
         response_doc["data"]["message"] = "Local OTA upload ready";
-        response_doc["data"]["size"] = local_ota_expected_size_;
-        response_doc["data"]["written"] = local_ota_written_;
-        response_doc["data"]["mode"] =
-            local_ota_binary_mode_ ? "binary" : "json";
+        response_doc["data"]["size"] = status.size;
+        response_doc["data"]["written"] = status.written;
+        response_doc["data"]["mode"] = status.binary_mode ? "binary" : "json";
     } else {
         response_doc["error"] = error_message;
     }
@@ -79,18 +79,20 @@ void ClockApp::handleLocalOtaChunkConfigCommand(
     const String base64_data = String(data["data"] | "");
 
     String error_message;
-    size_t written = local_ota_written_;
+    size_t written = local_ota_.status().written;
     const bool ok =
         writeLocalOtaChunk(offset, base64_data, written, error_message);
     response_doc["ok"] = ok;
     if (ok) {
+        const LocalOtaStatus status = local_ota_.status();
         response_doc["data"]["written"] = written;
-        response_doc["data"]["size"] = local_ota_expected_size_;
+        response_doc["data"]["size"] = status.size;
     } else {
+        const LocalOtaStatus status = local_ota_.status();
         response_doc["error"] = error_message;
-        response_doc["data"]["active"] = local_ota_active_;
-        response_doc["data"]["written"] = local_ota_written_;
-        response_doc["data"]["size"] = local_ota_expected_size_;
+        response_doc["data"]["active"] = status.active;
+        response_doc["data"]["written"] = status.written;
+        response_doc["data"]["size"] = status.size;
     }
     sendConfigDoc(response_doc, transport);
 }

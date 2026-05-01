@@ -30,99 +30,30 @@ void ClockApp::refreshCurrentPage() {
 }
 
 void ClockApp::startBackgroundReconnect() {
-    if (current_page_ != PageId::Clock || settings_.ssid.isEmpty() ||
-        connectivity_.isConnected() ||
-        background_connectivity_task_ != BackgroundConnectivityTask::Idle) {
-        return;
-    }
-
-    background_connectivity_task_ =
-        BackgroundConnectivityTask::ReconnectScheduled;
-    background_connectivity_due_ms_ = millis() + kBackgroundReconnectStartDelayMs;
+    background_connectivity_.startIfNeeded(
+        current_page_ == PageId::Clock, settings_.ssid, settings_.password,
+        settings_.timezone, millis());
 }
 
 void ClockApp::handleBackgroundConnectivity() {
-    if (background_connectivity_task_ == BackgroundConnectivityTask::Idle) {
-        return;
+    background_connectivity_.poll(
+        current_page_ == PageId::Clock, !settings_.ssid.isEmpty(),
+        usesDashboardLayout(), millis(), *this);
+}
+
+void ClockApp::cancelBackgroundConnectivity() {
+    background_connectivity_.cancel();
+}
+
+void ClockApp::onBackgroundConnected() {
+    updateBatteryCanvas(false);
+    if (usesDashboardLayout()) {
+        refreshMarketQuote(true);
+        updateDashboardSummaryCanvas(false);
     }
+}
 
-    if (background_connectivity_task_ ==
-        BackgroundConnectivityTask::ReconnectScheduled) {
-        if (current_page_ != PageId::Clock || settings_.ssid.isEmpty() ||
-            connectivity_.isConnected()) {
-            cancelBackgroundConnectivity();
-            return;
-        }
-        if (millis() < background_connectivity_due_ms_) {
-            return;
-        }
-
-        const ConnectivityService::AsyncConnectState state =
-            connectivity_.beginConnectAsync(settings_.ssid, settings_.password,
-                                            kBackgroundReconnectTimeoutMs);
-        if (state == ConnectivityService::AsyncConnectState::InProgress) {
-            background_connectivity_task_ = BackgroundConnectivityTask::Reconnecting;
-            return;
-        }
-
-        if (state == ConnectivityService::AsyncConnectState::Succeeded) {
-            background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
-            updateBatteryCanvas(false);
-            if (usesDashboardLayout()) {
-                refreshMarketQuote(true);
-                updateDashboardSummaryCanvas(false);
-            }
-            connectivity_.beginTimeSyncAsync(settings_.timezone,
-                                             kBackgroundTimeSyncTimeoutMs);
-            return;
-        }
-
-        cancelBackgroundConnectivity();
-        return;
-    }
-
-    if (background_connectivity_task_ == BackgroundConnectivityTask::Reconnecting) {
-        const ConnectivityService::AsyncConnectState state =
-            connectivity_.pollConnectAsync();
-        if (state == ConnectivityService::AsyncConnectState::InProgress ||
-            state == ConnectivityService::AsyncConnectState::Idle) {
-            return;
-        }
-
-        if (state == ConnectivityService::AsyncConnectState::Failed) {
-            background_connectivity_task_ = BackgroundConnectivityTask::Idle;
-            connectivity_.cancelConnectAsync();
-            return;
-        }
-
-        connectivity_.cancelConnectAsync();
-        background_connectivity_task_ = BackgroundConnectivityTask::SyncingTime;
-        if (current_page_ == PageId::Clock) {
-            updateBatteryCanvas(false);
-            if (usesDashboardLayout()) {
-                refreshMarketQuote(true);
-                updateDashboardSummaryCanvas(false);
-            }
-        }
-        connectivity_.beginTimeSyncAsync(settings_.timezone,
-                                         kBackgroundTimeSyncTimeoutMs);
-        return;
-    }
-
-    const ConnectivityService::AsyncTimeSyncState sync_state =
-        connectivity_.pollTimeSyncAsync();
-    if (sync_state == ConnectivityService::AsyncTimeSyncState::InProgress ||
-        sync_state == ConnectivityService::AsyncTimeSyncState::Idle) {
-        return;
-    }
-
-    connectivity_.cancelTimeSyncAsync();
-    background_connectivity_task_ = BackgroundConnectivityTask::Idle;
-
-    if (sync_state != ConnectivityService::AsyncTimeSyncState::Succeeded) {
-        return;
-    }
-
+void ClockApp::onBackgroundTimeSynced() {
     settings_.time_synced = true;
     store_.saveTimeSynced(true);
     last_time_ = {};
@@ -130,13 +61,6 @@ void ClockApp::handleBackgroundConnectivity() {
     if (current_page_ == PageId::Clock) {
         updateClockPage();
     }
-}
-
-void ClockApp::cancelBackgroundConnectivity() {
-    background_connectivity_task_ = BackgroundConnectivityTask::Idle;
-    background_connectivity_due_ms_ = 0;
-    connectivity_.cancelConnectAsync();
-    connectivity_.cancelTimeSyncAsync();
 }
 
 void ClockApp::cycleClockLayout(int delta) {
@@ -170,7 +94,7 @@ void ClockApp::cycleClockLayout(int delta) {
 }
 
 bool ClockApp::usesDashboardLayout() const {
-    return settings_.active_layout_id != logic::kClassicLayoutId;
+    return layoutpreset::UsesDashboardLayout(settings_);
 }
 
 void ClockApp::autoConnectIfNeeded() {
@@ -231,40 +155,13 @@ void ClockApp::scanWiFi() {
     renderPage(UPDATE_MODE_GC16);
 }
 
-std::vector<ClockApp::WiFiNetwork> ClockApp::scanWiFiNetworks(bool update_status) {
+std::vector<WiFiNetwork> ClockApp::scanWiFiNetworks(bool update_status) {
     cancelBackgroundConnectivity();
     if (update_status) {
         status_message_ = "Scanning Wi-Fi...";
         status_error_ = false;
     }
-
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    delay(100);
-
-    std::vector<WiFiNetwork> networks;
-    const int count = WiFi.scanNetworks();
-    for (int index = 0; index < count; ++index) {
-        WiFiNetwork network;
-        network.ssid = WiFi.SSID(index);
-        network.rssi = WiFi.RSSI(index);
-        if (!network.ssid.isEmpty()) {
-            networks.push_back(network);
-        }
-    }
-    WiFi.scanDelete();
-
-    std::sort(networks.begin(), networks.end(),
-              [](const WiFiNetwork& left, const WiFiNetwork& right) {
-                  return left.rssi > right.rssi;
-              });
-    networks.erase(
-        std::unique(networks.begin(), networks.end(),
-                    [](const WiFiNetwork& left, const WiFiNetwork& right) {
-                        return left.ssid == right.ssid;
-                    }),
-        networks.end());
-    return networks;
+    return connectivity_.scanNetworks();
 }
 
 bool ClockApp::trySyncTime(bool allow_connect) {

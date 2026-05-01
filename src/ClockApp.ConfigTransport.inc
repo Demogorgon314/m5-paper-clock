@@ -1,118 +1,40 @@
 // Included by ClockApp.Config.inc. Owns USB/BLE config transport plumbing.
 void ClockApp::handleSerialConfig() {
     while (Serial.available() > 0) {
-        if (local_ota_binary_mode_) {
+        if (local_ota_.binaryMode()) {
             processLocalOtaBinaryStream();
             continue;
         }
 
         const char ch = static_cast<char>(Serial.read());
-        if (ch == '\r') {
-            continue;
-        }
-        if (ch == '\n') {
-            String line = serial_config_rx_buffer_;
-            serial_config_rx_buffer_.clear();
-            line.trim();
+        String line;
+        if (serial_config_rx_buffer_.append(ch, line)) {
             if (!line.isEmpty()) {
                 processConfigLine(line, ConfigTransport::Serial);
             }
-            continue;
-        }
-
-        if (serial_config_rx_buffer_.length() < 8192) {
-            serial_config_rx_buffer_ += ch;
         }
     }
 }
 
 void ClockApp::beginBleConfig() {
-    if (ble_config_ready_) {
-        return;
-    }
-
-    BLEDevice::init(kBleDeviceName);
-    BLEServer* server = BLEDevice::createServer();
-    ble_config_server_ = server;
-    server->setCallbacks(new BleConfigServerCallbacks(this));
-
-    BLEService* service = server->createService(kBleServiceUuid);
-    ble_config_tx_characteristic_ = service->createCharacteristic(
-        kBleTxCharacteristicUuid,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-    ble_config_tx_characteristic_->addDescriptor(new BLE2902());
-
-    BLECharacteristic* rx_characteristic = service->createCharacteristic(
-        kBleRxCharacteristicUuid,
-        BLECharacteristic::PROPERTY_WRITE |
-            BLECharacteristic::PROPERTY_WRITE_NR);
-    rx_characteristic->setCallbacks(new BleConfigRxCallbacks(this));
-
-    service->start();
-    BLEAdvertising* advertising = BLEDevice::getAdvertising();
-    advertising->addServiceUUID(kBleServiceUuid);
-    advertising->setScanResponse(true);
-    advertising->setMinPreferred(0x06);
-    advertising->setMinPreferred(0x12);
-    BLEDevice::startAdvertising();
-
-    ble_config_ready_ = true;
-    Serial.println("[ble] config service ready");
-}
-
-void ClockApp::enqueueBleConfigChunk(const std::string& chunk) {
-    if (chunk.empty()) {
-        return;
-    }
-
-    portENTER_CRITICAL(&ble_config_rx_mux_);
-    if (ble_config_pending_chunks_.length() + chunk.size() > 2048) {
-        ble_config_pending_chunks_.clear();
-        ble_config_rx_buffer_.clear();
-        portEXIT_CRITICAL(&ble_config_rx_mux_);
-        Serial.println("[ble] config RX overflow");
-        return;
-    }
-
-    for (char ch : chunk) {
-        ble_config_pending_chunks_ += ch;
-    }
-    portEXIT_CRITICAL(&ble_config_rx_mux_);
+    BleConfigServiceConfig config;
+    config.device_name = kBleDeviceName;
+    config.service_uuid = kBleServiceUuid;
+    config.rx_characteristic_uuid = kBleRxCharacteristicUuid;
+    config.tx_characteristic_uuid = kBleTxCharacteristicUuid;
+    config.notify_chunk_size = kBleNotifyChunkSize;
+    ble_config_.begin(config, this);
 }
 
 void ClockApp::handleBleConfig() {
-    if (ble_config_pending_chunks_.isEmpty()) {
-        return;
-    }
-
-    portENTER_CRITICAL(&ble_config_rx_mux_);
-    const String pending = ble_config_pending_chunks_;
-    ble_config_pending_chunks_.clear();
-    portEXIT_CRITICAL(&ble_config_rx_mux_);
-
-    for (uint32_t index = 0; index < pending.length(); ++index) {
-        const char ch = pending.charAt(index);
-        if (ch == '\r') {
-            continue;
-        }
-        if (ch == '\n') {
-            String line = ble_config_rx_buffer_;
-            ble_config_rx_buffer_.clear();
-            line.trim();
-            if (!line.isEmpty()) {
-                processConfigLine(line, ConfigTransport::Bluetooth);
-            }
-            continue;
-        }
-
-        if (ble_config_rx_buffer_.length() < 1024) {
-            ble_config_rx_buffer_ += ch;
-        }
+    String line;
+    while (ble_config_.pollLine(line)) {
+        processConfigLine(line, ConfigTransport::Bluetooth);
     }
 }
 
-ClockApp::ConfigConnectionIcon ClockApp::activeConfigConnectionIcon() const {
-    if (ble_config_client_connected_) {
+ConfigConnectionIcon ClockApp::activeConfigConnectionIcon() const {
+    if (ble_config_.connected()) {
         return ConfigConnectionIcon::Bluetooth;
     }
 
@@ -122,4 +44,35 @@ ClockApp::ConfigConnectionIcon ClockApp::activeConfigConnectionIcon() const {
     }
 
     return ConfigConnectionIcon::None;
+}
+
+void ClockApp::onBleConfigConnected(uint16_t conn_id) {
+    ble_config_session_authorized_ = false;
+    battery_status_dirty_ = true;
+    Serial.printf("[ble] config client connected conn=%u\n", conn_id);
+}
+
+void ClockApp::onBleConfigDisconnected() {
+    ble_config_session_authorized_ = false;
+    clearBlePairingPrompt();
+    battery_status_dirty_ = true;
+    Serial.println("[ble] config client disconnected");
+}
+
+void ClockApp::sendConfigDoc(const JsonDocument& doc,
+                             ConfigTransport transport) const {
+    String line = "@cfg:";
+    serializeJson(doc, line);
+    line += "\n";
+    sendConfigLine(line, transport);
+}
+
+void ClockApp::sendConfigLine(const String& line,
+                              ConfigTransport transport) const {
+    if (transport == ConfigTransport::Serial) {
+        Serial.print(line);
+        return;
+    }
+
+    ble_config_.sendLine(line);
 }

@@ -13,10 +13,6 @@ bool ClockApp::authorizeBleRequest(const JsonDocument& request_doc) {
     return true;
 }
 
-bool ClockApp::bleCommandRequiresAuth(const String& command) const {
-    return command != "pair_begin" && command != "pair_verify";
-}
-
 bool ClockApp::blePairingCodeActive() const {
     return ble_pairing_prompt_visible_ && !ble_pairing_code_.isEmpty() &&
            millis() < ble_pairing_expires_at_ms_;
@@ -50,7 +46,7 @@ void ClockApp::beginBlePairing(DynamicJsonDocument& response_doc) {
     status_error_ = false;
 
     if (current_page_ == PageId::Clock) {
-        last_holiday_display_rendered_ = "";
+        render_cache_.date_status.last_holiday_display_rendered = "";
         updateDateCanvas(false);
     } else {
         refreshCurrentPage();
@@ -109,7 +105,7 @@ void ClockApp::clearBlePairingPrompt() {
     ble_pairing_attempts_ = 0;
     ble_pairing_expires_at_ms_ = 0;
     if (was_visible && current_page_ == PageId::Clock) {
-        last_holiday_display_rendered_ = "";
+        render_cache_.date_status.last_holiday_display_rendered = "";
         pending_dashboard_date_cjk_render_ = true;
     }
 }

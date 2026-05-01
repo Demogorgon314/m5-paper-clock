@@ -4,6 +4,8 @@
 
 #include "logic/ComfortLogic.h"
 #include "logic/ClimateDisplayLogic.h"
+#include "logic/AppInputLogic.h"
+#include "logic/ConfigCommandLogic.h"
 #include "logic/ComponentUpdateGroups.h"
 #include "logic/DateDisplayLogic.h"
 #include "logic/MarketLogic.h"
@@ -81,6 +83,46 @@ void test_component_update_groups_cover_expected_components() {
         static_cast<int>(logic::kMarketComponents.ids[0]));
 }
 
+bool component_group_contains(const logic::ComponentUpdateGroup& group,
+                              logic::DashboardComponentId id) {
+    for (size_t index = 0; index < group.count; ++index) {
+        if (group.ids[index] == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void assert_component_update_group_matches_flag(
+    const logic::ComponentUpdateGroup& group, logic::ComponentUpdateFlag flag) {
+    size_t expected_count = 0;
+    for (const logic::DashboardComponentDefinition& definition :
+         logic::kDashboardComponentDefinitions) {
+        const bool has_flag =
+            logic::HasComponentUpdateFlag(definition.update_flags, flag);
+        TEST_ASSERT_EQUAL(has_flag,
+                          component_group_contains(group,
+                                                   definition.default_item.id));
+        if (has_flag) {
+            ++expected_count;
+        }
+    }
+    TEST_ASSERT_EQUAL(expected_count, group.count);
+}
+
+void test_component_update_groups_match_registry_flags() {
+    assert_component_update_group_matches_flag(logic::kFullRefreshComponents,
+                                               logic::kUpdateOnFullRefresh);
+    assert_component_update_group_matches_flag(logic::kMinuteComponents,
+                                               logic::kUpdateOnMinute);
+    assert_component_update_group_matches_flag(logic::kDateComponents,
+                                               logic::kUpdateOnDate);
+    assert_component_update_group_matches_flag(logic::kSensorComponents,
+                                               logic::kUpdateOnSensor);
+    assert_component_update_group_matches_flag(logic::kMarketComponents,
+                                               logic::kUpdateOnMarket);
+}
+
 void test_component_registry_exposes_defaults_and_labels() {
     const logic::DashboardLayout layout = logic::DefaultDashboardLayout();
 
@@ -141,6 +183,110 @@ void test_password_mask_and_keyboard_layouts() {
     TEST_ASSERT_EQUAL(26, static_cast<int>(symbols.size()));
     TEST_ASSERT_EQUAL_STRING("1", symbols.front().c_str());
     TEST_ASSERT_EQUAL_STRING("&", symbols.back().c_str());
+}
+
+void assert_button_action(logic::ButtonAction expected_action,
+                          int expected_index,
+                          logic::AppPage page,
+                          int button_id,
+                          int wifi_page_index = 0,
+                          int wifi_network_count = 0,
+                          int wifi_page_size = 6) {
+    const logic::ButtonActionDecision decision = logic::DecideButtonAction(
+        page, button_id, wifi_page_index, wifi_network_count, wifi_page_size);
+    TEST_ASSERT_EQUAL(static_cast<int>(expected_action),
+                      static_cast<int>(decision.action));
+    TEST_ASSERT_EQUAL(expected_index, decision.index);
+}
+
+void test_button_action_logic_for_settings_and_wifi_pages() {
+    assert_button_action(logic::ButtonAction::OpenWifiScan, -1,
+                         logic::AppPage::Settings, logic::kButtonWifi);
+    assert_button_action(logic::ButtonAction::DecreaseTimezone, -1,
+                         logic::AppPage::Settings,
+                         logic::kButtonTimezoneMinus);
+    assert_button_action(logic::ButtonAction::None, -1,
+                         logic::AppPage::Settings, logic::kButtonNextPage);
+
+    assert_button_action(logic::ButtonAction::PreviousWifiPage, -1,
+                         logic::AppPage::WifiScan, logic::kButtonPrevPage, 1,
+                         8);
+    assert_button_action(logic::ButtonAction::None, -1,
+                         logic::AppPage::WifiScan, logic::kButtonPrevPage, 0,
+                         8);
+    assert_button_action(logic::ButtonAction::NextWifiPage, -1,
+                         logic::AppPage::WifiScan, logic::kButtonNextPage, 0,
+                         8);
+    assert_button_action(logic::ButtonAction::None, -1,
+                         logic::AppPage::WifiScan, logic::kButtonNextPage, 1,
+                         8);
+    assert_button_action(logic::ButtonAction::SelectWifiNetwork, 7,
+                         logic::AppPage::WifiScan, logic::kButtonNetworkBase + 1,
+                         1, 8);
+    assert_button_action(logic::ButtonAction::None, -1,
+                         logic::AppPage::WifiScan, logic::kButtonNetworkBase + 4,
+                         1, 8);
+}
+
+void test_button_action_logic_for_password_page() {
+    assert_button_action(logic::ButtonAction::BackToWifiScan, -1,
+                         logic::AppPage::Password, logic::kButtonBack);
+    assert_button_action(logic::ButtonAction::ToggleKeyboardShift, -1,
+                         logic::AppPage::Password, logic::kButtonShift);
+    assert_button_action(logic::ButtonAction::ToggleKeyboardMode, -1,
+                         logic::AppPage::Password, logic::kButtonKeyboardMode);
+    assert_button_action(logic::ButtonAction::BackspacePassword, -1,
+                         logic::AppPage::Password, logic::kButtonBackspace);
+    assert_button_action(logic::ButtonAction::AppendPasswordSpace, -1,
+                         logic::AppPage::Password, logic::kButtonSpace);
+    assert_button_action(logic::ButtonAction::ClearPassword, -1,
+                         logic::AppPage::Password, logic::kButtonClear);
+    assert_button_action(logic::ButtonAction::TogglePasswordVisibility, -1,
+                         logic::AppPage::Password,
+                         logic::kButtonPasswordVisibility);
+    assert_button_action(logic::ButtonAction::ConnectSelectedNetwork, -1,
+                         logic::AppPage::Password, logic::kButtonConnect);
+    assert_button_action(logic::ButtonAction::AppendKeyboardCharacter, 25,
+                         logic::AppPage::Password,
+                         logic::kButtonKeyboardBase + 25);
+    assert_button_action(logic::ButtonAction::None, -1,
+                         logic::AppPage::Password,
+                         logic::kButtonKeyboardBase + 26);
+}
+
+void test_config_command_logic_parses_commands_and_policies() {
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::ConfigCommand::GetStatus),
+                      static_cast<int>(
+                          logic::ParseConfigCommand("get_status")));
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::ConfigCommand::ApplyLayout),
+                      static_cast<int>(
+                          logic::ParseConfigCommand("apply_layout")));
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::ConfigCommand::LocalOtaChunk),
+                      static_cast<int>(
+                          logic::ParseConfigCommand("local_ota_chunk")));
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::ConfigCommand::Unknown),
+                      static_cast<int>(logic::ParseConfigCommand("missing")));
+    TEST_ASSERT_EQUAL(static_cast<int>(logic::ConfigCommand::Unknown),
+                      static_cast<int>(logic::ParseConfigCommand(nullptr)));
+
+    TEST_ASSERT_FALSE(logic::ConfigCommandRequiresBleAuth(
+        logic::ConfigCommand::PairBegin));
+    TEST_ASSERT_FALSE(logic::ConfigCommandRequiresBleAuth(
+        logic::ConfigCommand::PairVerify));
+    TEST_ASSERT_TRUE(logic::ConfigCommandRequiresBleAuth(
+        logic::ConfigCommand::GetStatus));
+
+    TEST_ASSERT_TRUE(logic::ConfigCommandRequiresBluetooth(
+        logic::ConfigCommand::PairBegin));
+    TEST_ASSERT_FALSE(logic::ConfigCommandRequiresBluetooth(
+        logic::ConfigCommand::GetStatus));
+
+    TEST_ASSERT_TRUE(logic::ConfigCommandRequiresSerial(
+        logic::ConfigCommand::LocalOtaBegin));
+    TEST_ASSERT_TRUE(logic::ConfigCommandRequiresSerial(
+        logic::ConfigCommand::LocalOtaEnd));
+    TEST_ASSERT_FALSE(logic::ConfigCommandRequiresSerial(
+        logic::ConfigCommand::LocalOtaAbort));
 }
 
 void test_date_display_normalization() {
@@ -440,10 +586,14 @@ int main() {
     RUN_TEST(test_dashboard_layout_clamps_to_screen);
     RUN_TEST(test_dashboard_component_id_from_key);
     RUN_TEST(test_component_update_groups_cover_expected_components);
+    RUN_TEST(test_component_update_groups_match_registry_flags);
     RUN_TEST(test_component_registry_exposes_defaults_and_labels);
     RUN_TEST(test_wifi_pagination);
     RUN_TEST(test_wifi_signal_levels);
     RUN_TEST(test_password_mask_and_keyboard_layouts);
+    RUN_TEST(test_button_action_logic_for_settings_and_wifi_pages);
+    RUN_TEST(test_button_action_logic_for_password_page);
+    RUN_TEST(test_config_command_logic_parses_commands_and_policies);
     RUN_TEST(test_date_display_normalization);
     RUN_TEST(test_days_in_month_handles_boundaries_and_leap_years);
     RUN_TEST(test_segment_masks);

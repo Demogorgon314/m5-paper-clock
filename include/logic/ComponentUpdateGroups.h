@@ -1,47 +1,40 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 
-#include "logic/LayoutTypes.h"
+#include "logic/ComponentRegistry.h"
 
 namespace logic {
 
-template <size_t N>
 struct ComponentUpdateGroup {
-    DashboardComponentId ids[N];
-    size_t count;
+    std::array<DashboardComponentId, kDashboardComponentCount> ids {};
+    size_t count = 0;
 };
 
-static constexpr ComponentUpdateGroup<8> kFullRefreshComponents = {{
-    DashboardComponentId::Date,
-    DashboardComponentId::Battery,
-    DashboardComponentId::Calendar,
-    DashboardComponentId::Time,
-    DashboardComponentId::ClassicTime,
-    DashboardComponentId::Summary,
-    DashboardComponentId::Climate,
-    DashboardComponentId::ClassicInfo,
-}, 8};
+inline ComponentUpdateGroup ComponentUpdateGroupFor(ComponentUpdateFlag flag) {
+    ComponentUpdateGroup group {};
+    for (size_t index = 0; index < kDashboardComponentDefinitions.size();
+         ++index) {
+        const DashboardComponentDefinition& definition =
+            kDashboardComponentDefinitions[index];
+        if (HasComponentUpdateFlag(definition.update_flags, flag)) {
+            group.ids[group.count] = definition.default_item.id;
+            ++group.count;
+        }
+    }
+    return group;
+}
 
-static constexpr ComponentUpdateGroup<2> kMinuteComponents = {{
-    DashboardComponentId::Time,
-    DashboardComponentId::ClassicTime,
-}, 2};
-
-static constexpr ComponentUpdateGroup<3> kDateComponents = {{
-    DashboardComponentId::Date,
-    DashboardComponentId::Calendar,
-    DashboardComponentId::Summary,
-}, 3};
-
-static constexpr ComponentUpdateGroup<2> kSensorComponents = {{
-    DashboardComponentId::Climate,
-    DashboardComponentId::ClassicInfo,
-}, 2};
-
-static constexpr ComponentUpdateGroup<1> kMarketComponents = {{
-    DashboardComponentId::Summary,
-}, 1};
+static const ComponentUpdateGroup kFullRefreshComponents =
+    ComponentUpdateGroupFor(kUpdateOnFullRefresh);
+static const ComponentUpdateGroup kMinuteComponents =
+    ComponentUpdateGroupFor(kUpdateOnMinute);
+static const ComponentUpdateGroup kDateComponents =
+    ComponentUpdateGroupFor(kUpdateOnDate);
+static const ComponentUpdateGroup kSensorComponents =
+    ComponentUpdateGroupFor(kUpdateOnSensor);
+static const ComponentUpdateGroup kMarketComponents =
+    ComponentUpdateGroupFor(kUpdateOnMarket);
 
 }  // namespace logic
-

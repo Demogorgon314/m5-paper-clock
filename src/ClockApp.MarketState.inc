@@ -1,11 +1,11 @@
 // Included by ClockApp.cpp so this code can share its internal helpers while
 // the large app class is being split into smaller responsibility groups.
 String ClockApp::currentIpAddress() const {
-    return connectivity_.isConnected() ? WiFi.localIP().toString() : String("");
+    return connectivity_.currentIpAddress();
 }
 
 String ClockApp::currentMarketCode() const {
-    return marketCodeFromRequestSymbol(settings_.market_symbol);
+    return MarketCodeFromRequestSymbol(settings_.market_symbol);
 }
 
 String ClockApp::currentMarketDisplayName() const {
@@ -26,7 +26,7 @@ ClockApp::MarketRenderState& ClockApp::marketRenderStateFor(
                 state.symbol = item.symbol;
                 seedMarketQuoteFromSettings(state, item.symbol);
                 state.last_fetch_ms = 0;
-                state.last_signature = "";
+                state.render_state = render::DashboardMarketRenderState {};
             }
             return state;
         }
@@ -67,7 +67,7 @@ void ClockApp::seedMarketQuoteFromSettings(MarketRenderState& state,
     state.quote = MarketQuote {};
     state.symbol = symbol.isEmpty() ? String("sh000001") : symbol;
     state.quote.request_symbol = state.symbol;
-    state.quote.symbol = marketCodeFromRequestSymbol(state.symbol);
+    state.quote.symbol = MarketCodeFromRequestSymbol(state.symbol);
     if (!display_name.isEmpty()) {
         state.quote.display_name = display_name;
         return;
@@ -85,7 +85,7 @@ void ClockApp::seedMarketQuoteFromSettings() {
                                        ? String("sh000001")
                                        : settings_.market_symbol;
     market_quote_.symbol =
-        marketCodeFromRequestSymbol(market_quote_.request_symbol);
+        MarketCodeFromRequestSymbol(market_quote_.request_symbol);
     if (!settings_.market_name.isEmpty()) {
         market_quote_.display_name = settings_.market_name;
         return;
@@ -104,4 +104,3 @@ void ClockApp::seedMarketQuoteFromSettings() {
         market_quote_ = first.quote;
     }
 }
-

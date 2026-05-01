@@ -46,188 +46,47 @@ void ClockApp::updateDashboardMarketInstance(const MarketLayoutItem& item,
             pending_market_refresh_ = true;
         }
     }
-    const String summary_signature =
-        marketSummarySignature(state.quote, wifi_connected);
-    if (!full_refresh && summary_signature == state.last_signature) {
-        return;
-    }
-
     const bool fast_ascii_only = full_refresh && fast_dashboard_entry_render_;
     bool use_summary_cjk = dashboard_summary_cjk_font_ready_ && !fast_ascii_only;
     if (use_summary_cjk &&
-        !ensureCjkCanvas(dashboard_summary_cjk_canvas_, kDashboardSummaryW,
-                         kDashboardSummaryH, {2, 3, 7})) {
+        !ensureCjkCanvas(render_.dashboard_summary_cjk_canvas,
+                         render::kDashboardMarketStatusW,
+                         render::kDashboardMarketStatusH, {2, 3, 7})) {
         use_summary_cjk = false;
         dashboard_summary_cjk_font_ready_ = false;
     }
     M5EPD_Canvas& active_summary_canvas =
-        use_summary_cjk ? dashboard_summary_cjk_canvas_
-                        : dashboard_summary_canvas_;
+        use_summary_cjk ? render_.dashboard_summary_cjk_canvas
+                        : render_.dashboard_summary_canvas;
 
-    active_summary_canvas.fillCanvas(kWhite);
-    active_summary_canvas.drawRoundRect(0, 0, kDashboardSummaryW,
-                                        kDashboardSummaryH, 6, kBorder);
-    active_summary_canvas.setTextDatum(TL_DATUM);
-    active_summary_canvas.setTextColor(kText);
-    setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
-    const String market_title =
-        marketDisplayLabel(state.quote, use_summary_cjk);
-    const bool summary_valid = state.quote.valid;
-    String summary_price;
-    String summary_bottom;
-    String change_value;
-    String percent_value;
-    String status_label;
-    String status_detail;
-    if (summary_valid) {
-        summary_price = state.quote.price;
-        const String change_prefix = state.quote.positive ? "+" : "";
-        change_value = change_prefix + state.quote.change;
-        percent_value = change_prefix + state.quote.change_percent + "%";
-        status_label =
-            marketStatusLabel(state.quote, market_open, use_summary_cjk);
-        summary_bottom = change_value + "|" + percent_value + "|" +
-                         status_label + "|" +
-                         (state.quote.positive ? "1" : "0");
-    } else {
-        status_detail =
-            !state.quote.error_message.isEmpty()
-                ? state.quote.error_message
-                : (wifi_connected ? "Data unavailable" : "Wi-Fi offline");
-        summary_bottom = status_detail;
-    }
-    if (use_summary_cjk) {
-        drawFauxBoldString(active_summary_canvas, market_title,
-                           kDashboardSummaryTitleX, kDashboardSummaryTitleY);
-    } else {
-        active_summary_canvas.drawString(market_title,
-                                         kDashboardSummaryTitleX,
-                                         kDashboardSummaryTitleY);
-    }
-
-    if (summary_valid) {
-        active_summary_canvas.setTextDatum(TR_DATUM);
-        setCanvasTextSize(active_summary_canvas, false, 4);
-        active_summary_canvas.setTextColor(kText);
-        active_summary_canvas.drawString(summary_price,
-                                         kDashboardSummaryPriceRight,
-                                         kDashboardSummaryPriceY);
-
-        setCanvasTextSize(active_summary_canvas, false, 2);
-        active_summary_canvas.setTextColor(kText);
-        active_summary_canvas.setTextDatum(TR_DATUM);
-        const int16_t percent_right = kDashboardSummaryPriceRight;
-        const int16_t percent_width =
-            active_summary_canvas.textWidth(percent_value);
-        const int16_t change_right =
-            percent_right - percent_width - kDashboardSummaryValueGap;
-        const int16_t change_width =
-            active_summary_canvas.textWidth(change_value);
-        const int16_t change_left = change_right - change_width;
-        const int16_t arrow_center_x = change_left - kDashboardSummaryArrowGap;
-        const int16_t arrow_center_y = kDashboardSummaryBottomY + 5;
-        if (state.quote.positive) {
-            active_summary_canvas.fillTriangle(arrow_center_x - 8,
-                                               arrow_center_y + 6,
-                                               arrow_center_x,
-                                               arrow_center_y - 6,
-                                               arrow_center_x + 8,
-                                               arrow_center_y + 6, kText);
-        } else {
-            active_summary_canvas.fillTriangle(arrow_center_x - 8,
-                                               arrow_center_y - 6,
-                                               arrow_center_x,
-                                               arrow_center_y + 6,
-                                               arrow_center_x + 8,
-                                               arrow_center_y - 6, kText);
-        }
-        active_summary_canvas.setTextDatum(TL_DATUM);
-        active_summary_canvas.setTextColor(kMutedText);
-        setCanvasTextSize(active_summary_canvas, use_summary_cjk, 2);
-        active_summary_canvas.drawString(status_label, 16, 58);
-        active_summary_canvas.setTextColor(kText);
-        setCanvasTextSize(active_summary_canvas, false, 2);
-        active_summary_canvas.setTextDatum(TR_DATUM);
-        active_summary_canvas.drawString(change_value, change_right,
-                                         kDashboardSummaryBottomY);
-        active_summary_canvas.drawString(percent_value, percent_right,
-                                         kDashboardSummaryBottomY);
-    } else {
-        active_summary_canvas.setTextDatum(TL_DATUM);
-        setCanvasTextSize(active_summary_canvas, false, 3);
-        active_summary_canvas.setTextColor(kText);
-        active_summary_canvas.drawString("No quote", 16, 34);
-        setCanvasTextSize(active_summary_canvas, false, 2);
-        active_summary_canvas.setTextColor(kMutedText);
-        active_summary_canvas.drawString(status_detail, 16, 62);
+    render::DashboardMarketRenderInput input;
+    input.quote = state.quote;
+    input.wifi_connected = wifi_connected;
+    input.market_open = market_open;
+    input.full_refresh = full_refresh;
+    input.fast_ascii_only = fast_ascii_only;
+    input.use_cjk_font = use_summary_cjk;
+    input.partial_clean_interval = settings_.partial_clean_interval;
+    const render::DashboardMarketRenderResult result =
+        render::RenderDashboardMarket(active_summary_canvas, input,
+                                      state.render_state);
+    if (!result.rendered) {
+        return;
     }
 
     const int16_t summary_x = item.x;
     const int16_t summary_y = item.y;
     active_summary_canvas.pushCanvas(summary_x, summary_y, UPDATE_MODE_NONE);
-    if (full_refresh) {
-        state.partial_count = 0;
-    } else {
-        DirtyRect dirty;
-        if (summary_valid != state.last_valid) {
-            dirty.x = 0;
-            dirty.y = 0;
-            dirty.w = kDashboardSummaryW;
-            dirty.h = kDashboardSummaryH;
-            dirty.valid = true;
-        } else {
-            if (market_title != state.last_title) {
-                DirtyRect rect;
-                rect.x = kDashboardSummaryTitleAreaX;
-                rect.y = kDashboardSummaryTitleAreaY;
-                rect.w = kDashboardSummaryTitleAreaW;
-                rect.h = kDashboardSummaryTitleAreaH;
-                rect.valid = true;
-                includeDirtyRect(dirty, rect);
-            }
-            if (summary_price != state.last_price) {
-                DirtyRect rect;
-                rect.x = kDashboardSummaryPriceAreaX;
-                rect.y = kDashboardSummaryPriceAreaY;
-                rect.w = kDashboardSummaryPriceAreaW;
-                rect.h = kDashboardSummaryPriceAreaH;
-                rect.valid = true;
-                includeDirtyRect(dirty, rect);
-            }
-            if (summary_bottom != state.last_bottom) {
-                DirtyRect rect;
-                rect.x = kDashboardSummaryBottomAreaX;
-                rect.y = kDashboardSummaryBottomAreaY;
-                rect.w = kDashboardSummaryBottomAreaW;
-                rect.h = kDashboardSummaryBottomAreaH;
-                rect.valid = true;
-                includeDirtyRect(dirty, rect);
-            }
-        }
-        const m5epd_update_mode_t mode =
-            nextPartialMode(state.partial_count,
-                            settings_.partial_clean_interval);
-        if (dirty.valid) {
-            updateAlignedArea(summary_x + dirty.x, summary_y + dirty.y,
-                              dirty.w, dirty.h, mode);
-        }
+    if (result.partial_update) {
+        updateAlignedArea(summary_x + result.dirty.x,
+                          summary_y + result.dirty.y, result.dirty.w,
+                          result.dirty.h, result.update_mode);
         ++partial_refresh_count_;
     }
-    state.last_signature = fast_ascii_only ? String("") : summary_signature;
-    state.last_title = fast_ascii_only ? String("") : market_title;
-    state.last_price = fast_ascii_only ? String("") : summary_price;
-    state.last_bottom = fast_ascii_only ? String("") : summary_bottom;
-    state.last_valid = !fast_ascii_only && summary_valid;
 
     if (item.instance_id == "market-1") {
         market_quote_ = state.quote;
         last_market_fetch_ms_ = state.last_fetch_ms;
-        last_market_summary_rendered_ = state.last_signature;
-        last_dashboard_summary_title_rendered_ = state.last_title;
-        last_dashboard_summary_price_rendered_ = state.last_price;
-        last_dashboard_summary_bottom_rendered_ = state.last_bottom;
-        dashboard_summary_partial_count_ = state.partial_count;
-        last_dashboard_summary_valid_ = state.last_valid;
     }
 }
 
@@ -307,4 +166,3 @@ bool ClockApp::refreshMarketQuote(MarketRenderState& state, bool force) {
     state.quote = fetched;
     return true;
 }
-

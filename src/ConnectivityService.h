@@ -1,8 +1,12 @@
 #pragma once
 
 #include <Arduino.h>
-#include <M5EPD.h>
-#include <WiFi.h>
+#include <vector>
+
+struct WiFiNetwork {
+    String ssid;
+    int32_t rssi = -100;
+};
 
 class ConnectivityService {
 public:
@@ -35,6 +39,9 @@ public:
     void cancelTimeSyncAsync();
     bool isConnected() const;
     String currentSsid() const;
+    String currentIpAddress() const;
+    int32_t currentRssi() const;
+    std::vector<WiFiNetwork> scanNetworks() const;
 
 private:
     void applyRtcTime(const tm& time_info) const;

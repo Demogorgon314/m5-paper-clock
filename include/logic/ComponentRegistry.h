@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 
+#include "logic/ComponentTypes.h"
 #include "logic/LayoutTypes.h"
 #include "logic/components/BatteryComponent.h"
 #include "logic/components/CalendarComponent.h"
@@ -21,11 +22,6 @@ static constexpr size_t kDashboardComponentCount =
 using DashboardLayout =
     std::array<DashboardLayoutItem, kDashboardComponentCount>;
 
-struct DashboardComponentDefinition {
-    DashboardLayoutItem default_item;
-    const char* perf_label;
-};
-
 struct ClassicLayoutComponentDefinition {
     const char* instance_id;
     DashboardComponentId source_id;
@@ -40,14 +36,14 @@ struct ClassicLayoutComponentDefinition {
 static constexpr std::array<DashboardComponentDefinition,
                             kDashboardComponentCount>
     kDashboardComponentDefinitions = {{
-        {kDateComponent, "date"},
-        {kBatteryComponent, "battery"},
-        {kCalendarComponent, "calendar"},
-        {kTimeComponent, "time"},
-        {kMarketComponent, "summary"},
-        {kClimateComponent, "climate"},
-        {kClassicTimeComponent, "classic-time"},
-        {kClassicInfoComponent, "classic-info"},
+        kDateComponentDefinition,
+        kBatteryComponentDefinition,
+        kCalendarComponentDefinition,
+        kTimeComponentDefinition,
+        kMarketComponentDefinition,
+        kClimateComponentDefinition,
+        kClassicTimeComponentDefinition,
+        kClassicInfoComponentDefinition,
     }};
 
 static constexpr std::array<ClassicLayoutComponentDefinition, 4>

@@ -7,7 +7,12 @@
 namespace {
 constexpr const char* kShanghaiIndexHost = "qt.gtimg.cn";
 constexpr uint16_t kShanghaiIndexPort = 80;
+constexpr int32_t kHttpConnectTimeoutMs = 10000;
 constexpr uint16_t kHttpTimeoutMs = 5000;
+const IPAddress kMarketFallbackIps[] = {
+    IPAddress(119, 147, 12, 144),
+    IPAddress(119, 147, 12, 145),
+};
 
 struct MarketPreset {
     const char* request_symbol;
@@ -66,6 +71,21 @@ bool isKnownPresetSymbol(const String& request_symbol) {
     }
     return false;
 }
+
+bool connectMarketClient(WiFiClient& client) {
+    if (client.connect(kShanghaiIndexHost, kShanghaiIndexPort,
+                       kHttpConnectTimeoutMs)) {
+        return true;
+    }
+    client.stop();
+    for (const IPAddress& ip : kMarketFallbackIps) {
+        if (client.connect(ip, kShanghaiIndexPort, kHttpConnectTimeoutMs)) {
+            return true;
+        }
+        client.stop();
+    }
+    return false;
+}
 }
 
 MarketQuote MarketService::fetchQuote(const String& request_symbol) const {
@@ -75,7 +95,7 @@ MarketQuote MarketService::fetchQuote(const String& request_symbol) const {
 
     WiFiClient client;
     client.setTimeout(kHttpTimeoutMs);
-    if (!client.connect(kShanghaiIndexHost, kShanghaiIndexPort)) {
+    if (!connectMarketClient(client)) {
         quote.error_message = "Connect failed";
         return quote;
     }
