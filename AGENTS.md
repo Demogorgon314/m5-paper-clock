@@ -26,6 +26,20 @@ Native tests use Unity and live in `test/test_logic/test_main.cpp`. Add tests fo
 
 Recent commits use concise imperative subjects, for example `Fix online OTA TLS memory pressure` and `Stabilize local OTA serial upload`. Keep subjects focused on one behavior change. Pull requests should describe the user-visible change, list verification commands, call out hardware-tested paths, and include screenshots for `web/` UI updates when relevant. Link related issues and note any required flashing mode or migration concern.
 
+## Release Process
+
+Releases are produced by the GitHub Actions workflow in `.github/workflows/release.yml`. Do not manually upload local `dist/` artifacts for normal releases. Before releasing, make sure `main` is clean and the intended release commit has passed the relevant local checks, normally `platformio test -e native` plus `platformio run -e m5stack-fire` for firmware changes.
+
+Use patch/minor semantic tags matching the existing `v0.1.x` style. Push the release commit to `main`, then create and push an annotated tag:
+
+```sh
+git push origin main
+git tag -a v0.1.10 -m "Release v0.1.10"
+git push origin v0.1.10
+```
+
+Pushing the tag triggers the release workflow. The workflow builds the release package with `./tools/package_release.sh`, creates or updates the GitHub Release, and uploads `firmware.bin`, `m5-paper-clock-complete.bin`, `spiffs.bin`, `partitions.bin`, `ota.json`, and `web-flash-manifest.json`. After pushing the tag, verify the Actions run succeeds and confirm the Release assets are present. The OTA UI reads the latest GitHub Release metadata, so a successful tagged release is enough to make the new OTA package available.
+
 ## Security & Configuration Tips
 
 Do not commit Wi-Fi credentials, local serial ports, generated `dist/` artifacts, or device-specific secrets. Treat OTA metadata and release URLs as configuration; override them with documented environment variables only when packaging a release.
