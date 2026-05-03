@@ -7,6 +7,10 @@
 
 namespace {
 constexpr const char* kNtpServer = "time.cloudflare.com";
+
+bool isUsableIp(const IPAddress& ip) {
+    return ip != IPAddress(0, 0, 0, 0);
+}
 }
 
 void ConnectivityService::applyRtcTime(const tm& time_info) const {
@@ -40,13 +44,19 @@ bool ConnectivityService::connect(const String& ssid, const String& password,
         delay(50);
         M5.update();
     }
-    return WiFi.status() == WL_CONNECTED;
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    if (connected) {
+        ensureDnsConfigured();
+        logNetworkDiagnostics("connected");
+    }
+    return connected;
 }
 
 bool ConnectivityService::ensureConnected(const String& ssid,
                                           const String& password,
                                           uint32_t timeout_ms) {
     if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid) {
+        ensureDnsConfigured();
         return true;
     }
     return connect(ssid, password, timeout_ms);
@@ -95,6 +105,8 @@ ConnectivityService::AsyncConnectState ConnectivityService::pollConnectAsync() {
 
     if (WiFi.status() == WL_CONNECTED &&
         (async_connect_ssid_.isEmpty() || WiFi.SSID() == async_connect_ssid_)) {
+        ensureDnsConfigured();
+        logNetworkDiagnostics("async connected");
         async_connect_state_ = AsyncConnectState::Succeeded;
         async_connect_ssid_.clear();
         return async_connect_state_;
@@ -172,6 +184,40 @@ String ConnectivityService::currentIpAddress() const {
 
 int32_t ConnectivityService::currentRssi() const {
     return isConnected() ? WiFi.RSSI() : -100;
+}
+
+void ConnectivityService::ensureDnsConfigured() const {
+    if (!isConnected()) {
+        return;
+    }
+
+    const IPAddress primary_dns = WiFi.dnsIP(0);
+    if (isUsableIp(primary_dns)) {
+        return;
+    }
+
+    const IPAddress gateway = WiFi.gatewayIP();
+    const IPAddress fallback_dns(1, 1, 1, 1);
+    const IPAddress dns1 = isUsableIp(gateway) ? gateway : fallback_dns;
+    WiFi.config(WiFi.localIP(), gateway, WiFi.subnetMask(), dns1,
+                fallback_dns);
+}
+
+void ConnectivityService::logNetworkDiagnostics(const char* phase) const {
+    if (!isConnected()) {
+        Serial.printf("[wifi] %s disconnected status=%d\n", phase,
+                      static_cast<int>(WiFi.status()));
+        return;
+    }
+
+    Serial.printf(
+        "[wifi] %s ssid=%s ip=%s gateway=%s subnet=%s dns1=%s dns2=%s "
+        "rssi=%d\n",
+        phase, WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
+        WiFi.gatewayIP().toString().c_str(),
+        WiFi.subnetMask().toString().c_str(),
+        WiFi.dnsIP(0).toString().c_str(), WiFi.dnsIP(1).toString().c_str(),
+        WiFi.RSSI());
 }
 
 std::vector<WiFiNetwork> ConnectivityService::scanNetworks() const {

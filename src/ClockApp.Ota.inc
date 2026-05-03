@@ -76,6 +76,8 @@ bool ClockApp::performOtaUpdate(const String& url,
             return false;
         }
     }
+    connectivity_.ensureDnsConfigured();
+    connectivity_.logNetworkDiagnostics("before OTA");
 
     status_message_ = "OTA updating";
     status_error_ = false;

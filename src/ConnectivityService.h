@@ -41,6 +41,8 @@ public:
     String currentSsid() const;
     String currentIpAddress() const;
     int32_t currentRssi() const;
+    void ensureDnsConfigured() const;
+    void logNetworkDiagnostics(const char* phase) const;
     std::vector<WiFiNetwork> scanNetworks() const;
 
 private:
